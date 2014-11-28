@@ -157,11 +157,11 @@ func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
 // Delete deletes a range of bytes from the Buffer.
 // The return value is the number of bytes deleted.
 // If fewer than n bytes are deleted, the error states why.
-func (b *Buffer) Delete(n int, q int64) (int, error) {
+func (b *Buffer) Delete(n, q int64) (int, error) {
 	if n < 0 {
 		return 0, CountError(n)
 	}
-	if q < 0 || q+int64(n) > b.Size() {
+	if q < 0 || q+n > b.Size() {
 		return 0, AddressError(q)
 	}
 	var tot int
@@ -173,10 +173,10 @@ func (b *Buffer) Delete(n int, q int64) (int, error) {
 		}
 		o := int(q - q0)
 		m := blk.n - o
-		if m > n {
-			m = n
+		if int64(m) > n {
+			m = int(n)
 		}
-		if o == 0 && n >= blk.n {
+		if o == 0 && n >= int64(blk.n) {
 			// Remove the entire block.
 			b.freeBlock(*blk)
 			b.blocks = append(b.blocks[:i], b.blocks[i+1:]...)
@@ -187,7 +187,7 @@ func (b *Buffer) Delete(n int, q int64) (int, error) {
 			b.dirty = true
 			blk.n -= m
 		}
-		n -= m
+		n -= int64(m)
 		tot += m
 		b.size -= int64(m)
 	}
