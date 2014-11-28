@@ -82,23 +82,23 @@ func (b *Buffer) ReadAt(bs []byte, q int64) (int, error) {
 	case q >= b.Size():
 		return 0, io.EOF
 	}
-	var n int
+	var tot int
 	for len(bs) > 0 {
 		if q == b.Size() {
-			return n, io.EOF
+			return tot, io.EOF
 		}
 		i, q0 := b.blockAt(q)
 		blk, err := b.get(i)
 		if err != nil {
-			return n, err
+			return tot, err
 		}
 		o := q - q0
 		m := copy(bs, b.cache[o:blk.n])
 		bs = bs[m:]
 		q += int64(m)
-		n += m
+		tot += m
 	}
-	return n, nil
+	return tot, nil
 }
 
 // Insert adds the bytes to the address in the Buffer.
@@ -109,20 +109,20 @@ func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
 	if q < 0 || q > b.Size() {
 		return 0, ErrBadAddress
 	}
-	var n int
+	var tot int
 	for len(bs) > 0 {
 		i, q0 := b.blockAt(q)
 		blk, err := b.get(i)
 		if err != nil {
-			return n, err
+			return tot, err
 		}
 		m := b.blockSize - blk.n
 		if m == 0 {
 			if i, err = b.insertAt(q); err != nil {
-				return n, err
+				return tot, err
 			}
 			if blk, err = b.get(i); err != nil {
-				return n, err
+				return tot, err
 			}
 			q0 = q
 			m = b.blockSize
@@ -138,9 +138,9 @@ func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
 		blk.n += m
 		b.size += int64(m)
 		q += int64(m)
-		n += m
+		tot += m
 	}
-	return n, nil
+	return tot, nil
 }
 
 func (b *Buffer) allocBlock() block {
