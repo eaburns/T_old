@@ -19,7 +19,8 @@ type Buffer struct {
 	// BlockSize is the maximum number of bytes in a block.
 	blockSize int
 	// Blocks contains all blocks of the Buffer in order.
-	blocks []block
+	// Free contains blocks that are free to be re-allocated.
+	blocks, free []block
 	// End is the byte offset of the end of the backing file.
 	end int64
 
@@ -142,10 +143,19 @@ func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
 	return n, nil
 }
 
-func (b *Buffer) newBlock() block {
+func (b *Buffer) allocBlock() block {
+	if l := len(b.free); l > 0 {
+		blk := b.free[l-1]
+		b.free = b.free[:l-1]
+		return blk
+	}
 	blk := block{start: b.end}
 	b.end += int64(b.blockSize)
 	return blk
+}
+
+func (b *Buffer) freeBlock(blk block) {
+	b.free = append(b.free, blk)
 }
 
 // BlockAt returns the index and start address of the block containing the address.
@@ -157,7 +167,7 @@ func (b *Buffer) blockAt(q int64) (int, int64) {
 	}
 	if q == b.Size() {
 		i := len(b.blocks)
-		blk := b.newBlock()
+		blk := b.allocBlock()
 		b.blocks = append(b.blocks[:i], append([]block{blk}, b.blocks[i:]...)...)
 		return i, q
 	}
@@ -179,7 +189,7 @@ func (b *Buffer) insertAt(q int64) (int, error) {
 	blk := b.blocks[i]
 	if q == q0 {
 		// Adding immediately before blk, no need to split.
-		nblk := b.newBlock()
+		nblk := b.allocBlock()
 		b.blocks = append(b.blocks[:i], append([]block{nblk}, b.blocks[i:]...)...)
 		if b.cached == i {
 			b.cached = i + 1
@@ -201,12 +211,12 @@ func (b *Buffer) insertAt(q int64) (int, error) {
 	b.blocks[i].n = int(o)
 
 	// Insert the new, empty block.
-	nblk := b.newBlock()
+	nblk := b.allocBlock()
 	b.blocks = append(b.blocks[:i+1], append([]block{nblk}, b.blocks[i+1:]...)...)
 
 	// Allocate a block for the second half of blk and set it as the cache.
 	// The next put will write it out.
-	nblk = b.newBlock()
+	nblk = b.allocBlock()
 	b.blocks = append(b.blocks[:i+2], append([]block{nblk}, b.blocks[i+2:]...)...)
 	b.blocks[i+2].n = int(int64(blk.n) - o)
 	copy(b.cache, b.cache[o:])
