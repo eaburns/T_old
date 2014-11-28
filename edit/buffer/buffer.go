@@ -2,18 +2,25 @@
 package buffer
 
 import (
-	"errors"
 	"io"
 	"io/ioutil"
 	"os"
+	"strconv"
 )
 
-var (
-	// ErrBadAddress is returned if an operation is given an out-of-range address.
-	ErrBadAddress = errors.New("invalid address")
-	// ErrBadCount is returned if an operation is given a negative count.
-	ErrBadCount = errors.New("invalid count")
-)
+// An AddressError records an error caused by an out-of-bounds address.
+type AddressError int64
+
+func (err AddressError) Error() string {
+	return "invalid address: " + strconv.FormatInt(int64(err), 10)
+}
+
+// A CountError records an error caused by a negative count.
+type CountError int
+
+func (err CountError) Error() string {
+	return "invalid count: " + strconv.Itoa(int(err))
+}
 
 // A Buffer is an unbounded byte buffer backed by a file.
 type Buffer struct {
@@ -82,7 +89,7 @@ func (b *Buffer) Size() int64 {
 func (b *Buffer) ReadAt(bs []byte, q int64) (int, error) {
 	switch {
 	case q < 0:
-		return 0, ErrBadAddress
+		return 0, AddressError(q)
 	case q >= b.Size():
 		return 0, io.EOF
 	}
@@ -111,7 +118,7 @@ func (b *Buffer) ReadAt(bs []byte, q int64) (int, error) {
 // It is an error to add at a negative address or an address that is greater than the Buffer size.
 func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
 	if q < 0 || q > b.Size() {
-		return 0, ErrBadAddress
+		return 0, AddressError(q)
 	}
 	var tot int
 	for len(bs) > 0 {
@@ -152,10 +159,10 @@ func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
 // If fewer than n bytes are deleted, the error states why.
 func (b *Buffer) Delete(n int, q int64) (int, error) {
 	if n < 0 {
-		return 0, ErrBadCount
+		return 0, CountError(n)
 	}
 	if q < 0 || q+int64(n) > b.Size() {
-		return 0, ErrBadAddress
+		return 0, AddressError(q)
 	}
 	var tot int
 	for n > 0 {
@@ -207,7 +214,7 @@ func (b *Buffer) freeBlock(blk block) {
 // BlockAt panics if the address is negative or more than one past the end.
 func (b *Buffer) blockAt(q int64) (int, int64) {
 	if q < 0 || q > b.Size() {
-		panic(ErrBadAddress)
+		panic(AddressError(q))
 	}
 	if q == b.Size() {
 		i := len(b.blocks)
