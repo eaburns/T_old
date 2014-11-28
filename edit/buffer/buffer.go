@@ -100,11 +100,11 @@ func (b *Buffer) ReadAt(bs []byte, q int64) (int, error) {
 	return n, nil
 }
 
-// AddAt adds the bytes to the address in the Buffer.
+// Insert adds the bytes to the address in the Buffer.
 // After adding, the byte at the address is the first of the added bytes.
 // The return value is the number of bytes added and any error that was encountered.
 // It is an error to add at a negative address or an address that is greater than the Buffer size.
-func (b *Buffer) AddAt(bs []byte, q int64) (int, error) {
+func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
 	if q < 0 || q > b.Size() {
 		return 0, ErrBadAddress
 	}
