@@ -86,27 +86,27 @@ func (b *Buffer) Size() int64 {
 // The return value is the number of bytes read.
 // If fewer than len(bs) bytes are read then the error states why.
 // If the address is beyond the end of the Buffer, 0 and io.EOF are returned.
-func (b *Buffer) ReadAt(bs []byte, q int64) (int, error) {
+func (b *Buffer) ReadAt(bs []byte, at int64) (int, error) {
 	switch {
-	case q < 0:
-		return 0, AddressError(q)
-	case q >= b.Size():
+	case at < 0:
+		return 0, AddressError(at)
+	case at >= b.Size():
 		return 0, io.EOF
 	}
 	var tot int
 	for len(bs) > 0 {
-		if q == b.Size() {
+		if at == b.Size() {
 			return tot, io.EOF
 		}
-		i, q0 := b.blockAt(q)
+		i, q0 := b.blockAt(at)
 		blk, err := b.get(i)
 		if err != nil {
 			return tot, err
 		}
-		o := int(q - q0)
+		o := int(at - q0)
 		m := copy(bs, b.cache[o:blk.n])
 		bs = bs[m:]
-		q += int64(m)
+		at += int64(m)
 		tot += m
 	}
 	return tot, nil
@@ -116,39 +116,39 @@ func (b *Buffer) ReadAt(bs []byte, q int64) (int, error) {
 // After adding, the byte at the address is the first of the added bytes.
 // The return value is the number of bytes added and any error that was encountered.
 // It is an error to add at a negative address or an address that is greater than the Buffer size.
-func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
-	if q < 0 || q > b.Size() {
-		return 0, AddressError(q)
+func (b *Buffer) Insert(bs []byte, at int64) (int, error) {
+	if at < 0 || at > b.Size() {
+		return 0, AddressError(at)
 	}
 	var tot int
 	for len(bs) > 0 {
-		i, q0 := b.blockAt(q)
+		i, q0 := b.blockAt(at)
 		blk, err := b.get(i)
 		if err != nil {
 			return tot, err
 		}
 		m := b.blockSize - blk.n
 		if m == 0 {
-			if i, err = b.insertAt(q); err != nil {
+			if i, err = b.insertAt(at); err != nil {
 				return tot, err
 			}
 			if blk, err = b.get(i); err != nil {
 				return tot, err
 			}
-			q0 = q
+			q0 = at
 			m = b.blockSize
 		}
 		if m > len(bs) {
 			m = len(bs)
 		}
-		o := int(q - q0)
+		o := int(at - q0)
 		copy(b.cache[o+m:], b.cache[o:blk.n])
 		copy(b.cache[o:], bs[:m])
 		b.dirty = true
 		bs = bs[m:]
 		blk.n += m
 		b.size += int64(m)
-		q += int64(m)
+		at += int64(m)
 		tot += m
 	}
 	return tot, nil
@@ -157,21 +157,21 @@ func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
 // Delete deletes a range of bytes from the Buffer.
 // The return value is the number of bytes deleted.
 // If fewer than n bytes are deleted, the error states why.
-func (b *Buffer) Delete(n, q int64) (int, error) {
+func (b *Buffer) Delete(n, at int64) (int, error) {
 	if n < 0 {
 		return 0, CountError(n)
 	}
-	if q < 0 || q+n > b.Size() {
-		return 0, AddressError(q)
+	if at < 0 || at+n > b.Size() {
+		return 0, AddressError(at)
 	}
 	var tot int
 	for n > 0 {
-		i, q0 := b.blockAt(q)
+		i, q0 := b.blockAt(at)
 		blk, err := b.get(i)
 		if err != nil {
 			return tot, err
 		}
-		o := int(q - q0)
+		o := int(at - q0)
 		m := blk.n - o
 		if int64(m) > n {
 			m = int(n)
@@ -212,19 +212,19 @@ func (b *Buffer) freeBlock(blk block) {
 // BlockAt returns the index and start address of the block containing the address.
 // If the address is one beyond the end of the file, a new block is allocated.
 // BlockAt panics if the address is negative or more than one past the end.
-func (b *Buffer) blockAt(q int64) (int, int64) {
-	if q < 0 || q > b.Size() {
-		panic(AddressError(q))
+func (b *Buffer) blockAt(at int64) (int, int64) {
+	if at < 0 || at > b.Size() {
+		panic(AddressError(at))
 	}
-	if q == b.Size() {
+	if at == b.Size() {
 		i := len(b.blocks)
 		blk := b.allocBlock()
 		b.blocks = append(b.blocks[:i], append([]block{blk}, b.blocks[i:]...)...)
-		return i, q
+		return i, at
 	}
 	var q0 int64
 	for i, blk := range b.blocks {
-		if q0 <= q && q < q0+int64(blk.n) {
+		if q0 <= at && at < q0+int64(blk.n) {
 			return i, q0
 		}
 		q0 += int64(blk.n)
@@ -234,11 +234,11 @@ func (b *Buffer) blockAt(q int64) (int, int64) {
 
 // insertAt inserts a block at the address and returns the new block's index.
 // If a block contains the address then it is split.
-func (b *Buffer) insertAt(q int64) (int, error) {
-	i, q0 := b.blockAt(q)
-	o := q - q0
+func (b *Buffer) insertAt(at int64) (int, error) {
+	i, q0 := b.blockAt(at)
+	o := int(at - q0)
 	blk := b.blocks[i]
-	if q == q0 {
+	if at == q0 {
 		// Adding immediately before blk, no need to split.
 		nblk := b.allocBlock()
 		b.blocks = append(b.blocks[:i], append([]block{nblk}, b.blocks[i:]...)...)
@@ -269,7 +269,7 @@ func (b *Buffer) insertAt(q int64) (int, error) {
 	// The next put will write it out.
 	nblk = b.allocBlock()
 	b.blocks = append(b.blocks[:i+2], append([]block{nblk}, b.blocks[i+2:]...)...)
-	b.blocks[i+2].n = int(int64(blk.n) - o)
+	b.blocks[i+2].n = blk.n - o
 	copy(b.cache, b.cache[o:])
 	b.cached = i + 2
 	b.dirty = true
