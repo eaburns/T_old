@@ -9,19 +9,20 @@ import (
 
 const testBlockSize = 8
 
-func TestReadAt(t *testing.T) {
-	// Initializes a buffer with the text "01234567abcd!@#efghSTUVWXYZ"
-	// split across blocks of sizes: 8, 4, 3, 4, 8.
+// Initializes a buffer with the text "01234567abcd!@#efghSTUVWXYZ"
+// split across blocks of sizes: 8, 4, 3, 4, 8.
+func makeTestBuffer(t *testing.T) *Buffer {
 	b := New(testBlockSize)
-	defer b.Close()
 	// Add 3 full blocks.
 	n, err := b.Insert([]byte("01234567abcdefghSTUVWXYZ"), 0)
 	if n != 24 || err != nil {
+		b.Close()
 		t.Fatalf(`Insert("01234567abcdefghSTUVWXYZ", 0)=%v,%v, want 24,nil`, n, err)
 	}
 	// Split block 1 in the middle.
 	n, err = b.Insert([]byte("!@#"), 12)
 	if n != 3 || err != nil {
+		b.Close()
 		t.Fatalf(`Insert("!@#", 12)=%v,%v, want 3,nil`, n, err)
 	}
 	ns := make([]int, len(b.blocks))
@@ -29,9 +30,15 @@ func TestReadAt(t *testing.T) {
 		ns[i] = blk.n
 	}
 	if !reflect.DeepEqual(ns, []int{8, 4, 3, 4, 8}) {
+		b.Close()
 		t.Fatalf("blocks have sizes %v, want 8, 4, 3, 4, 8", ns)
 	}
+	return b
+}
 
+func TestReadAt(t *testing.T) {
+	b := makeTestBuffer(t)
+	defer b.Close()
 	tests := []struct {
 		n    int
 		at   int64
@@ -123,13 +130,13 @@ func TestInsert(t *testing.T) {
 			}
 		}
 		n, err := b.Insert([]byte(test.add), test.at)
-		wantn := len(test.add)
+		m := len(test.add)
 		if test.err != nil {
-			wantn = 0
+			m = 0
 		}
-		if n != wantn || err != test.err {
+		if n != m || err != test.err {
 			t.Errorf("%+v add failed: Insert(%v, %v)=%v,%v, want %v,%v",
-				test, test.add, test.at, n, err, wantn, test.err)
+				test, test.add, test.at, n, err, m, test.err)
 			continue
 		}
 		if test.err != nil {
@@ -140,6 +147,69 @@ func TestInsert(t *testing.T) {
 			t.Errorf("%+v read failed: ReadAll(·)=%v,%v, want %v,nil",
 				test, s, err, test.want)
 			continue
+		}
+	}
+}
+
+func TestDelete(t *testing.T) {
+	tests := []struct {
+		n    int
+		at   int64
+		want string
+		err  error
+	}{
+		{n: 1, at: 27, err: ErrBadAddress},
+		{n: 1, at: -1, err: ErrBadAddress},
+		{n: -1, at: 1, err: ErrBadCount},
+
+		{n: 0, at: 0, want: "01234567abcd!@#efghSTUVWXYZ"},
+		{n: 1, at: 0, want: "1234567abcd!@#efghSTUVWXYZ"},
+		{n: 2, at: 0, want: "234567abcd!@#efghSTUVWXYZ"},
+		{n: 3, at: 0, want: "34567abcd!@#efghSTUVWXYZ"},
+		{n: 4, at: 0, want: "4567abcd!@#efghSTUVWXYZ"},
+		{n: 5, at: 0, want: "567abcd!@#efghSTUVWXYZ"},
+		{n: 6, at: 0, want: "67abcd!@#efghSTUVWXYZ"},
+		{n: 7, at: 0, want: "7abcd!@#efghSTUVWXYZ"},
+		{n: 8, at: 0, want: "abcd!@#efghSTUVWXYZ"},
+		{n: 9, at: 0, want: "bcd!@#efghSTUVWXYZ"},
+		{n: 26, at: 0, want: "Z"},
+		{n: 27, at: 0, want: ""},
+
+		{n: 0, at: 1, want: "01234567abcd!@#efghSTUVWXYZ"},
+		{n: 1, at: 1, want: "0234567abcd!@#efghSTUVWXYZ"},
+		{n: 1, at: 2, want: "0134567abcd!@#efghSTUVWXYZ"},
+		{n: 1, at: 3, want: "0124567abcd!@#efghSTUVWXYZ"},
+		{n: 1, at: 4, want: "0123567abcd!@#efghSTUVWXYZ"},
+		{n: 1, at: 5, want: "0123467abcd!@#efghSTUVWXYZ"},
+		{n: 1, at: 6, want: "0123457abcd!@#efghSTUVWXYZ"},
+		{n: 1, at: 7, want: "0123456abcd!@#efghSTUVWXYZ"},
+		{n: 1, at: 8, want: "01234567bcd!@#efghSTUVWXYZ"},
+		{n: 1, at: 9, want: "01234567acd!@#efghSTUVWXYZ"},
+		{n: 8, at: 1, want: "0bcd!@#efghSTUVWXYZ"},
+		{n: 26, at: 1, want: "0"},
+		{n: 25, at: 1, want: "0Z"},
+	}
+	for _, test := range tests {
+		b := makeTestBuffer(t)
+		defer b.Close()
+
+		m := int(b.Size()) - len(test.want)
+		if test.err != nil {
+			m = 0
+		}
+		n, err := b.Delete(test.n, test.at)
+		if n != m || err != test.err {
+			t.Errorf("Delete(%v, %v)=%v,%v, want %v,%v",
+				test.n, test.at, n, err, m, test.err)
+			continue
+		}
+		if test.err != nil {
+			continue
+		}
+		got, err := ioutil.ReadAll(&reader{b: b})
+		if s := string(got); s != test.want || err != nil {
+			t.Errorf("%+v read failed: ReadAll(·)=%v,%v want %v,nil",
+				test, s, err, test.want)
 		}
 	}
 }

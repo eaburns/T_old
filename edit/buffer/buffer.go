@@ -8,8 +8,12 @@ import (
 	"os"
 )
 
-// ErrBadAddress is returned if an operation is given an out-of-range address.
-var ErrBadAddress = errors.New("invalid address")
+var (
+	// ErrBadAddress is returned if an operation is given an out-of-range address.
+	ErrBadAddress = errors.New("invalid address")
+	// ErrBadCount is returned if an operation is given a negative count.
+	ErrBadCount = errors.New("invalid count")
+)
 
 // A Buffer is an unbounded byte buffer backed by a file.
 type Buffer struct {
@@ -92,7 +96,7 @@ func (b *Buffer) ReadAt(bs []byte, q int64) (int, error) {
 		if err != nil {
 			return tot, err
 		}
-		o := q - q0
+		o := int(q - q0)
 		m := copy(bs, b.cache[o:blk.n])
 		bs = bs[m:]
 		q += int64(m)
@@ -130,8 +134,8 @@ func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
 		if m > len(bs) {
 			m = len(bs)
 		}
-		o := q - q0
-		copy(b.cache[o+int64(m):], b.cache[o:blk.n])
+		o := int(q - q0)
+		copy(b.cache[o+m:], b.cache[o:blk.n])
 		copy(b.cache[o:], bs[:m])
 		b.dirty = true
 		bs = bs[m:]
@@ -139,6 +143,46 @@ func (b *Buffer) Insert(bs []byte, q int64) (int, error) {
 		b.size += int64(m)
 		q += int64(m)
 		tot += m
+	}
+	return tot, nil
+}
+
+// Delete deletes a range of bytes from the Buffer.
+// The return value is the number of bytes deleted.
+// If fewer than n bytes are deleted, the error states why.
+func (b *Buffer) Delete(n int, q int64) (int, error) {
+	if n < 0 {
+		return 0, ErrBadCount
+	}
+	if q < 0 || q+int64(n) > b.Size() {
+		return 0, ErrBadAddress
+	}
+	var tot int
+	for n > 0 {
+		i, q0 := b.blockAt(q)
+		blk, err := b.get(i)
+		if err != nil {
+			return tot, err
+		}
+		o := int(q - q0)
+		m := blk.n - o
+		if m > n {
+			m = n
+		}
+		if o == 0 && n >= blk.n {
+			// Remove the entire block.
+			b.freeBlock(*blk)
+			b.blocks = append(b.blocks[:i], b.blocks[i+1:]...)
+			b.cached = -1
+		} else {
+			// Remove a portion of the block.
+			copy(b.cache[o:], b.cache[o+m:])
+			b.dirty = true
+			blk.n -= m
+		}
+		n -= m
+		tot += m
+		b.size -= int64(m)
 	}
 	return tot, nil
 }
