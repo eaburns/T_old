@@ -153,10 +153,9 @@ func TestInsert(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	tests := []struct {
-		n    int
-		at   int64
-		want string
-		err  error
+		n, at int64
+		want  string
+		err   error
 	}{
 		{n: 1, at: 27, err: AddressError(27)},
 		{n: 1, at: -1, err: AddressError(-1)},
@@ -231,7 +230,7 @@ func TestBlockAlloc(t *testing.T) {
 		t.Fatalf("After initial insert: len(b.blocks)=%v, want 2", len(b.blocks))
 	}
 
-	n, err = b.Delete(l, 0)
+	n, err = b.Delete(int64(l), 0)
 	if n != l || err != nil {
 		t.Fatalf(`Delete(%v, 0)=%v,%v, want 5,nil`, l, n, err)
 	}
