@@ -214,6 +214,41 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+// TestInsertDeleteAndRead tests performing a few operations in sequence.
+func TestInsertDeleteAndRead(t *testing.T) {
+	b := New(testBlockSize)
+	defer b.Close()
+
+	const hiWorld = "Hello, World!"
+	n, err := b.Insert([]byte(hiWorld), 0)
+	if l := len(hiWorld); n != l || err != nil {
+		t.Fatalf(`Insert(%s, 0)=%v,%v, want %v,nil`, hiWorld, n, err, l)
+	}
+	bs, err := ioutil.ReadAll(&reader{b: b})
+	if s := string(bs); s != hiWorld || err != nil {
+		t.Fatalf(`ReadAll(·)=%v,%v, want %s,nil`, s, err, hiWorld)
+	}
+
+	n, err = b.Delete(5, 7)
+	if n != 5 || err != nil {
+		t.Fatalf(`Delete(5, 7)=%v,%v, want 5,nil`, n, err)
+	}
+	bs, err = ioutil.ReadAll(&reader{b: b})
+	if s := string(bs); s != "Hello, !" || err != nil {
+		t.Fatalf(`ReadAll(·)=%v,%v, want "Hello, !",nil`, s, err)
+	}
+
+	const gophers = "Gophers"
+	n, err = b.Insert([]byte(gophers), 7)
+	if l := len(gophers); n != l || err != nil {
+		t.Fatalf(`Insert(%s, 7)=%v,%v, want %v,nil`, gophers, n, err, l)
+	}
+	bs, err = ioutil.ReadAll(&reader{b: b})
+	if s := string(bs); s != "Hello, Gophers!" || err != nil {
+		t.Fatalf(`ReadAll(·)=%v,%v, want "Hello, Gophers!",nil`, s, err)
+	}
+}
+
 type reader struct {
 	b *Buffer
 	q int64
