@@ -199,7 +199,7 @@ func (b *Buffer) allocBlock() block {
 }
 
 func (b *Buffer) freeBlock(blk block) {
-	b.free = append(b.free, blk)
+	b.free = append(b.free, block{start: blk.start})
 }
 
 // BlockAt returns the index and start address of the block containing the address.

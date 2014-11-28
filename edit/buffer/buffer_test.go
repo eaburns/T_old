@@ -214,6 +214,49 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+func TestBlockAlloc(t *testing.T) {
+	bs := []byte("αβξδφγθι")
+	l := len(bs)
+	if l <= testBlockSize {
+		t.Fatalf("len(bs)=%d, want >%d", l, testBlockSize)
+	}
+
+	b := New(testBlockSize)
+	defer b.Close()
+	n, err := b.Insert(bs, 0)
+	if n != l || err != nil {
+		t.Fatalf(`Initial Insert(%v, 0)=%v,%v, want %v,nil`, bs, n, err, l)
+	}
+	if len(b.blocks) != 2 {
+		t.Fatalf("After initial insert: len(b.blocks)=%v, want 2", len(b.blocks))
+	}
+
+	n, err = b.Delete(l, 0)
+	if n != l || err != nil {
+		t.Fatalf(`Delete(%v, 0)=%v,%v, want 5,nil`, l, n, err)
+	}
+	if len(b.blocks) != 0 {
+		t.Fatalf("After delete: len(b.blocks)=%v, want 0", len(b.blocks))
+	}
+	if len(b.free) != 2 {
+		t.Fatalf("After delete: len(b.free)=%v, want 2", len(b.free))
+	}
+
+	bs = bs[:testBlockSize/2]
+	l = len(bs)
+
+	n, err = b.Insert(bs, 0)
+	if n != l || err != nil {
+		t.Fatalf(`Second Insert(%v, 7)=%v,%v, want %v,nil`, bs, n, err, l)
+	}
+	if len(b.blocks) != 1 {
+		t.Fatalf("After second insert: len(b.blocks)=%d, want 1", len(b.blocks))
+	}
+	if len(b.free) != 1 {
+		t.Fatalf("After second insert: len(b.free)=%d, want 1", len(b.free))
+	}
+}
+
 // TestInsertDeleteAndRead tests performing a few operations in sequence.
 func TestInsertDeleteAndRead(t *testing.T) {
 	b := New(testBlockSize)
