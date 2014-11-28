@@ -15,14 +15,14 @@ func TestReadAt(t *testing.T) {
 	b := New(testBlockSize)
 	defer b.Close()
 	// Add 3 full blocks.
-	n, err := b.AddAt([]byte("01234567abcdefghSTUVWXYZ"), 0)
+	n, err := b.Insert([]byte("01234567abcdefghSTUVWXYZ"), 0)
 	if n != 24 || err != nil {
-		t.Fatalf(`AddAt("01234567abcdefghSTUVWXYZ", 0)=%v,%v, want 24,nil`, n, err)
+		t.Fatalf(`Insert("01234567abcdefghSTUVWXYZ", 0)=%v,%v, want 24,nil`, n, err)
 	}
 	// Split block 1 in the middle.
-	n, err = b.AddAt([]byte("!@#"), 12)
+	n, err = b.Insert([]byte("!@#"), 12)
 	if n != 3 || err != nil {
-		t.Fatalf(`AddAt("!@#", 12)=%v,%v, want 3,nil`, n, err)
+		t.Fatalf(`Insert("!@#", 12)=%v,%v, want 3,nil`, n, err)
 	}
 	ns := make([]int, len(b.blocks))
 	for i, blk := range b.blocks {
@@ -73,7 +73,7 @@ func TestReadAt(t *testing.T) {
 	}
 }
 
-func TestAddAt(t *testing.T) {
+func TestInsert(t *testing.T) {
 	tests := []struct {
 		init, add string
 		at        int64
@@ -115,20 +115,20 @@ func TestAddAt(t *testing.T) {
 		b := New(testBlockSize)
 		defer b.Close()
 		if len(test.init) > 0 {
-			n, err := b.AddAt([]byte(test.init), 0)
+			n, err := b.Insert([]byte(test.init), 0)
 			if n != len(test.init) || err != nil {
-				t.Errorf("%+v init failed: AddAt(%v, 0)=%v,%v, want %v,nil",
+				t.Errorf("%+v init failed: Insert(%v, 0)=%v,%v, want %v,nil",
 					test, test.init, n, err, len(test.init))
 				continue
 			}
 		}
-		n, err := b.AddAt([]byte(test.add), test.at)
+		n, err := b.Insert([]byte(test.add), test.at)
 		wantn := len(test.add)
 		if test.err != nil {
 			wantn = 0
 		}
 		if n != wantn || err != test.err {
-			t.Errorf("%+v add failed: AddAt(%v, %v)=%v,%v, want %v,%v",
+			t.Errorf("%+v add failed: Insert(%v, %v)=%v,%v, want %v,%v",
 				test, test.add, test.at, n, err, wantn, test.err)
 			continue
 		}
