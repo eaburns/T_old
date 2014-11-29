@@ -90,6 +90,8 @@ func (b *Buffer) ReadAt(bs []byte, at int64) (int, error) {
 	switch {
 	case at < 0:
 		return 0, AddressError(at)
+	case at == b.Size() && len(bs) == 0:
+		return 0, nil
 	case at >= b.Size():
 		return 0, io.EOF
 	}
