@@ -85,15 +85,19 @@ func TestEmptyReadAtEOF(t *testing.T) {
 	defer b.Close()
 
 	if n, err := b.ReadAt([]byte{}, 0); n != 0 || err != nil {
-		t.Errorf("initial Read([]byte{}, 0)=%v,%v, want 0,nil", n, err)
+		t.Errorf("empty buffer ReadAt([]byte{}, 0)=%v,%v, want 0,nil", n, err)
 	}
 
-	// Write to the buffer and delete it all.
 	str := "Hello, World!"
 	l := len(str)
 	if n, err := b.Insert([]byte(str), 0); n != l || err != nil {
 		t.Fatalf("Insert(%v, 0)=%v,%v, want %v,nil", str, n, err, l)
 	}
+
+	if n, err := b.ReadAt([]byte{}, 1); n != 0 || err != nil {
+		t.Errorf("ReadAt([]byte{}, 1)=%v,%v, want 0,nil", n, err)
+	}
+
 	if n, err := b.Delete(int64(l), 0); n != l || err != nil {
 		t.Fatalf("Delete(%v, 0)=%v,%v, want %v, nil", l, n, err, l)
 	}
@@ -103,7 +107,7 @@ func TestEmptyReadAtEOF(t *testing.T) {
 
 	// The buffer should be empty, but we still don't want EOF when reading 0 bytes.
 	if n, err := b.ReadAt([]byte{}, 0); n != 0 || err != nil {
-		t.Errorf("Read([]byte{}, 0)=%v,%v, want 0,nil", n, err)
+		t.Errorf("deleted buffer ReadAt([]byte{}, 0)=%v,%v, want 0,nil", n, err)
 	}
 }
 
