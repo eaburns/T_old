@@ -19,7 +19,7 @@ func TestBufferBasics(t *testing.T) {
 	if s := b.Size(); s != l {
 		t.Fatalf(`Size()=%d, want %d`, s, l)
 	}
-	rs, err := b.Read(Address{0, b.Size()})
+	rs, err := b.Read(b.All())
 	if string(rs) != str || err != nil {
 		t.Fatalf(`Read(Address{0, %d})="%v",%v, want %s,nil`, b.Size(), string(rs), err, str)
 	}
@@ -60,7 +60,7 @@ func TestBufferWrite(t *testing.T) {
 		if test.err != nil {
 			continue
 		}
-		rs, err := b.Read(Address{0, b.Size()})
+		rs, err := b.Read(b.All())
 		if s := string(rs); s != test.want || err != nil {
 			t.Errorf(`%+v Read(Address{0, %d})="%s",%v, want %v,nil`,
 				test, b.Size(), s, err, test.want)

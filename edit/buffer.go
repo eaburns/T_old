@@ -35,6 +35,17 @@ func (b *Buffer) Size() int64 {
 	return b.bytes.Size() / runeBytes
 }
 
+// All returns the Address that identifies the entirety of the Buffer.
+func (b *Buffer) All() Address {
+	return Address{0, b.Size()}
+}
+
+// End returns the Address of the empty string at the end of the Buffer.
+func (b *Buffer) End() Address {
+	sz := b.Size()
+	return Address{sz, sz}
+}
+
 // Read returns the runes in the range of an Address in the buffer.
 func (b *Buffer) Read(at Address) ([]rune, error) {
 	if at.From < 0 || at.From > at.To || at.To > b.Size() {
