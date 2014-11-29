@@ -3,6 +3,7 @@ package edit
 
 import (
 	"encoding/binary"
+	"io"
 
 	"github.com/eaburns/T/edit/buffer"
 )
@@ -83,4 +84,25 @@ func (b *Buffer) Write(rs []rune, at Address) error {
 
 	_, err := b.bytes.Insert(bs, at.fromByte())
 	return err
+}
+
+// Get overwrites the buffer with the contents of the io.RuneReader.
+// The return value is the number of bytes read.
+func (b *Buffer) Get(r io.RuneReader) (int, error) {
+	at := b.All()
+	var tot int
+	for {
+		r, w, err := r.ReadRune()
+		tot += w
+		switch {
+		case err == io.EOF:
+			return tot, nil
+		case err != nil:
+			return tot, err
+		}
+		if err := b.Write([]rune{r}, at); err != nil {
+			return tot, err
+		}
+		at = b.End()
+	}
 }

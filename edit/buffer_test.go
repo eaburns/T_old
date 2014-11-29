@@ -1,6 +1,7 @@
 package edit
 
 import (
+	"bytes"
 	"testing"
 	"unicode/utf8"
 )
@@ -100,6 +101,38 @@ func TestBufferRead(t *testing.T) {
 		if s := string(rs); s != test.want || err != test.err {
 			t.Errorf(`Read(%v)="%s",%v, want %v,%v`,
 				test.at, s, err, test.want, test.err)
+			continue
+		}
+	}
+}
+
+func TestBufferGet(t *testing.T) {
+	tests := []struct {
+		init, get, want string
+	}{
+		{get: "", want: ""},
+		{init: "Initial things", get: "", want: ""},
+		{get: "Hello, World!", want: "Hello, World!"},
+		{init: "Some stuff ☺", get: "Hello, World!", want: "Hello, World!"},
+		{get: "Hello, 世界", want: "Hello, 世界"},
+
+		// Invalid UTF8 encoding:
+		// bytes.Buffer.ReadRune and bufio.Reader.ReadRune
+		// both replace invalid bytes with unicode.ReplacementChar
+		// '\uFFFD'.
+		{get: "abc\x80def", want: "abc\uFFFDdef"},
+	}
+	for _, test := range tests {
+		b := NewBuffer()
+		defer b.Close()
+		n, err := b.Get(bytes.NewBuffer([]byte(test.get)))
+		if l := len(test.get); n != l || err != nil {
+			t.Errorf("Get(%s)=%v,%v, want %v,nil", test.get, n, err, l)
+			continue
+		}
+		rs, err := b.Read(b.All())
+		if s := string(rs); s != test.want || err != nil {
+			t.Errorf(`Read(b.All())="%s",%v, want %v,nil`, s, err, test.want)
 			continue
 		}
 	}
