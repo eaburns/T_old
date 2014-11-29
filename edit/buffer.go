@@ -4,6 +4,7 @@ package edit
 import (
 	"encoding/binary"
 	"io"
+	"unicode/utf8"
 
 	"github.com/eaburns/T/edit/buffer"
 )
@@ -105,4 +106,35 @@ func (b *Buffer) Get(r io.RuneReader) (int, error) {
 		}
 		at = b.End()
 	}
+}
+
+// Put writes the UTF8 encoding of the buffer to the io.Writer.
+// The return value is the number of bytes written.
+func (b *Buffer) Put(w io.Writer) (int, error) {
+	const n = 512
+	var tot int
+	var at Address
+	for at.From < b.Size() {
+		at.To = at.From + blockRunes
+		if at.To > b.Size() {
+			at.To = b.Size()
+		}
+		rs, err := b.Read(at)
+		if err != nil {
+			return tot, err
+		}
+
+		var o int
+		var bs [utf8.UTFMax * n]byte
+		for _, r := range rs {
+			o += utf8.EncodeRune(bs[o:], r)
+		}
+		m, err := w.Write(bs[:o])
+		tot += m
+		if err != nil {
+			return tot, err
+		}
+		at.From = at.To
+	}
+	return tot, nil
 }
