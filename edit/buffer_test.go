@@ -5,13 +5,11 @@ import (
 	"unicode/utf8"
 )
 
-const testBlockSize = 8
-
 // TestBufferBasics tests writing to a buffer and then reading it all back.
 func TestBufferBasics(t *testing.T) {
 	str := "Hello, World! ☺"
 	l := int64(utf8.RuneCountInString(str))
-	b := NewBuffer(testBlockSize)
+	b := NewBuffer()
 	defer b.Close()
 
 	err := b.Write([]rune(str), Address{})
@@ -49,7 +47,7 @@ func TestBufferWrite(t *testing.T) {
 		{init: ", World!", write: "Hello", at: Address{0, 0}, want: "Hello, World!"},
 	}
 	for _, test := range tests {
-		b := NewBuffer(testBlockSize)
+		b := NewBuffer()
 		defer b.Close()
 		if err := b.Write([]rune(test.init), Address{}); err != nil {
 			t.Errorf("init Write(%v, Address{})=%v, want nil", test.init, err)
@@ -92,7 +90,7 @@ func TestBufferRead(t *testing.T) {
 		{init: "Hello, 世界", at: Address{0, 8}, want: "Hello, 世"},
 	}
 	for _, test := range tests {
-		b := NewBuffer(testBlockSize)
+		b := NewBuffer()
 		defer b.Close()
 		if err := b.Write([]rune(test.init), Address{}); err != nil {
 			t.Errorf("init Write(%v, Address{})=%v, want nil", test.init, err)
