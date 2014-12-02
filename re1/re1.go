@@ -35,8 +35,23 @@ import (
 	"strconv"
 )
 
-// A Regexp is a compiled regular expression.
-type Regexp struct{}
+// A Regexp is the compiled form of a regular expression.
+type Regexp struct {
+	start, end *node
+}
+
+type node struct {
+	out [2]struct {
+		// OK is given the previous and current token
+		// and returns true if the transition matches.
+		ok func(prev, cur rune) bool
+		// Adv is true if the transition advances the token,
+		// otherwise it returns false.
+		// If adv==false, this is an ε transition.
+		adv bool
+		to  *node
+	}
+}
 
 type token rune
 
@@ -91,7 +106,7 @@ type parser struct {
 	rs        []rune
 	prev, pos int
 	delim     rune // -1 for no delimiter.
-	sub       int
+	reverse   bool
 }
 
 func (p *parser) eof() bool {
@@ -202,7 +217,7 @@ func compile(rs []rune, delim rune) (re Regexp, n int, err error) {
 			panic(e)
 		}
 	}()
-	p := parser{rs: rs, sub: 1, delim: delim}
+	p := parser{rs: rs, delim: delim}
 	e := e0(&p)
 	if e == nil {
 		e = &Regexp{}
@@ -225,8 +240,13 @@ func e0(p *parser) *Regexp {
 	if p.eof() {
 		panic(ParseError{Position: p.pos - 1, Message: "'|' has no right hand side"})
 	}
-	_ = e0(p)
-	return &Regexp{}
+	r := e0(p)
+	re := &Regexp{start: new(node), end: new(node)}
+	re.start.out[0].to = l.start
+	re.start.out[1].to = r.start
+	l.end.out[0].to = re.end
+	r.end.out[0].to = re.end
+	return re
 }
 
 func e1(p *parser) *Regexp {
@@ -238,7 +258,14 @@ func e1(p *parser) *Regexp {
 	if r == nil {
 		return l
 	}
-	return &Regexp{}
+	if p.reverse {
+		l, r = r, l
+	}
+	re := &Regexp{start: new(node)}
+	re.start = l.start
+	l.end.out[0].to = r.start
+	re.end = r.end
+	return re
 }
 
 func e2(p *parser) *Regexp {
@@ -246,50 +273,70 @@ func e2(p *parser) *Regexp {
 	if p.eof() || l == nil {
 		return l
 	}
-	return e2p(*l, p)
+	return e2p(l, p)
 }
 
-func e2p(l Regexp, p *parser) *Regexp {
+func e2p(l *Regexp, p *parser) *Regexp {
+	re := &Regexp{start: new(node), end: new(node)}
 	switch p.next() {
 	case star:
-		return e2p(Regexp{}, p)
+		re.start.out[1].to = l.end
+		fallthrough
 	case plus:
-		return e2p(Regexp{}, p)
+		re.start.out[0].to = l.start
+		l.end.out[0].to = l.start
+		l.end.out[1].to = re.end
+		break
 	case question:
-		return e2p(Regexp{}, p)
+		re.start.out[0].to = l.start
+		re.start.out[1].to = l.end
+		re.end = l.end
+		break
 	case eof:
-		return &l
+		return l
 	default:
 		p.back()
-		return &l
+		return l
 	}
+	return e2p(re, p)
 }
 
 func e3(p *parser) *Regexp {
-	switch t := p.next(); t {
-	case oparen:
+	re := &Regexp{start: new(node), end: new(node)}
+	re.start.out[0].to = re.end
+
+	switch t := p.next(); {
+	case t == oparen:
 		o := p.pos - 1
-		p.sub++
 		if p.peek() == cparen {
 			panic(ParseError{Position: o, Message: "missing operand for '('"})
 		}
-		_ = e0(p)
+		e := e0(p)
 		if t = p.next(); t != cparen {
 			panic(ParseError{Position: o, Message: "got " + t.String() + " wanted ')'"})
 		}
-		return &Regexp{}
-
-	case obrace:
+		re.start.out[0].to = e.start
+		e.end.out[0].to = re.end
+	case t == obrace:
 		panic("unimplemented")
-
-	case dot:
-	case carrot:
-	case dollar:
+	case t == dot:
+		re.start.out[0].ok = func(_, c rune) bool { return c != '\n' }
+		re.start.out[0].adv = true
+	case t == carrot && !p.reverse || t == dollar && p.reverse:
+		re.start.out[0].ok = func(p, _ rune) bool {
+			return p == rune(eof) || p == '\n'
+		}
+	case t == carrot && p.reverse || t == dollar && !p.reverse:
+		re.start.out[0].ok = func(_, c rune) bool {
+			return c == rune(eof) || c == '\n'
+		}
 	default:
 		if t < 0 {
 			p.back()
 			return nil
 		}
+		re.start.out[0].ok = func(_, c rune) bool { return c == rune(t) }
+		re.start.out[0].adv = true
 	}
-	return &Regexp{}
+	return re
 }
