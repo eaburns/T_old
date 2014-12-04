@@ -5,10 +5,12 @@ import "testing"
 // TestJustParse just tests parse errors (or lack thereof).
 func TestJustParse(t *testing.T) {
 	tests := []struct {
-		re    string
-		delim bool
-		n     int
-		err   error
+		re string
+		// What the compiler actually used.
+		// If delim==false, initialized to re.
+		expr           string
+		delim, literal bool
+		err            error
 	}{
 		{re: ""},
 		{re: "abc"},
@@ -21,6 +23,11 @@ func TestJustParse(t *testing.T) {
 		{re: `a\)`},
 		{re: `a\[`},
 		{re: `a\]`},
+		{re: `a|`, literal: true},
+		{re: `a(`, literal: true},
+		{re: `a)`, literal: true},
+		{re: `a[`, literal: true},
+		{re: `a]`, literal: true},
 		{re: "a(bcd", err: ParseError{Position: 1}},
 		{re: "a(b(c)d", err: ParseError{Position: 1}},
 		{re: "a(b(cd", err: ParseError{Position: 3}},
@@ -36,34 +43,36 @@ func TestJustParse(t *testing.T) {
 		{re: "a]", err: ParseError{Position: 1}},
 		{re: "a]xyz", err: ParseError{Position: 1}},
 
-		{re: "/abc", delim: true, n: 4},
-		{re: "/abc/", delim: true, n: 5},
-		{re: "/abc/xyz", delim: true, n: 5},
-		{re: `/abc\/xyz`, delim: true, n: 9},
-		{re: `/abc\/xyz/`, delim: true, n: 10},
+		{re: "/abc", delim: true, expr: "/abc"},
+		{re: "/abc/", delim: true, expr: "/abc/"},
+		{re: "/abc/xyz", delim: true, expr: "/abc/"},
+		{re: `/abc\/xyz`, delim: true, expr: `/abc\/xyz`},
+		{re: `/abc\/xyz/`, delim: true, expr: `/abc\/xyz/`},
 		// No error, since we don't parse that far.
-		{re: `/abc/(`, delim: true, n: 5},
+		{re: `/abc/(`, delim: true, expr: `/abc/`},
 		// Delimiter must still be escaped in character classes.
 		// TODO(eaburns): implement character classes.
-		// {re: `/abc[/]xyz`, delim: true, n: 5},
-		// {re: `/abc[\/]xyz`, delim: true, n: 11},
+		// {re: `/abc[/]xyz`, delim: true, expr: `/abc[/`},
+		// {re: `/abc[\/]xyz`, delim: true, expr: `/abc[\/]xyz`},
 	}
 	for _, test := range tests {
-		re := []rune(test.re)
-		var n int
-		var err error
-		if test.delim {
-			_, n, err = CompileDelim(re)
-		} else {
-			_, err = Compile(re)
+		if !test.delim {
+			test.expr = test.re
 		}
+		re, err := Compile([]rune(test.re), Options{Delimited: test.delim, Literal: test.literal})
 		switch {
-		case test.err == nil && err != nil || n != test.n:
-			t.Errorf(`Compile("%s")=%d,"%v", want %d,nil`, test.re, n, err, test.n)
+		case test.err == nil && err != nil:
+			t.Errorf(`Compile("%s")="%v", want nil`, test.re, err)
 		case test.err != nil && err == nil:
-			t.Errorf(`Compile("%s")=%d,nil, want %v`, test.re, n, test.err)
+			t.Errorf(`Compile("%s")=nil, want %v`, test.re, test.err)
 		case test.err != nil && err != nil && test.err.(ParseError).Position != err.(ParseError).Position:
-			t.Errorf(`Compile("%s")=%d,"%v", want %d,"%v"`, test.re, n, err, test.n, test.err)
+			t.Errorf(`Compile("%s")="%v", want "%v"`, test.re, err, test.err)
+		}
+		if re == nil {
+			continue
+		}
+		if s := string(re.Expression()); s != test.expr {
+			t.Errorf(`Compile("%s").Expression()="%s", want "%s"`, test.re, s, test.expr)
 		}
 	}
 }

@@ -37,8 +37,14 @@ import (
 
 // A Regexp is the compiled form of a regular expression.
 type Regexp struct {
+	// Expr is the expression that compiled into this Regexp.
+	expr       []rune
 	start, end *node
 }
+
+// Expression returns the input expression
+// that was compiled into this Regexp.
+func (re *Regexp) Expression() []rune { return re.expr }
 
 type node struct {
 	out [2]struct {
@@ -51,6 +57,73 @@ type node struct {
 		adv bool
 		to  *node
 	}
+}
+
+// A ParseError records an error encountered while parsing a regular expression.
+type ParseError struct {
+	Position int
+	Message  string
+}
+
+func (e ParseError) Error() string { return strconv.Itoa(e.Position) + ": " + e.Message }
+
+// Options are compile-time options for regular expressions.
+type Options struct {
+	// Delimited states whether the first character
+	// in the string should be interpreted as a delimiter.
+	Delimited bool
+	// Reverse states whether the regular expression
+	// should be compiled for reverse match.
+	Reverse bool
+	// Literal states whether metacharacters should be interpreted as literals.
+	Literal bool
+}
+
+// Compile compiles a regular expression using the options.
+// The regular expression is parsed until either
+// the end of the input or an un-escaped closing delimiter.
+func Compile(rs []rune, opts Options) (re *Regexp, err error) {
+	defer func() {
+		switch e := recover().(type) {
+		case nil:
+			return
+		case ParseError:
+			re, err = nil, e
+		default:
+			panic(e)
+		}
+	}()
+
+	p := parser{rs: rs, reverse: opts.Reverse, literal: opts.Literal}
+	var n int
+	if opts.Delimited {
+		p.delim = p.rs[0]
+		p.rs = p.rs[1:]
+		n++
+	}
+
+	re = e0(&p)
+	n += p.pos
+	if re == nil {
+		re = &Regexp{start: new(node), end: new(node)}
+		re.start.out[0].to = re.end
+	}
+
+	switch p.peek() {
+	case cparen:
+		panic(ParseError{Position: p.pos, Message: "unmatched ')'"})
+	case cbrace:
+		panic(ParseError{Position: p.pos, Message: "unmatched ']'"})
+	}
+
+	if opts.Delimited && n < len(rs) {
+		if rs[n] != rs[0] {
+			panic("stopped before closing delimiter")
+		}
+		n++
+	}
+	re.expr = rs[:n]
+	return re, nil
 }
 
 type token rune
@@ -103,10 +176,10 @@ func (t token) String() string {
 }
 
 type parser struct {
-	rs        []rune
-	prev, pos int
-	delim     rune // -1 for no delimiter.
-	reverse   bool
+	rs               []rune
+	prev, pos        int
+	delim            rune // -1 for no delimiter.
+	reverse, literal bool
 }
 
 func (p *parser) eof() bool {
@@ -132,7 +205,11 @@ func (p *parser) next() (t token) {
 	}
 	p.prev = p.pos
 	p.pos++
-	switch r := p.rs[p.pos-1]; r {
+	r := p.rs[p.pos-1]
+	if p.literal {
+		return token(r)
+	}
+	switch r {
 	case '\\':
 		switch {
 		case p.pos == len(p.rs):
@@ -169,66 +246,6 @@ func (p *parser) next() (t token) {
 	default:
 		return token(r)
 	}
-}
-
-// A ParseError records an error encountered while parsing a regular expression.
-type ParseError struct {
-	Position int
-	Message  string
-}
-
-func (e ParseError) Error() string { return strconv.Itoa(e.Position) + ": " + e.Message }
-
-// CompileDelim compiles the string into a regular expression.
-// The first rune is assumed to be an opening delimiter.
-// The regular expression is parsed until either
-// the end of the input or an un-escaped closing delimiter.
-// The return value is the regular expression and the number of runes consumed,
-// including the closing delimiter if one was found.
-func CompileDelim(rs []rune) (re Regexp, n int, err error) {
-	re, n, err = compile(rs[1:], rs[0])
-	if err != nil {
-		return Regexp{}, 0, err
-	}
-	n++ // opening delimiter
-	if n < len(rs) {
-		if rs[n] != rs[0] {
-			panic("stopped before closing delimiter")
-		}
-		n++
-	}
-	return re, n, err
-}
-
-// Compile compiles the string into a regular expression.
-func Compile(rs []rune) (Regexp, error) {
-	re, _, err := compile(rs, -1)
-	return re, err
-}
-
-func compile(rs []rune, delim rune) (re Regexp, n int, err error) {
-	defer func() {
-		switch e := recover().(type) {
-		case nil:
-			return
-		case ParseError:
-			re, n, err = Regexp{}, 0, e
-		default:
-			panic(e)
-		}
-	}()
-	p := parser{rs: rs, delim: delim}
-	e := e0(&p)
-	if e == nil {
-		e = &Regexp{}
-	}
-	switch p.next() {
-	case cparen:
-		panic(ParseError{Position: p.pos - 1, Message: "unmatched ')'"})
-	case cbrace:
-		panic(ParseError{Position: p.pos - 1, Message: "unmatched ']'"})
-	}
-	return Regexp{}, p.pos, nil
 }
 
 func e0(p *parser) *Regexp {
