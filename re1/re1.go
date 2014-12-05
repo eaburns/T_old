@@ -40,6 +40,8 @@ type Regexp struct {
 	// Expr is the expression that compiled into this Regexp.
 	expr       []rune
 	start, end *node
+	// N is the number of states in the expression.
+	n int
 }
 
 // Expression returns the input expression
@@ -47,6 +49,7 @@ type Regexp struct {
 func (re *Regexp) Expression() []rune { return re.expr }
 
 type node struct {
+	n   int
 	out [2]struct {
 		// OK is given the previous and current token
 		// and returns true if the transition matches.
@@ -123,7 +126,28 @@ func Compile(rs []rune, opts Options) (re *Regexp, err error) {
 		n++
 	}
 	re.expr = rs[:n]
+	numberStates(re)
 	return re, nil
+}
+
+// NumberStates assigns a unique, small interger to each state
+// and sets Regexp.n to the number of states in the automata.
+func numberStates(re *Regexp) {
+	var s *node
+	stk := []*node{re.start}
+	re.n++
+	for len(stk) > 0 {
+		s, stk = stk[len(stk)-1], stk[:len(stk)-1]
+		for _, e := range s.out {
+			t := e.to
+			if t == nil || t == re.start || t.n > 0 {
+				continue
+			}
+			t.n = re.n
+			re.n++
+			stk = append(stk, t)
+		}
+	}
 }
 
 type token rune
