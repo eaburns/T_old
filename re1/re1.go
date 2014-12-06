@@ -32,6 +32,7 @@ A match to any part of a regular expression extends as far as possible without p
 package re1
 
 import (
+	"io"
 	"strconv"
 )
 
@@ -42,6 +43,9 @@ type Regexp struct {
 	start, end *node
 	// N is the number of states in the expression.
 	n int
+	// Nsub is the number of subexpressions,
+	// counting the 0th, which is the entire expression.
+	nsub int
 }
 
 // Expression returns the input expression
@@ -51,6 +55,10 @@ func (re *Regexp) Expression() []rune { return re.expr }
 type node struct {
 	n   int
 	out [2]edge
+	// sub==0 means no subexpression
+	// sub>0 means start of subexpression sub-1
+	// sub<0 means end of subexpression -(sub-1)
+	sub int
 }
 
 type edge struct {
@@ -66,51 +74,30 @@ func (e *edge) ok(p, c rune) bool {
 	return e.label != nil && e.label.ok(p, c)
 }
 
-func (e *edge) String() string {
-	var l string
-	if e.label == nil {
-		l = "ε"
-	} else {
-		l = e.label.String()
-	}
-	var t string
-	if e.to == nil {
-		t = "<nil>"
-	} else {
-		t = strconv.Itoa(e.to.n)
-	}
-	return "{ label: " + l + ", to: " + t + " }"
-}
-
 type label interface {
 	ok(prev, cur rune) bool
 	epsilon() bool
-	String() string
 }
 
 type dotLabel struct{}
 
 func (dotLabel) ok(_, c rune) bool { return c != '\n' }
 func (dotLabel) epsilon() bool     { return false }
-func (dotLabel) String() string    { return "." }
 
 type runeLabel rune
 
 func (r runeLabel) ok(_, c rune) bool { return c == rune(r) }
 func (r runeLabel) epsilon() bool     { return false }
-func (r runeLabel) String() string    { return string([]rune{rune(r)}) }
 
 type bolLabel struct{}
 
 func (r bolLabel) ok(p, _ rune) bool { return p == rune(eof) || p == '\n' }
 func (r bolLabel) epsilon() bool     { return true }
-func (r bolLabel) String() string    { return "<bol>" }
 
 type eolLabel struct{}
 
 func (r eolLabel) ok(_, c rune) bool { return c == rune(eof) || c == '\n' }
 func (r eolLabel) epsilon() bool     { return true }
-func (r eolLabel) String() string    { return "<eol>" }
 
 // A ParseError records an error encountered while parsing a regular expression.
 type ParseError struct {
@@ -147,7 +134,7 @@ func Compile(rs []rune, opts Options) (re *Regexp, err error) {
 		}
 	}()
 
-	p := parser{rs: rs, reverse: opts.Reverse, literal: opts.Literal}
+	p := parser{rs: rs, nsub: 1, reverse: opts.Reverse, literal: opts.Literal}
 	var n int
 	if opts.Delimited {
 		p.delim = p.rs[0]
@@ -161,6 +148,8 @@ func Compile(rs []rune, opts Options) (re *Regexp, err error) {
 		re = &Regexp{start: new(node), end: new(node)}
 		re.start.out[0].to = re.end
 	}
+	re = subexpr(re, 0)
+	re.nsub = p.nsub
 
 	switch p.peek() {
 	case cparen:
@@ -252,6 +241,7 @@ func (t token) String() string {
 type parser struct {
 	rs               []rune
 	prev, pos        int
+	nsub             int
 	delim            rune // -1 for no delimiter.
 	reverse, literal bool
 }
@@ -406,8 +396,8 @@ func e3(p *parser) *Regexp {
 		if t = p.next(); t != cparen {
 			panic(ParseError{Position: o, Message: "got " + t.String() + " wanted ')'"})
 		}
-		re.start.out[0].to = e.start
-		e.end.out[0].to = re.end
+		re = subexpr(e, p.nsub)
+		p.nsub++
 	case t == obrace:
 		panic("unimplemented")
 	case t == dot:
@@ -424,4 +414,139 @@ func e3(p *parser) *Regexp {
 		re.start.out[0].label = runeLabel(t)
 	}
 	return re
+}
+
+func subexpr(e *Regexp, n int) *Regexp {
+	re := &Regexp{start: new(node), end: new(node)}
+	re.start.out[0].to = e.start
+	e.end.out[0].to = re.end
+	re.start.sub = n + 1
+	re.end.sub = -n - 1
+	return re
+}
+
+// Match returns the offsets of the longest match or nil for no match.
+// Bol indicates whether the rune just before the first to be read is a newline;
+// if so, the reader is said to be at the beginning of the line.
+func (re *Regexp) Match(in io.RuneReader, bol bool) ([][2]int, error) {
+	m, err := newMach(re, in, bol)
+	if err != nil {
+		return nil, err
+	}
+	return m.match()
+}
+
+type mach struct {
+	re   *Regexp
+	in   io.RuneReader
+	at   int
+	p, c rune
+	es   [][2]int
+}
+
+type state struct {
+	n  *node
+	es [][2]int
+}
+
+func newMach(re *Regexp, in io.RuneReader, bol bool) (*mach, error) {
+	m := mach{
+		re: re,
+		in: in,
+		p:  rune(eof),
+	}
+	if err := m.consume(); err != nil {
+		return nil, err
+	}
+	if bol {
+		m.p = '\n'
+	}
+	return &m, nil
+}
+
+func (m *mach) match() ([][2]int, error) {
+	states := []state{m.makeState(m.re.start)}
+	for {
+		states = m.εclose(states)
+		if len(states) == 0 {
+			return m.es, nil
+		}
+		states = m.advance(states)
+		if err := m.consume(); err != nil {
+			return nil, err
+		}
+	}
+}
+
+func (m *mach) makeState(n *node) state {
+	return state{n: n, es: make([][2]int, m.re.nsub)}
+}
+
+func (m *mach) εclose(in []state) []state {
+	seen := make([]bool, m.re.n)
+	for _, s := range in {
+		seen[s.n.n] = true
+	}
+	var out []state
+	for len(in) > 0 {
+		s := in[len(in)-1]
+		in = in[:len(in)-1]
+		switch n := s.n.sub; {
+		case n > 0:
+			s.es[n-1][0] = m.at
+		case n < 0:
+			s.es[-n-1][1] = m.at
+		}
+		if s.n == m.re.end { // match
+			m.es = s.es
+			continue
+		}
+		adv := false
+		for _, e := range s.n.out {
+			adv = adv || (e.to != nil && !e.epsilon())
+			if e.to == nil || !e.epsilon() || seen[e.to.n] {
+				continue
+			}
+			seen[e.to.n] = true
+			if e.label == nil || e.ok(m.p, m.c) {
+				t := m.makeState(e.to)
+				copy(t.es, s.es)
+				in = append(in, t)
+			}
+		}
+		if adv {
+			out = append(out, s)
+		}
+	}
+	m.at++
+	return out
+}
+
+func (m *mach) advance(in []state) []state {
+	seen := make([]bool, m.re.n)
+	var out []state
+	for _, s := range in {
+		for _, e := range s.n.out {
+			if e.to != nil && !seen[e.to.n] && !e.epsilon() && e.ok(m.p, m.c) {
+				seen[e.to.n] = true
+				t := m.makeState(e.to)
+				copy(t.es, s.es)
+				out = append(out, t)
+			}
+		}
+	}
+	return out
+}
+
+func (m *mach) consume() error {
+	m.p = m.c
+	switch r, _, err := m.in.ReadRune(); {
+	case err == io.EOF:
+		m.c = rune(eof)
+	case err != nil:
+		return err
+	default:
+		m.c = r
+	}
+	return nil
 }

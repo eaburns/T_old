@@ -1,6 +1,9 @@
 package re1
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 // TestJustParse just tests parse errors (or lack thereof).
 func TestJustParse(t *testing.T) {
@@ -73,6 +76,63 @@ func TestJustParse(t *testing.T) {
 		}
 		if s := string(re.Expression()); s != test.expr {
 			t.Errorf(`Compile("%s").Expression()="%s", want "%s"`, test.re, s, test.expr)
+		}
+	}
+}
+
+func TestMatch(t *testing.T) {
+	tests := []struct {
+		re, str string
+		match   []string
+	}{
+		{"", "", []string{""}},
+		{"a", "a", []string{"a"}},
+		{"ab", "ab", []string{"ab"}},
+		{"ab", "abcdefg", []string{"ab"}},
+		{"a|b", "a", []string{"a"}},
+		{"a|b", "b", []string{"b"}},
+		{"a*", "", []string{""}},
+		{"a*", "a", []string{"a"}},
+		{"a*", "aaa", []string{"aaa"}},
+		{"a*", "aaabcd", []string{"aaa"}},
+		{"ba+", "b", []string{""}},
+		{"ba+", "ba", []string{"ba"}},
+		{"ba+", "baaaaad", []string{"baaaaa"}},
+		{"ba?d", "bd", []string{"bd"}},
+		{"ba?d", "bad", []string{"bad"}},
+		{"(abc)|(def)", "abc", []string{"abc", "abc", ""}},
+		{"(abc)|(def)", "abcdef", []string{"abc", "abc", ""}},
+		{"(abc)|(def)", "def", []string{"def", "", "def"}},
+		{"(abc)|(def)", "defabc", []string{"def", "", "def"}},
+		{"(abc)*", "abcabcdef", []string{"abcabc", "abc"}},
+		{"(abc)*|(def)*", "abcabcdef", []string{"abcabc", "abc", ""}},
+		{"(abc)*|(def)*", "defdefabc", []string{"defdef", "", "def"}},
+		{"(abc|def)*", "defdefabc", []string{"defdefabc", "abc"}},
+	}
+	for _, test := range tests {
+		re, err := Compile([]rune(test.re), Options{})
+		if err != nil {
+			t.Fatalf(`Compile("%s")=%v, want nil`, test.re, err)
+		}
+		b := bytes.NewBufferString(test.str)
+		es, err := re.Match(b, false)
+		if err != nil {
+			t.Fatalf(`Compile("%s").Match("%s")=%v want nil`, test.re, test.str, err)
+		}
+
+		rs := []rune(test.str)
+		ss := make([]string, len(es))
+		for i, e := range es {
+			if e[0] < e[1] && e[0] >= 0 && e[1] <= len(rs) {
+				ss[i] = string(rs[e[0]:e[1]])
+			}
+		}
+		for i, s := range ss {
+			if s != test.match[i] {
+				t.Errorf(`Compile("%s").Match("%s")=%v (%v), want "%v"`,
+					test.re, test.str, es, ss, test.match)
+				break
+			}
 		}
 	}
 }
