@@ -46,17 +46,38 @@ func TestJustParse(t *testing.T) {
 		{re: "a]", err: ParseError{Position: 1}},
 		{re: "a]xyz", err: ParseError{Position: 1}},
 
+		// Character classes.
+		{re: `[]`, err: ParseError{Position: 0}},
+		{re: `[`, err: ParseError{Position: 0}},
+		{re: `[a-`, err: ParseError{Position: 2}},
+		{re: `[b-a`, err: ParseError{Position: 3}},
+		{re: `[^`, err: ParseError{Position: 0}},
+		{re: `[^a-`, err: ParseError{Position: 3}},
+		{re: `[^b-a`, err: ParseError{Position: 4}},
+		{re: `[xyz`, err: ParseError{Position: 0}},
+		{re: `[xyza-`, err: ParseError{Position: 5}},
+		{re: `[xyzb-a`, err: ParseError{Position: 6}},
+		{re: `[^xyz`, err: ParseError{Position: 0}},
+		{re: `[^xyza-`, err: ParseError{Position: 6}},
+		{re: `[^xyzb-a`, err: ParseError{Position: 7}},
+		{re: `[a]`},
+		{re: `[^a]`},
+		{re: `[abc]`},
+		{re: `[^abc]`},
+		{re: `[a-zA-Z0-9_]`},
+		{re: `[^a-zA-Z0-9_]`},
+		{re: `[\^\-\]]`},
+
+		// Delimiters.
 		{re: "/abc", delim: true, expr: "/abc"},
 		{re: "/abc/", delim: true, expr: "/abc/"},
 		{re: "/abc/xyz", delim: true, expr: "/abc/"},
 		{re: `/abc\/xyz`, delim: true, expr: `/abc\/xyz`},
 		{re: `/abc\/xyz/`, delim: true, expr: `/abc\/xyz/`},
-		// No error, since we don't parse that far.
+		// No error, since we hit the delimiter before the would-be error.
 		{re: `/abc/(`, delim: true, expr: `/abc/`},
-		// Delimiter must still be escaped in character classes.
-		// TODO(eaburns): implement character classes.
-		// {re: `/abc[/]xyz`, delim: true, expr: `/abc[/`},
-		// {re: `/abc[\/]xyz`, delim: true, expr: `/abc[\/]xyz`},
+		{re: `/abc[/]xyz`, delim: true, err: ParseError{Position: 4}},
+		{re: `/abc[\/]xyz`, delim: true, expr: `/abc[\/]xyz`},
 	}
 	for _, test := range tests {
 		if !test.delim {
@@ -108,6 +129,21 @@ func TestMatch(t *testing.T) {
 		{"(abc)*|(def)*", "abcabcdef", []string{"abcabc", "abc", ""}},
 		{"(abc)*|(def)*", "defdefabc", []string{"defdef", "", "def"}},
 		{"(abc|def)*", "defdefabc", []string{"defdefabc", "abc"}},
+
+		{`[a]*`, `aab`, []string{`aa`}},
+		{`[abc]*`, `abcdefg`, []string{`abc`}},
+		{`[a-c]*`, `abcdefg`, []string{`abc`}},
+		{`[a-cdef]*`, `abcdefg`, []string{`abcdef`}},
+		{`[abcd-f]*`, `abcdefg`, []string{`abcdef`}},
+		{`[a-cd-f]*`, `abcdefg`, []string{`abcdef`}},
+		{`[a-f]*`, `abcdefg`, []string{`abcdef`}},
+		{`[*|+?()]*`, `*|+?()END`, []string{`*|+?()`}},
+		{`[\^\-\]]*`, `^-]]]^^-END`, []string{`^-]]]^^-`}},
+		{`[[]*`, `[[[END`, []string{`[[[`}},
+		{`[^d]*`, `abcdef`, []string{`abc`}},
+		{`[^d-f]*`, `abcef`, []string{`abc`}},
+		{`[^^]*`, `a^`, []string{`a`}},
+		{`[^abc]*`, "xyz\n", []string{`xyz`}},
 	}
 	for _, test := range tests {
 		re, err := Compile([]rune(test.re), Options{})

@@ -86,18 +86,40 @@ func (dotLabel) epsilon() bool     { return false }
 
 type runeLabel rune
 
-func (r runeLabel) ok(_, c rune) bool { return c == rune(r) }
-func (r runeLabel) epsilon() bool     { return false }
+func (l runeLabel) ok(_, c rune) bool { return c == rune(l) }
+func (runeLabel) epsilon() bool       { return false }
 
 type bolLabel struct{}
 
-func (r bolLabel) ok(p, _ rune) bool { return p == eof || p == '\n' }
-func (r bolLabel) epsilon() bool     { return true }
+func (bolLabel) ok(p, _ rune) bool { return p == eof || p == '\n' }
+func (bolLabel) epsilon() bool     { return true }
 
 type eolLabel struct{}
 
-func (r eolLabel) ok(_, c rune) bool { return c == eof || c == '\n' }
-func (r eolLabel) epsilon() bool     { return true }
+func (eolLabel) ok(_, c rune) bool { return c == eof || c == '\n' }
+func (eolLabel) epsilon() bool     { return true }
+
+type classLabel struct {
+	runes  []rune
+	ranges [][2]rune
+	neg    bool
+}
+
+func (l *classLabel) ok(_, c rune) bool {
+	for _, r := range l.runes {
+		if c == r {
+			return !l.neg
+		}
+	}
+	for _, r := range l.ranges {
+		if r[0] <= c && c <= r[1] {
+			return !l.neg
+		}
+	}
+	return l.neg
+}
+
+func (classLabel) epsilon() bool { return false }
 
 // A ParseError records an error encountered while parsing a regular expression.
 type ParseError struct {
@@ -138,8 +160,7 @@ func Compile(rs []rune, opts Options) (re *Regexp, err error) {
 	var n int
 	if opts.Delimited {
 		p.delim = p.rs[0]
-		p.rs = p.rs[1:]
-		n++
+		p.pos = 1
 	}
 
 	re = e0(&p)
@@ -399,7 +420,7 @@ func e3(p *parser) *Regexp {
 		re = subexpr(e, p.nsub)
 		p.nsub++
 	case t == obrace:
-		panic("unimplemented")
+		re.start.out[0].label = charClass(p)
 	case t == dot:
 		re.start.out[0].label = dotLabel{}
 	case t == carrot && !p.reverse || t == dollar && p.reverse:
@@ -425,9 +446,56 @@ func subexpr(e *Regexp, n int) *Regexp {
 	return re
 }
 
-// Match returns the offsets of the longest match or nil for no match.
-// Bol indicates whether the rune just before the first to be read is a newline;
-// if so, the reader is said to be at the beginning of the line.
+func charClass(p *parser) label {
+	var c classLabel
+	p0 := p.pos - 1
+	if p.pos < len(p.rs) && p.rs[p.pos] == '^' {
+		c.neg = true
+		p.pos++
+	}
+	for {
+		r := eof
+		if p.pos < len(p.rs) {
+			r = p.rs[p.pos]
+			p.pos++
+		}
+		switch {
+		case r == ']':
+			if len(c.runes) == 0 && len(c.ranges) == 0 {
+				panic(ParseError{Position: p0, Message: "missing operand for '['"})
+			}
+			if c.neg {
+				c.runes = append(c.runes, '\n')
+			}
+			return &c
+		case r == eof || r == p.delim:
+			panic(ParseError{Position: p0, Message: "unclosed ]"})
+		case r == '-':
+			panic(ParseError{Position: p.pos - 1, Message: "malformed []"})
+		case r == '\\' && p.pos < len(p.rs):
+			r = p.rs[p.pos]
+			p.pos++
+		}
+		if p.pos >= len(p.rs) || p.rs[p.pos] != '-' {
+			c.runes = append(c.runes, r)
+			continue
+		}
+		p.pos++
+		if p.pos >= len(p.rs) {
+			panic(ParseError{Position: p.pos - 1, Message: "range incomplete"})
+		}
+		u := p.rs[p.pos]
+		if u <= r {
+			panic(ParseError{Position: p.pos, Message: "range not ascending"})
+		}
+		p.pos++
+		c.ranges = append(c.ranges, [2]rune{r, u})
+	}
+}
+
+// Match returns the offsets of the longest match.
+// Bol indicates whether the rune just before the first to be read is a newline.
+// If so, the reader is said to be at the beginning of the line.
 func (re *Regexp) Match(in io.RuneReader, bol bool) ([][2]int, error) {
 	m, err := newMach(re, in, bol)
 	if err != nil {
