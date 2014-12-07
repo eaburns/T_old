@@ -2,6 +2,8 @@ package re1
 
 import (
 	"bytes"
+	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -102,92 +104,169 @@ func TestJustParse(t *testing.T) {
 }
 
 func TestMatch(t *testing.T) {
+	rev := Options{Reverse: true}
+	lit := Options{Literal: true}
+	del := Options{Delimited: true}
 	tests := []struct {
 		re, str string
-		match   []string
+		want    []string
+		opts    Options
 	}{
 		// No match.
-		{"a", "", nil},
-		{"a", "x", nil},
-		{"a", "xyz", nil},
-		{"ba+", "b", nil},
-		{"[a]", "xyz", nil},
-		{"[^a]", "a", nil},
+		{re: "a", str: "", want: nil},
+		{re: "a", str: "x", want: nil},
+		{re: "a", str: "xyz", want: nil},
+		{re: "ba+", str: "b", want: nil},
+		{re: "[a]", str: "xyz", want: nil},
+		{re: "[^a]", str: "a", want: nil},
+		{re: ".", str: "\n", want: nil},
 
 		// Empty match.
-		{"", "", []string{""}},
-		{"a*", "x", []string{""}},
-		{"a?", "x", []string{""}},
-		{"[a]*", "xyz", []string{""}},
-		{"[^a]*", "aaa", []string{""}},
-		{"[^a]*", "", []string{""}},
+		{re: "", str: "", want: []string{""}},
+		{re: "a*", str: "x", want: []string{""}},
+		{re: "a?", str: "x", want: []string{""}},
+		{re: "[a]*", str: "xyz", want: []string{""}},
+		{re: "[^a]*", str: "aaa", want: []string{""}},
+		{re: "[^a]*", str: "", want: []string{""}},
 
-		{"a", "a", []string{"a"}},
-		{"ab", "ab", []string{"ab"}},
-		{"ab", "abcdefg", []string{"ab"}},
-		{"a|b", "a", []string{"a"}},
-		{"a|b", "b", []string{"b"}},
-		{"a*", "", []string{""}},
-		{"a*", "a", []string{"a"}},
-		{"a*", "aaa", []string{"aaa"}},
-		{"a*", "aaabcd", []string{"aaa"}},
-		{"ba+", "ba", []string{"ba"}},
-		{"ba+", "baaaaad", []string{"baaaaa"}},
-		{"ba?d", "bd", []string{"bd"}},
-		{"ba?d", "bad", []string{"bad"}},
-		{"(abc)|(def)", "abc", []string{"abc", "abc", ""}},
-		{"(abc)|(def)", "abcdef", []string{"abc", "abc", ""}},
-		{"(abc)|(def)", "def", []string{"def", "", "def"}},
-		{"(abc)|(def)", "defabc", []string{"def", "", "def"}},
-		{"(abc)*", "abcabcdef", []string{"abcabc", "abc"}},
-		{"(abc)*|(def)*", "abcabcdef", []string{"abcabc", "abc", ""}},
-		{"(abc)*|(def)*", "defdefabc", []string{"defdef", "", "def"}},
-		{"(abc|def)*", "defdefabc", []string{"defdefabc", "abc"}},
+		{re: "a", str: "a", want: []string{"a"}},
+		{re: "☺", str: "☺", want: []string{"☺"}},
+		{re: "ab", str: "ab", want: []string{"ab"}},
+		{re: "ab", str: "abcdefg", want: []string{"ab"}},
+		{re: "a|b", str: "a", want: []string{"a"}},
+		{re: "a|b", str: "b", want: []string{"b"}},
+		{re: "a*", str: "", want: []string{""}},
+		{re: "a*", str: "a", want: []string{"a"}},
+		{re: "a*", str: "aaa", want: []string{"aaa"}},
+		{re: "a*", str: "aaabcd", want: []string{"aaa"}},
+		{re: "☺*", str: "☺☺☹", want: []string{"☺☺"}},
+		{re: "ba+", str: "ba", want: []string{"ba"}},
+		{re: "ba+", str: "baaaaad", want: []string{"baaaaa"}},
+		{re: "ba?d", str: "bd", want: []string{"bd"}},
+		{re: "ba?d", str: "bad", want: []string{"bad"}},
 
-		{`[a]*`, `aab`, []string{`aa`}},
-		{`[abc]*`, `abcdefg`, []string{`abc`}},
-		{`[a-c]*`, `abcdefg`, []string{`abc`}},
-		{`[a-cdef]*`, `abcdefg`, []string{`abcdef`}},
-		{`[abcd-f]*`, `abcdefg`, []string{`abcdef`}},
-		{`[a-cd-f]*`, `abcdefg`, []string{`abcdef`}},
-		{`[a-f]*`, `abcdefg`, []string{`abcdef`}},
-		{`[*|+?()]*`, `*|+?()END`, []string{`*|+?()`}},
-		{`[\^\-\]]*`, `^-]]]^^-END`, []string{`^-]]]^^-`}},
-		{`[[]*`, `[[[END`, []string{`[[[`}},
-		{`[^d]*`, `abcdef`, []string{`abc`}},
-		{`[^d-f]*`, `abcef`, []string{`abc`}},
-		{`[^^]*`, `a^`, []string{`a`}},
-		{`[^abc]*`, "xyz\n", []string{`xyz`}},
+		{re: ".*", str: "abcdefg\n", want: []string{"abcdefg"}},
+		{re: "a.*", str: "abcdefg\n", want: []string{"abcdefg"}},
+		{re: ".*g", str: "abcdefg\n", want: []string{"abcdefg"}},
+		{re: "a.*g", str: "abcdefg\n", want: []string{"abcdefg"}},
+
+		{re: "(abc)|(def)", str: "abc", want: []string{"abc", "abc", ""}},
+		{re: "(abc)|(def)", str: "abcdef", want: []string{"abc", "abc", ""}},
+		{re: "(abc)|(def)", str: "def", want: []string{"def", "", "def"}},
+		{re: "(abc)|(def)", str: "defabc", want: []string{"def", "", "def"}},
+		{re: "(abc)*", str: "abcabcdef", want: []string{"abcabc", "abc"}},
+		{re: "(abc)*|(def)*", str: "abcabcdef", want: []string{"abcabc", "abc", ""}},
+		{re: "(abc)*|(def)*", str: "defdefabc", want: []string{"defdef", "", "def"}},
+		{re: "(abc|def)*", str: "defdefabc", want: []string{"defdefabc", "abc"}},
+		{re: "(abc)d|abce", str: "abce", want: []string{"abce", ""}},
+		{re: "abcd|(abc)e", str: "abcd", want: []string{"abcd", ""}},
+		{re: "(☺|☹)*", str: "☺☹☺☹☺☹☺", want: []string{"☺☹☺☹☺☹☺", "☺"}},
+
+		{re: `[a]*`, str: `aab`, want: []string{`aa`}},
+		{re: `[abc]*`, str: `abcdefg`, want: []string{`abc`}},
+		{re: `[a-c]*`, str: `abcdefg`, want: []string{`abc`}},
+		{re: `[a-cdef]*`, str: `abcdefg`, want: []string{`abcdef`}},
+		{re: `[abcd-f]*`, str: `abcdefg`, want: []string{`abcdef`}},
+		{re: `[a-cd-f]*`, str: `abcdefg`, want: []string{`abcdef`}},
+		{re: `[a-f]*`, str: `abcdefg`, want: []string{`abcdef`}},
+		{re: `[_a-zA-Z0-9]*`, str: "_ident", want: []string{`_ident`}},
+		{re: `[*|+?()]*`, str: `*|+?()☺`, want: []string{`*|+?()`}},
+		{re: `[\^\-\]]*`, str: `^-]]]^^-☺`, want: []string{`^-]]]^^-`}},
+		{re: `[[]*`, str: `[[[☺`, want: []string{`[[[`}},
+		{re: `[^d]*`, str: `abcdef`, want: []string{`abc`}},
+		{re: `[^d-f]*`, str: `abcef`, want: []string{`abc`}},
+		{re: `[^^]*`, str: `a^`, want: []string{`a`}},
+		{re: `[^abc]*`, str: "xyz\n", want: []string{`xyz`}},
+
+		{opts: rev, re: "a", str: "", want: nil},
+		{opts: rev, re: "a", str: "x", want: nil},
+		{opts: rev, re: "", str: "", want: []string{""}},
+		{opts: rev, re: "a", str: "ba", want: []string{"a"}},
+		{opts: rev, re: "a*", str: "baaaa", want: []string{"aaaa"}},
+		{opts: rev, re: "ba*", str: "baaaa", want: []string{"baaaa"}},
+		{opts: rev, re: "(abc|def)*g", str: "defabcg", want: []string{"defabcg", "def"}},
+
+		{opts: lit, re: "a", str: "", want: nil},
+		{opts: lit, re: "a", str: "x", want: nil},
+		{opts: lit, re: "", str: "", want: []string{""}},
+		{opts: lit, re: "[abc]()*?+.", str: "[abc]()*?+.", want: []string{"[abc]()*?+."}},
+		{opts: lit, re: "[abc]()*?+.", str: "[abc]()*?+.☺", want: []string{"[abc]()*?+."}},
+		{opts: lit, re: "Hello, 世界", str: "Hello, 世界!!!!", want: []string{"Hello, 世界"}},
+
+		{opts: del, re: "/abc", str: "abc", want: []string{"abc"}},
+		{opts: del, re: "/abc/", str: "abc", want: []string{"abc"}},
+		{opts: del, re: "/abc/def", str: "abc", want: []string{"abc"}},
+		{opts: del, re: `/abc\//def`, str: "abc/", want: []string{"abc/"}},
+		{opts: del, re: `/[abc\/]*/def`, str: "abc/", want: []string{"abc/"}},
+		{opts: del, re: `/(.*),\n/def`, str: "hi,\n", want: []string{"hi,\n", "hi"}},
+
+		{
+			opts: Options{Literal: true, Reverse: true},
+			re:   "[abc]()*?+.",
+			str:  "☺[abc]()*?+.",
+			want: []string{"[abc]()*?+."},
+		},
+
+		{
+			// Not sure why, but might as well make sure it works.
+			opts: Options{Literal: true, Delimited: true},
+			re:   "/[abc]()*?+./",
+			str:  "[abc]()*?+.",
+			want: []string{"[abc]()*?+."},
+		},
 	}
 	for _, test := range tests {
-		re, err := Compile([]rune(test.re), Options{})
+		re, err := Compile([]rune(test.re), test.opts)
 		if err != nil {
-			t.Fatalf(`Compile("%s")=%v, want nil`, test.re, err)
+			t.Fatalf(`Compile("%s", %+v)=%v, want nil`, test.re, test.opts, err)
 		}
-		b := bytes.NewBufferString(test.str)
+		str := test.str
+		if test.opts.Reverse {
+			str = reverse(test.str)
+		}
+		b := bytes.NewBufferString(str)
 		es, err := re.Match(b, false)
 		if err != nil {
-			t.Fatalf(`Compile("%s").Match("%s")=%v want nil`, test.re, test.str, err)
+			t.Fatalf(`Compile("%s", %+v).Match("%s")=%v want nil`,
+				test.re, test.opts, test.str, err)
 		}
-
-		rs := []rune(test.str)
-		ss := make([]string, len(es))
-		for i, e := range es {
-			if e[0] < e[1] && e[0] >= 0 && e[1] <= len(rs) {
-				ss[i] = string(rs[e[0]:e[1]])
-			}
-		}
-		if len(test.match) != len(es) {
-			t.Errorf(`Compile("%s").Match("%s")=%v (len=%d), want %v (len=%d)`,
-				test.re, test.str, es, len(es), test.match, len(test.match))
+		ms := matches(test.str, es, test.opts.Reverse)
+		if (es == nil && test.want == nil) ||
+			(len(es) == len(test.want) && reflect.DeepEqual(ms, test.want)) {
 			continue
 		}
-		for i, s := range ss {
-			if s != test.match[i] {
-				t.Errorf(`Compile("%s").Match("%s")=%v (%v), want "%v"`,
-					test.re, test.str, es, ss, test.match)
-				break
+		got := "<nil>"
+		if es != nil {
+			got = fmt.Sprintf("%v (%v)", es, ms)
+		}
+		want := "<nil>"
+		if test.want != nil {
+			want = fmt.Sprintf("%v", test.want)
+		}
+		t.Errorf(`Compile("%s", %+v).Match("%s")=%s, want %s`,
+			test.re, test.opts, test.str, got, want)
+	}
+}
+
+func matches(str string, es [][2]int, rev bool) []string {
+	rs := []rune(str)
+	ss := make([]string, len(es))
+	for i, e := range es {
+		if e[0] < e[1] && e[0] >= 0 && e[1] <= len(rs) {
+			l, u := e[0], e[1]
+			if rev {
+				l, u = len(rs)-u, len(rs)-l
 			}
+			ss[i] = string(rs[l:u])
 		}
 	}
+	return ss
+}
+
+func reverse(s string) string {
+	r := bytes.NewBuffer(nil)
+	for i := len(s) - 1; i >= 0; i-- {
+		r.WriteByte(s[i])
+	}
+	return r.String()
 }
