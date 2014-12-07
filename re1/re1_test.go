@@ -106,7 +106,22 @@ func TestMatch(t *testing.T) {
 		re, str string
 		match   []string
 	}{
+		// No match.
+		{"a", "", nil},
+		{"a", "x", nil},
+		{"a", "xyz", nil},
+		{"ba+", "b", nil},
+		{"[a]", "xyz", nil},
+		{"[^a]", "a", nil},
+
+		// Empty match.
 		{"", "", []string{""}},
+		{"a*", "x", []string{""}},
+		{"a?", "x", []string{""}},
+		{"[a]*", "xyz", []string{""}},
+		{"[^a]*", "aaa", []string{""}},
+		{"[^a]*", "", []string{""}},
+
 		{"a", "a", []string{"a"}},
 		{"ab", "ab", []string{"ab"}},
 		{"ab", "abcdefg", []string{"ab"}},
@@ -116,7 +131,6 @@ func TestMatch(t *testing.T) {
 		{"a*", "a", []string{"a"}},
 		{"a*", "aaa", []string{"aaa"}},
 		{"a*", "aaabcd", []string{"aaa"}},
-		{"ba+", "b", []string{""}},
 		{"ba+", "ba", []string{"ba"}},
 		{"ba+", "baaaaad", []string{"baaaaa"}},
 		{"ba?d", "bd", []string{"bd"}},
@@ -162,6 +176,11 @@ func TestMatch(t *testing.T) {
 			if e[0] < e[1] && e[0] >= 0 && e[1] <= len(rs) {
 				ss[i] = string(rs[e[0]:e[1]])
 			}
+		}
+		if len(test.match) != len(es) {
+			t.Errorf(`Compile("%s").Match("%s")=%v (len=%d), want %v (len=%d)`,
+				test.re, test.str, es, len(es), test.match, len(test.match))
+			continue
 		}
 		for i, s := range ss {
 			if s != test.match[i] {

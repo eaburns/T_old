@@ -106,6 +106,9 @@ type classLabel struct {
 }
 
 func (l *classLabel) ok(_, c rune) bool {
+	if c == eof {
+		return false
+	}
 	for _, r := range l.runes {
 		if c == r {
 			return !l.neg
@@ -493,7 +496,7 @@ func charClass(p *parser) label {
 	}
 }
 
-// Match returns the offsets of the longest match.
+// Match returns the offsets of the longest match or nil for no match.
 // Bol indicates whether the rune just before the first to be read is a newline.
 // If so, the reader is said to be at the beginning of the line.
 func (re *Regexp) Match(in io.RuneReader, bol bool) ([][2]int, error) {
@@ -565,7 +568,7 @@ func (m *mach) εclose(in []state) []state {
 		case n < 0:
 			s.es[-n-1][1] = m.at
 		}
-		if s.n == m.re.end { // match
+		if s.n == m.re.end && (s.es[0][0] < s.es[0][1] || s.es[0][1] == 0) { // match
 			m.es = s.es
 			continue
 		}
