@@ -91,12 +91,12 @@ func (r runeLabel) epsilon() bool     { return false }
 
 type bolLabel struct{}
 
-func (r bolLabel) ok(p, _ rune) bool { return p == rune(eof) || p == '\n' }
+func (r bolLabel) ok(p, _ rune) bool { return p == eof || p == '\n' }
 func (r bolLabel) epsilon() bool     { return true }
 
 type eolLabel struct{}
 
-func (r eolLabel) ok(_, c rune) bool { return c == rune(eof) || c == '\n' }
+func (r eolLabel) ok(_, c rune) bool { return c == eof || c == '\n' }
 func (r eolLabel) epsilon() bool     { return true }
 
 // A ParseError records an error encountered while parsing a regular expression.
@@ -193,8 +193,8 @@ type token rune
 
 // Meta tokens are negative numbers.
 const (
-	eof token = -1 - iota
-	or
+	eof rune  = -1
+	or  token = -2 - iota
 	dot
 	star
 	plus
@@ -209,7 +209,7 @@ const (
 
 func (t token) String() string {
 	switch t {
-	case eof:
+	case token(eof):
 		return "EOF"
 	case or:
 		return "|"
@@ -256,7 +256,7 @@ func (p *parser) back() {
 
 func (p *parser) peek() token {
 	if p.eof() {
-		return eof
+		return token(eof)
 	}
 	t := p.next()
 	p.back()
@@ -265,7 +265,7 @@ func (p *parser) peek() token {
 
 func (p *parser) next() (t token) {
 	if p.eof() {
-		return eof
+		return token(eof)
 	}
 	p.prev = p.pos
 	p.pos++
@@ -373,7 +373,7 @@ func e2p(l *Regexp, p *parser) *Regexp {
 		re.start.out[1].to = l.end
 		re.end = l.end
 		break
-	case eof:
+	case token(eof):
 		return l
 	default:
 		p.back()
@@ -453,7 +453,7 @@ func newMach(re *Regexp, in io.RuneReader, bol bool) (*mach, error) {
 	m := mach{
 		re: re,
 		in: in,
-		p:  rune(eof),
+		p:  eof,
 	}
 	if err := m.consume(); err != nil {
 		return nil, err
@@ -542,7 +542,7 @@ func (m *mach) consume() error {
 	m.p = m.c
 	switch r, _, err := m.in.ReadRune(); {
 	case err == io.EOF:
-		m.c = rune(eof)
+		m.c = eof
 	case err != nil:
 		return err
 	default:
