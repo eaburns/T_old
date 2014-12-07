@@ -50,17 +50,67 @@ func (re *Regexp) Expression() []rune { return re.expr }
 
 type node struct {
 	n   int
-	out [2]struct {
-		// OK is given the previous and current token
-		// and returns true if the transition matches.
-		ok func(prev, cur rune) bool
-		// Adv is true if the transition advances the token,
-		// otherwise it returns false.
-		// If adv==false, this is an ε transition.
-		adv bool
-		to  *node
-	}
+	out [2]edge
 }
+
+type edge struct {
+	label label
+	to    *node
+}
+
+func (e *edge) epsilon() bool {
+	return e.label == nil || e.label.epsilon()
+}
+
+func (e *edge) ok(p, c rune) bool {
+	return e.label != nil && e.label.ok(p, c)
+}
+
+func (e *edge) String() string {
+	var l string
+	if e.label == nil {
+		l = "ε"
+	} else {
+		l = e.label.String()
+	}
+	var t string
+	if e.to == nil {
+		t = "<nil>"
+	} else {
+		t = strconv.Itoa(e.to.n)
+	}
+	return "{ label: " + l + ", to: " + t + " }"
+}
+
+type label interface {
+	ok(prev, cur rune) bool
+	epsilon() bool
+	String() string
+}
+
+type dotLabel struct{}
+
+func (dotLabel) ok(_, c rune) bool { return c != '\n' }
+func (dotLabel) epsilon() bool     { return false }
+func (dotLabel) String() string    { return "." }
+
+type runeLabel rune
+
+func (r runeLabel) ok(_, c rune) bool { return c == rune(r) }
+func (r runeLabel) epsilon() bool     { return false }
+func (r runeLabel) String() string    { return string([]rune{rune(r)}) }
+
+type bolLabel struct{}
+
+func (r bolLabel) ok(p, _ rune) bool { return p == rune(eof) || p == '\n' }
+func (r bolLabel) epsilon() bool     { return true }
+func (r bolLabel) String() string    { return "<bol>" }
+
+type eolLabel struct{}
+
+func (r eolLabel) ok(_, c rune) bool { return c == rune(eof) || c == '\n' }
+func (r eolLabel) epsilon() bool     { return true }
+func (r eolLabel) String() string    { return "<eol>" }
 
 // A ParseError records an error encountered while parsing a regular expression.
 type ParseError struct {
@@ -361,23 +411,17 @@ func e3(p *parser) *Regexp {
 	case t == obrace:
 		panic("unimplemented")
 	case t == dot:
-		re.start.out[0].ok = func(_, c rune) bool { return c != '\n' }
-		re.start.out[0].adv = true
+		re.start.out[0].label = dotLabel{}
 	case t == carrot && !p.reverse || t == dollar && p.reverse:
-		re.start.out[0].ok = func(p, _ rune) bool {
-			return p == rune(eof) || p == '\n'
-		}
+		re.start.out[0].label = bolLabel{}
 	case t == carrot && p.reverse || t == dollar && !p.reverse:
-		re.start.out[0].ok = func(_, c rune) bool {
-			return c == rune(eof) || c == '\n'
-		}
+		re.start.out[0].label = eolLabel{}
 	default:
 		if t < 0 {
 			p.back()
 			return nil
 		}
-		re.start.out[0].ok = func(_, c rune) bool { return c == rune(t) }
-		re.start.out[0].adv = true
+		re.start.out[0].label = runeLabel(t)
 	}
 	return re
 }
