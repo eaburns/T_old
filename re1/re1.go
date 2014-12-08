@@ -231,37 +231,6 @@ const (
 	cbrace
 )
 
-func (t token) String() string {
-	switch t {
-	case token(eof):
-		return "EOF"
-	case or:
-		return "|"
-	case dot:
-		return "."
-	case star:
-		return "*"
-	case plus:
-		return "+"
-	case question:
-		return "?"
-	case dollar:
-		return "$"
-	case carrot:
-		return "^"
-	case oparen:
-		return "("
-	case cparen:
-		return ")"
-	case obrace:
-		return "["
-	case cbrace:
-		return "]"
-	default:
-		return string([]rune{rune(t)})
-	}
-}
-
 type parser struct {
 	rs               []rune
 	prev, pos        int
@@ -418,7 +387,7 @@ func e3(p *parser) *Regexp {
 		}
 		e := e0(p)
 		if t = p.next(); t != cparen {
-			panic(ParseError{Position: o, Message: "got " + t.String() + " wanted ')'"})
+			panic(ParseError{Position: o, Message: "unclosed ')'"})
 		}
 		re = subexpr(e, p.nsub)
 		p.nsub++
