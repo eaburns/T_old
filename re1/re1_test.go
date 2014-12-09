@@ -103,15 +103,18 @@ func TestJustParse(t *testing.T) {
 	}
 }
 
-func TestMatch(t *testing.T) {
-	rev := Options{Reverse: true}
-	lit := Options{Literal: true}
-	del := Options{Delimited: true}
-	tests := []struct {
-		re, str string
-		want    []string
-		opts    Options
-	}{
+type regexpTest struct {
+	re, str string
+	want    []string
+	opts    Options
+	bol     bool
+}
+
+var (
+	rev         = Options{Reverse: true}
+	lit         = Options{Literal: true}
+	del         = Options{Delimited: true}
+	regexpTests = []regexpTest{
 		// No match.
 		{re: "a", str: "", want: nil},
 		{re: "a", str: "x", want: nil},
@@ -128,6 +131,7 @@ func TestMatch(t *testing.T) {
 		{re: "[a]*", str: "xyz", want: []string{""}},
 		{re: "[^a]*", str: "aaa", want: []string{""}},
 		{re: "[^a]*", str: "", want: []string{""}},
+		{re: ".*", str: "", want: []string{""}},
 
 		{re: "a", str: "a", want: []string{"a"}},
 		{re: "☺", str: "☺", want: []string{"☺"}},
@@ -178,6 +182,16 @@ func TestMatch(t *testing.T) {
 		{re: `[^^]*`, str: `a^`, want: []string{`a`}},
 		{re: `[^abc]*`, str: "xyz\n", want: []string{`xyz`}},
 
+		{re: "^abc", str: "abc", want: nil},
+		{re: "^abc", bol: true, str: "abc", want: []string{"abc"}},
+		{re: "abc$", str: "abcxyz", want: nil},
+		{re: "abc$", str: "abc", want: []string{"abc"}},
+		{re: "abc$", str: "abc\nxyz", want: []string{"abc"}},
+		{re: "^abc$", str: "abcxyz", want: nil},
+		{re: "^abc$", str: "abc\nxyz", want: nil},
+		{re: "^abc$", bol: true, str: "abcxyz", want: nil},
+		{re: "^abc$", bol: true, str: "abc\nxyz", want: []string{"abc"}},
+
 		{opts: rev, re: "a", str: "", want: nil},
 		{opts: rev, re: "a", str: "x", want: nil},
 		{opts: rev, re: "", str: "", want: []string{""}},
@@ -185,6 +199,16 @@ func TestMatch(t *testing.T) {
 		{opts: rev, re: "a*", str: "baaaa", want: []string{"aaaa"}},
 		{opts: rev, re: "ba*", str: "baaaa", want: []string{"baaaa"}},
 		{opts: rev, re: "(abc|def)*g", str: "defabcg", want: []string{"defabcg", "def"}},
+
+		{opts: rev, re: "abc$", str: "abc", want: nil},
+		{opts: rev, re: "abc$", bol: true, str: "abc", want: []string{"abc"}},
+		{opts: rev, re: "^abc", str: "xyzabc", want: nil},
+		{opts: rev, re: "^abc", str: "abc", want: []string{"abc"}},
+		{opts: rev, re: "^abc", str: "xyz\nabc", want: []string{"abc"}},
+		{opts: rev, re: "^abc$", str: "xyzabc", want: nil},
+		{opts: rev, re: "^abc$", str: "xyz\nabc", want: nil},
+		{opts: rev, re: "^abc$", bol: true, str: "xyzabc", want: nil},
+		{opts: rev, re: "^abc$", bol: true, str: "xyz\nabc", want: []string{"abc"}},
 
 		{opts: lit, re: "a", str: "", want: nil},
 		{opts: lit, re: "a", str: "x", want: nil},
@@ -215,7 +239,10 @@ func TestMatch(t *testing.T) {
 			want: []string{"[abc]()*?+."},
 		},
 	}
-	for _, test := range tests {
+)
+
+func TestMatch(t *testing.T) {
+	for _, test := range regexpTests {
 		re, err := Compile([]rune(test.re), test.opts)
 		if err != nil {
 			t.Fatalf(`Compile("%s", %+v)=%v, want nil`, test.re, test.opts, err)
@@ -225,10 +252,10 @@ func TestMatch(t *testing.T) {
 			str = reverse(test.str)
 		}
 		b := bytes.NewBufferString(str)
-		es, err := re.Match(b, false)
+		es, err := re.Match(b, test.bol)
 		if err != nil {
-			t.Fatalf(`Compile("%s", %+v).Match("%s")=%v want nil`,
-				test.re, test.opts, test.str, err)
+			t.Fatalf(`Compile("%s", %+v).Match("%s", %t)=%v want nil`,
+				test.re, test.opts, test.str, test.bol, err)
 		}
 		ms := matches(test.str, es, test.opts.Reverse)
 		if (es == nil && test.want == nil) ||
@@ -243,8 +270,8 @@ func TestMatch(t *testing.T) {
 		if test.want != nil {
 			want = fmt.Sprintf("%v", test.want)
 		}
-		t.Errorf(`Compile("%s", %+v).Match("%s")=%s, want %s`,
-			test.re, test.opts, test.str, got, want)
+		t.Errorf(`Compile("%s", %+v).Match("%s", %t)=%s, want %s`,
+			test.re, test.opts, test.str, test.bol, got, want)
 	}
 }
 
