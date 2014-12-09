@@ -81,7 +81,7 @@ type label interface {
 
 type dotLabel struct{}
 
-func (dotLabel) ok(_, c rune) bool { return c != '\n' }
+func (dotLabel) ok(_, c rune) bool { return c != '\n' && c != eof }
 func (dotLabel) epsilon() bool     { return false }
 
 type runeLabel rune

@@ -129,6 +129,7 @@ func TestMatch(t *testing.T) {
 		{re: "[a]*", str: "xyz", want: []string{""}},
 		{re: "[^a]*", str: "aaa", want: []string{""}},
 		{re: "[^a]*", str: "", want: []string{""}},
+		{re: ".*", str: "", want: []string{""}},
 
 		{re: "a", str: "a", want: []string{"a"}},
 		{re: "☺", str: "☺", want: []string{"☺"}},
