@@ -103,16 +103,18 @@ func TestJustParse(t *testing.T) {
 	}
 }
 
-func TestMatch(t *testing.T) {
-	rev := Options{Reverse: true}
-	lit := Options{Literal: true}
-	del := Options{Delimited: true}
-	tests := []struct {
-		re, str string
-		want    []string
-		opts    Options
-		bol     bool
-	}{
+type regexpTest struct {
+	re, str string
+	want    []string
+	opts    Options
+	bol     bool
+}
+
+var (
+	rev         = Options{Reverse: true}
+	lit         = Options{Literal: true}
+	del         = Options{Delimited: true}
+	regexpTests = []regexpTest{
 		// No match.
 		{re: "a", str: "", want: nil},
 		{re: "a", str: "x", want: nil},
@@ -237,7 +239,10 @@ func TestMatch(t *testing.T) {
 			want: []string{"[abc]()*?+."},
 		},
 	}
-	for _, test := range tests {
+)
+
+func TestMatch(t *testing.T) {
+	for _, test := range regexpTests {
 		re, err := Compile([]rune(test.re), test.opts)
 		if err != nil {
 			t.Fatalf(`Compile("%s", %+v)=%v, want nil`, test.re, test.opts, err)
