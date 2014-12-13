@@ -107,7 +107,7 @@ type regexpTest struct {
 	re, str string
 	want    []string
 	opts    Options
-	bol     bool
+	from    int64
 }
 
 var (
@@ -182,15 +182,15 @@ var (
 		{re: `[^^]*`, str: `a^`, want: []string{`a`}},
 		{re: `[^abc]*`, str: "xyz\n", want: []string{`xyz`}},
 
-		{re: "^abc", str: "abc", want: nil},
-		{re: "^abc", bol: true, str: "abc", want: []string{"abc"}},
+		{re: "^abc", str: "☺abc", from: 1, want: nil},
+		{re: "^abc", str: "\nabc", from: 1, want: []string{"abc"}},
 		{re: "abc$", str: "abcxyz", want: nil},
 		{re: "abc$", str: "abc", want: []string{"abc"}},
 		{re: "abc$", str: "abc\nxyz", want: []string{"abc"}},
-		{re: "^abc$", str: "abcxyz", want: nil},
-		{re: "^abc$", str: "abc\nxyz", want: nil},
-		{re: "^abc$", bol: true, str: "abcxyz", want: nil},
-		{re: "^abc$", bol: true, str: "abc\nxyz", want: []string{"abc"}},
+		{re: "^abc$", str: "☺abcxyz", from: 1, want: nil},
+		{re: "^abc$", str: "☺abc\nxyz", from: 1, want: nil},
+		{re: "^abc$", str: "\nabcxyz", from: 1, want: nil},
+		{re: "^abc$", str: "\nabc\nxyz", from: 1, want: []string{"abc"}},
 
 		{opts: rev, re: "a", str: "", want: nil},
 		{opts: rev, re: "a", str: "x", want: nil},
@@ -200,15 +200,15 @@ var (
 		{opts: rev, re: "ba*", str: "baaaa", want: []string{"baaaa"}},
 		{opts: rev, re: "(abc|def)*g", str: "defabcg", want: []string{"defabcg", "def"}},
 
-		{opts: rev, re: "abc$", str: "abc", want: nil},
-		{opts: rev, re: "abc$", bol: true, str: "abc", want: []string{"abc"}},
+		{opts: rev, re: "abc$", str: "abc☺", from: 1, want: nil},
+		{opts: rev, re: "abc$", str: "abc\n", from: 1, want: []string{"abc"}},
 		{opts: rev, re: "^abc", str: "xyzabc", want: nil},
 		{opts: rev, re: "^abc", str: "abc", want: []string{"abc"}},
 		{opts: rev, re: "^abc", str: "xyz\nabc", want: []string{"abc"}},
 		{opts: rev, re: "^abc$", str: "xyzabc", want: nil},
-		{opts: rev, re: "^abc$", str: "xyz\nabc", want: nil},
-		{opts: rev, re: "^abc$", bol: true, str: "xyzabc", want: nil},
-		{opts: rev, re: "^abc$", bol: true, str: "xyz\nabc", want: []string{"abc"}},
+		{opts: rev, re: "^abc$", str: "xyz\nabc☺", from: 1, want: nil},
+		{opts: rev, re: "^abc$", str: "xyzabc\n", from: 1, want: nil},
+		{opts: rev, re: "^abc$", str: "xyz\nabc\n", from: 1, want: []string{"abc"}},
 
 		{opts: lit, re: "a", str: "", want: nil},
 		{opts: lit, re: "a", str: "x", want: nil},
@@ -238,6 +238,21 @@ var (
 			str:  "[abc]()*?+.",
 			want: []string{"[abc]()*?+."},
 		},
+
+		// Next match.
+		{re: "abc", str: "xyzabc", want: []string{"abc"}},
+		{re: "abc", str: "xyzabc", from: 1, want: []string{"abc"}},
+		{re: "abc", str: "xyzabc", from: 2, want: []string{"abc"}},
+		{re: "abc(d*)", str: "xyzabcdd", from: 2, want: []string{"abcdd", "dd"}},
+		{re: "^abc|def$", str: "☺abc\ndef", from: 1, want: []string{"def"}},
+		{opts: rev, re: "abc", str: "abcdef", from: 1, want: []string{"abc"}},
+		// Wrap.
+		{re: "abc", str: "abcxyz", from: 3, want: []string{"abc"}},
+		{re: "abc", str: "abcxyz", from: 6, want: []string{"abc"}},
+		{re: "abc", str: "xyzabc", from: 4, want: []string{"abc"}},
+		{re: "abc(d*)", str: "xyzabcdd", from: 4, want: []string{"abcdd", "dd"}},
+		{re: "^abc|def$", str: "☺abc\ndef", from: 7, want: []string{"def"}},
+		{opts: rev, re: "abc", str: "abcdef", from: 5, want: []string{"abc"}},
 	}
 )
 
@@ -251,12 +266,7 @@ func TestMatch(t *testing.T) {
 		if test.opts.Reverse {
 			str = reverse(test.str)
 		}
-		b := bytes.NewBufferString(str)
-		es, err := re.Match(b, test.bol)
-		if err != nil {
-			t.Fatalf(`Compile("%s", %+v).Match("%s", %t)=%v want nil`,
-				test.re, test.opts, test.str, test.bol, err)
-		}
+		es := re.Match(sliceRunes([]rune(str)), test.from)
 		ms := matches(test.str, es, test.opts.Reverse)
 		if (es == nil && test.want == nil) ||
 			(len(es) == len(test.want) && reflect.DeepEqual(ms, test.want)) {
@@ -270,19 +280,24 @@ func TestMatch(t *testing.T) {
 		if test.want != nil {
 			want = fmt.Sprintf("%v", test.want)
 		}
-		t.Errorf(`Compile("%s", %+v).Match("%s", %t)=%s, want %s`,
-			test.re, test.opts, test.str, test.bol, got, want)
+		t.Errorf(`Compile("%s", %+v).Match("%s", %d)=%s, want %s`,
+			test.re, test.opts, test.str, test.from, got, want)
 	}
 }
 
-func matches(str string, es [][2]int, rev bool) []string {
+type sliceRunes []rune
+
+func (s sliceRunes) Rune(i int64) rune { return s[i] }
+func (s sliceRunes) Size() int64       { return int64(len(s)) }
+
+func matches(str string, es [][2]int64, rev bool) []string {
 	rs := []rune(str)
 	ss := make([]string, len(es))
 	for i, e := range es {
-		if e[0] < e[1] && e[0] >= 0 && e[1] <= len(rs) {
+		if n := int64(len(rs)); e[0] < e[1] && e[0] >= 0 && e[1] <= n {
 			l, u := e[0], e[1]
 			if rev {
-				l, u = len(rs)-u, len(rs)-l
+				l, u = n-u, n-l
 			}
 			ss[i] = string(rs[l:u])
 		}
