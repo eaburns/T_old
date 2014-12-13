@@ -537,7 +537,7 @@ func (m *mach) εclose(in []state) []state {
 		case n < 0:
 			s.es[-n-1][1] = m.at
 		}
-		if s.n == m.re.end && (s.es[0][0] < s.es[0][1] || s.es[0][1] == 0) { // match
+		if s.n == m.re.end && s.es[0][0] <= s.es[0][1] { // match
 			m.es = s.es
 			continue
 		}
