@@ -506,6 +506,11 @@ type mach struct {
 	at int64
 	es [][2]int64
 
+	// Label of the first consuming state
+	// or nil if the first state is not consuming.
+	// Used to quickly fail on obvious non-matches.
+	l0 label
+
 	// Pre-allocated memory.
 	open, closed []state
 	seen         []bool
@@ -523,9 +528,15 @@ func newMach(re *Regexp, rs Runes) *mach {
 	for i := range states {
 		states[i].es = es[i*re.nsub : (i+1)*re.nsub]
 	}
+	var l0 label
+	s0 := re.start.out[0].to
+	if s0.out[1].to == nil && !s0.out[0].epsilon() {
+		l0 = s0.out[0].label
+	}
 	return &mach{
 		re:     re,
 		rs:     rs,
+		l0:     l0,
 		open:   states[:re.n],
 		closed: states[re.n:],
 		seen:   make([]bool, re.n),
@@ -537,24 +548,33 @@ func (m *mach) makeState(n *node) state {
 	return state{n: n, es: make([][2]int64, m.re.nsub)}
 }
 
+func (m *mach) runes() (p, c rune) {
+	p = eof
+	if m.at > 0 && m.at-1 < m.rs.Size() {
+		p = m.rs.Rune(m.at - 1)
+	}
+	c = eof
+	if m.at < m.rs.Size() {
+		c = m.rs.Rune(m.at)
+	}
+	return p, c
+}
+
 func (m *mach) match() [][2]int64 {
+	p, c := m.runes()
+	if m.l0 != nil && !m.l0.ok(p, c) {
+		return nil
+	}
 	m.open[0].n = m.re.start
 	nopen := 1
 	for {
-		p := eof
-		if m.at > 0 && m.at-1 < m.rs.Size() {
-			p = m.rs.Rune(m.at - 1)
-		}
-		c := eof
-		if m.at < m.rs.Size() {
-			c = m.rs.Rune(m.at)
-		}
 		nclosed := m.εclose(p, c, nopen)
 		if nclosed == 0 {
 			return m.es
 		}
 		nopen = m.advance(p, c, nclosed)
 		m.at++
+		p, c = m.runes()
 	}
 }
 
