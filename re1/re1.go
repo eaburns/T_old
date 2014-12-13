@@ -526,7 +526,7 @@ func (re *Regexp) get(rs Runes) *mach {
 }
 
 func (re *Regexp) put(m *mach) {
-	m.es = nil
+	m.matches = nil
 	re.l.Lock()
 	if len(re.ms) < nCache {
 		re.ms = append(re.ms, m)
@@ -535,10 +535,10 @@ func (re *Regexp) put(m *mach) {
 }
 
 type mach struct {
-	re *Regexp
-	rs Runes
-	at int64
-	es [][2]int64
+	re      *Regexp
+	rs      Runes
+	at      int64
+	matches [][2]int64
 
 	// Label of the first consuming state
 	// or nil if the first state is not consuming.
@@ -547,8 +547,8 @@ type mach struct {
 
 	// Pre-allocated memory.
 	open, closed []state
-	seen         []bool
-	s            state
+	seen, false  []bool // false is all false, for zeroing seen.
+	es           [][2]int64
 }
 
 type state struct {
@@ -558,7 +558,7 @@ type state struct {
 
 func newMach(re *Regexp) *mach {
 	states := make([]state, re.n*2)
-	es := make([][2]int64, re.nsub*len(states))
+	es := make([][2]int64, re.nsub*(len(states)+1))
 	for i := range states {
 		states[i].es = es[i*re.nsub : (i+1)*re.nsub]
 	}
@@ -567,13 +567,15 @@ func newMach(re *Regexp) *mach {
 	if s0.out[1].to == nil && !s0.out[0].epsilon() {
 		l0 = s0.out[0].label
 	}
+	bools := make([]bool, re.n*2)
 	return &mach{
 		re:     re,
 		l0:     l0,
 		open:   states[:re.n],
 		closed: states[re.n:],
-		seen:   make([]bool, re.n),
-		s:      state{es: make([][2]int64, re.nsub)},
+		seen:   bools[:re.n],
+		false:  bools[re.n:],
+		es:     es[len(es)-re.nsub:],
 	}
 }
 
@@ -581,20 +583,16 @@ func (m *mach) makeState(n *node) state {
 	return state{n: n, es: make([][2]int64, m.re.nsub)}
 }
 
-func (m *mach) runes() (p, c rune) {
-	p = eof
-	if m.at > 0 && m.at-1 < m.rs.Size() {
+func (m *mach) match() [][2]int64 {
+	sz := m.rs.Size()
+	p := eof
+	if m.at > 0 && m.at-1 < sz {
 		p = m.rs.Rune(m.at - 1)
 	}
-	c = eof
-	if m.at < m.rs.Size() {
+	c := eof
+	if m.at < sz {
 		c = m.rs.Rune(m.at)
 	}
-	return p, c
-}
-
-func (m *mach) match() [][2]int64 {
-	p, c := m.runes()
 	if m.l0 != nil && !m.l0.ok(p, c) {
 		return nil
 	}
@@ -603,58 +601,68 @@ func (m *mach) match() [][2]int64 {
 	for {
 		nclosed := m.εclose(p, c, nopen)
 		if nclosed == 0 {
-			return m.es
+			return m.matches
 		}
 		nopen = m.advance(p, c, nclosed)
 		m.at++
-		p, c = m.runes()
+		p = c
+		if m.at < sz {
+			c = m.rs.Rune(m.at)
+		} else {
+			c = eof
+		}
 	}
 }
 
 func (m *mach) εclose(p, c rune, nopen int) int {
-	for i := range m.seen {
-		m.seen[i] = false
-	}
+	copy(m.seen, m.false)
 	for i := 0; i < nopen; i++ {
 		m.seen[m.open[i].n.n] = true
 	}
-	s := &m.s
 	var nclosed int
 	for nopen > 0 {
-		s.n = m.open[nopen-1].n
-		copy(s.es, m.open[nopen-1].es)
+		es := m.es
+		n := m.open[nopen-1].n
+		copy(es, m.open[nopen-1].es)
 		nopen--
 
-		switch n := m.s.n.sub; {
-		case n > 0:
-			s.es[n-1][0] = m.at
-		case n < 0:
-			s.es[-n-1][1] = m.at
+		switch sub := n.sub; {
+		case sub > 0:
+			es[sub-1][0] = m.at
+		case sub < 0:
+			es[-sub-1][1] = m.at
 		}
-		if s.n == m.re.end && s.es[0][0] <= s.es[0][1] { // match
-			if m.es == nil {
-				m.es = make([][2]int64, m.re.nsub)
+		if n == m.re.end && es[0][0] <= es[0][1] { // match
+			if m.matches == nil {
+				m.matches = make([][2]int64, m.re.nsub)
 			}
-			copy(m.es, s.es)
+			copy(m.matches, es)
 			continue
 		}
 
 		adv := false
-		for _, e := range s.n.out {
-			adv = adv || (e.to != nil && !e.epsilon())
-			if e.to == nil || !e.epsilon() || m.seen[e.to.n] {
+		for i := range n.out {
+			if n.out[i].to == nil {
+				continue
+			}
+			e := &n.out[i]
+			if !e.epsilon() {
+				adv = true
+				continue
+			}
+			if m.seen[e.to.n] {
 				continue
 			}
 			m.seen[e.to.n] = true
 			if e.label == nil || e.ok(p, c) {
 				m.open[nopen].n = e.to
-				copy(m.open[nopen].es, s.es)
+				copy(m.open[nopen].es, es)
 				nopen++
 			}
 		}
 		if adv {
-			m.closed[nclosed].n = s.n
-			copy(m.closed[nclosed].es, s.es)
+			m.closed[nclosed].n = n
+			copy(m.closed[nclosed].es, es)
 			nclosed++
 		}
 	}
@@ -662,13 +670,12 @@ func (m *mach) εclose(p, c rune, nopen int) int {
 }
 
 func (m *mach) advance(p, c rune, nclosed int) int {
-	for i := range m.seen {
-		m.seen[i] = false
-	}
+	copy(m.seen, m.false)
 	var nopen int
 	for i := 0; i < nclosed; i++ {
 		s := &m.closed[i]
-		for _, e := range s.n.out {
+		for i := range s.n.out {
+			e := &s.n.out[i]
 			if e.to != nil && !m.seen[e.to.n] && !e.epsilon() && e.ok(p, c) {
 				m.seen[e.to.n] = true
 				m.open[nopen].n = e.to
