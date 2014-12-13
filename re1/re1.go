@@ -31,7 +31,13 @@ A match to any part of a regular expression extends as far as possible without p
 */
 package re1
 
-import "strconv"
+import (
+	"strconv"
+	"sync"
+)
+
+// nCache is the maximum number of machines to cache.
+const nCache = 2
 
 // A Regexp is the compiled form of a regular expression.
 type Regexp struct {
@@ -43,6 +49,10 @@ type Regexp struct {
 	// Nsub is the number of subexpressions,
 	// counting the 0th, which is the entire expression.
 	nsub int
+
+	// A cache of machines for running the regexp.
+	l  sync.Mutex
+	ms []*mach
 }
 
 // Expression returns the input expression
@@ -481,7 +491,8 @@ type Runes interface {
 // The empty regular expression returns non-nil with an empty interval
 // for subexpression 0.
 func (re *Regexp) Match(rs Runes, from int64) [][2]int64 {
-	m := newMach(re, rs)
+	m := re.get(rs)
+	defer re.put(m)
 	// i <= rs.Size(), because we want to run the machine
 	// once even if rs.Size()==0. This allows an empty regexp
 	// to match empty Runes.
@@ -498,6 +509,29 @@ func (re *Regexp) Match(rs Runes, from int64) [][2]int64 {
 		}
 	}
 	return nil
+}
+
+func (re *Regexp) get(rs Runes) *mach {
+	var m *mach
+	re.l.Lock()
+	if len(re.ms) > 0 {
+		m = re.ms[len(re.ms)-1]
+		re.ms = re.ms[:len(re.ms)-1]
+	} else {
+		m = newMach(re)
+	}
+	re.l.Unlock()
+	m.rs = rs
+	return m
+}
+
+func (re *Regexp) put(m *mach) {
+	m.es = nil
+	re.l.Lock()
+	if len(re.ms) < nCache {
+		re.ms = append(re.ms, m)
+	}
+	re.l.Unlock()
 }
 
 type mach struct {
@@ -522,7 +556,7 @@ type state struct {
 	es [][2]int64
 }
 
-func newMach(re *Regexp, rs Runes) *mach {
+func newMach(re *Regexp) *mach {
 	states := make([]state, re.n*2)
 	es := make([][2]int64, re.nsub*len(states))
 	for i := range states {
@@ -535,7 +569,6 @@ func newMach(re *Regexp, rs Runes) *mach {
 	}
 	return &mach{
 		re:     re,
-		rs:     rs,
 		l0:     l0,
 		open:   states[:re.n],
 		closed: states[re.n:],
