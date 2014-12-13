@@ -481,7 +481,7 @@ type Runes interface {
 // The empty regular expression returns non-nil with an empty interval
 // for subexpression 0.
 func (re *Regexp) Match(rs Runes, from int64) [][2]int64 {
-	m := mach{re: re, rs: rs}
+	m := newMach(re, rs)
 	// i <= rs.Size(), because we want to run the machine
 	// once even if rs.Size()==0. This allows an empty regexp
 	// to match empty Runes.
@@ -505,6 +505,11 @@ type mach struct {
 	rs Runes
 	at int64
 	es [][2]int64
+
+	// Pre-allocated memory.
+	open, closed []state
+	seen         []bool
+	s            state
 }
 
 type state struct {
@@ -512,12 +517,29 @@ type state struct {
 	es [][2]int64
 }
 
+func newMach(re *Regexp, rs Runes) *mach {
+	states := make([]state, re.n*2)
+	es := make([][2]int64, re.nsub*len(states))
+	for i := range states {
+		states[i].es = es[i*re.nsub : (i+1)*re.nsub]
+	}
+	return &mach{
+		re:     re,
+		rs:     rs,
+		open:   states[:re.n],
+		closed: states[re.n:],
+		seen:   make([]bool, re.n),
+		s:      state{es: make([][2]int64, re.nsub)},
+	}
+}
+
 func (m *mach) makeState(n *node) state {
 	return state{n: n, es: make([][2]int64, m.re.nsub)}
 }
 
 func (m *mach) match() [][2]int64 {
-	states := []state{m.makeState(m.re.start)}
+	m.open[0].n = m.re.start
+	nopen := 1
 	for {
 		p := eof
 		if m.at > 0 && m.at-1 < m.rs.Size() {
@@ -527,66 +549,80 @@ func (m *mach) match() [][2]int64 {
 		if m.at < m.rs.Size() {
 			c = m.rs.Rune(m.at)
 		}
-		states = m.εclose(p, c, states)
-		if len(states) == 0 {
+		nclosed := m.εclose(p, c, nopen)
+		if nclosed == 0 {
 			return m.es
 		}
-		states = m.advance(p, c, states)
+		nopen = m.advance(p, c, nclosed)
 		m.at++
 	}
 }
 
-func (m *mach) εclose(p, c rune, in []state) []state {
-	seen := make([]bool, m.re.n)
-	for _, s := range in {
-		seen[s.n.n] = true
+func (m *mach) εclose(p, c rune, nopen int) int {
+	for i := range m.seen {
+		m.seen[i] = false
 	}
-	var out []state
-	for len(in) > 0 {
-		s := in[len(in)-1]
-		in = in[:len(in)-1]
-		switch n := s.n.sub; {
+	for i := 0; i < nopen; i++ {
+		m.seen[m.open[i].n.n] = true
+	}
+	s := &m.s
+	var nclosed int
+	for nopen > 0 {
+		s.n = m.open[nopen-1].n
+		copy(s.es, m.open[nopen-1].es)
+		nopen--
+
+		switch n := m.s.n.sub; {
 		case n > 0:
 			s.es[n-1][0] = m.at
 		case n < 0:
 			s.es[-n-1][1] = m.at
 		}
 		if s.n == m.re.end && s.es[0][0] <= s.es[0][1] { // match
-			m.es = s.es
+			if m.es == nil {
+				m.es = make([][2]int64, m.re.nsub)
+			}
+			copy(m.es, s.es)
 			continue
 		}
+
 		adv := false
 		for _, e := range s.n.out {
 			adv = adv || (e.to != nil && !e.epsilon())
-			if e.to == nil || !e.epsilon() || seen[e.to.n] {
+			if e.to == nil || !e.epsilon() || m.seen[e.to.n] {
 				continue
 			}
-			seen[e.to.n] = true
+			m.seen[e.to.n] = true
 			if e.label == nil || e.ok(p, c) {
-				t := m.makeState(e.to)
-				copy(t.es, s.es)
-				in = append(in, t)
+				m.open[nopen].n = e.to
+				copy(m.open[nopen].es, s.es)
+				nopen++
 			}
 		}
 		if adv {
-			out = append(out, s)
+			m.closed[nclosed].n = s.n
+			copy(m.closed[nclosed].es, s.es)
+			nclosed++
 		}
 	}
-	return out
+	return nclosed
 }
 
-func (m *mach) advance(p, c rune, in []state) []state {
-	seen := make([]bool, m.re.n)
-	var out []state
-	for _, s := range in {
+func (m *mach) advance(p, c rune, nclosed int) int {
+	for i := range m.seen {
+		m.seen[i] = false
+	}
+	var nopen int
+	for i := 0; i < nclosed; i++ {
+		s := &m.closed[i]
 		for _, e := range s.n.out {
-			if e.to != nil && !seen[e.to.n] && !e.epsilon() && e.ok(p, c) {
-				seen[e.to.n] = true
-				t := m.makeState(e.to)
-				copy(t.es, s.es)
-				out = append(out, t)
+			if e.to != nil && !m.seen[e.to.n] && !e.epsilon() && e.ok(p, c) {
+				m.seen[e.to.n] = true
+				m.open[nopen].n = e.to
+				copy(m.open[nopen].es, s.es)
+				nopen++
 			}
 		}
 	}
-	return out
+	return nopen
 }
