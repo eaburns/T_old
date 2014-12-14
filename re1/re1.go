@@ -31,10 +31,7 @@ A match to any part of a regular expression extends as far as possible without p
 */
 package re1
 
-import (
-	"io"
-	"strconv"
-)
+import "strconv"
 
 // A Regexp is the compiled form of a regular expression.
 type Regexp struct {
@@ -465,64 +462,81 @@ func charClass(p *parser) label {
 	}
 }
 
-// Match returns the offsets of the longest match or nil for no match.
-// Bol indicates whether the rune just before the first to be read is a newline.
-// If so, the reader is said to be at the beginning of the line.
-func (re *Regexp) Match(in io.RuneReader, bol bool) ([][2]int, error) {
-	m, err := newMach(re, in, bol)
-	if err != nil {
-		return nil, err
+// Runes generalizes a slice or array of runes.
+type Runes interface {
+	Rune(int64) rune
+	Size() int64
+}
+
+// Match returns the left-most longest match beginning at from
+// and wrapping around if no match is found going forward.
+//
+// The return value is nil if the expression did not match anything.
+// Otherwise, the return value has as entry for each subexpression,
+// with the entry for subexpression 0 being the entire regular expression.
+// The 0th element of a subexpression entry is the inclusive start offset
+// of the subexpression match and the 1st entry is the exclusive end offset.
+// If the interval is empty then the subexpression did not match.
+//
+// The empty regular expression returns non-nil with an empty interval
+// for subexpression 0.
+func (re *Regexp) Match(rs Runes, from int64) [][2]int64 {
+	m := mach{re: re, rs: rs}
+	// i <= rs.Size(), because we want to run the machine
+	// once even if rs.Size()==0. This allows an empty regexp
+	// to match empty Runes.
+	for i := from; i <= rs.Size(); i++ {
+		m.at = i
+		if es := m.match(); es != nil {
+			return es
+		}
 	}
-	return m.match()
+	for i := int64(0); i < from; i++ {
+		m.at = i
+		if es := m.match(); es != nil {
+			return es
+		}
+	}
+	return nil
 }
 
 type mach struct {
-	re   *Regexp
-	in   io.RuneReader
-	at   int
-	p, c rune
-	es   [][2]int
+	re *Regexp
+	rs Runes
+	at int64
+	es [][2]int64
 }
 
 type state struct {
 	n  *node
-	es [][2]int
-}
-
-func newMach(re *Regexp, in io.RuneReader, bol bool) (*mach, error) {
-	m := mach{
-		re: re,
-		in: in,
-		p:  eof,
-	}
-	if err := m.consume(); err != nil {
-		return nil, err
-	}
-	if bol {
-		m.p = '\n'
-	}
-	return &m, nil
-}
-
-func (m *mach) match() ([][2]int, error) {
-	states := []state{m.makeState(m.re.start)}
-	for {
-		states = m.εclose(states)
-		if len(states) == 0 {
-			return m.es, nil
-		}
-		states = m.advance(states)
-		if err := m.consume(); err != nil {
-			return nil, err
-		}
-	}
+	es [][2]int64
 }
 
 func (m *mach) makeState(n *node) state {
-	return state{n: n, es: make([][2]int, m.re.nsub)}
+	return state{n: n, es: make([][2]int64, m.re.nsub)}
 }
 
-func (m *mach) εclose(in []state) []state {
+func (m *mach) match() [][2]int64 {
+	states := []state{m.makeState(m.re.start)}
+	for {
+		p := eof
+		if m.at > 0 && m.at-1 < m.rs.Size() {
+			p = m.rs.Rune(m.at - 1)
+		}
+		c := eof
+		if m.at < m.rs.Size() {
+			c = m.rs.Rune(m.at)
+		}
+		states = m.εclose(p, c, states)
+		if len(states) == 0 {
+			return m.es
+		}
+		states = m.advance(p, c, states)
+		m.at++
+	}
+}
+
+func (m *mach) εclose(p, c rune, in []state) []state {
 	seen := make([]bool, m.re.n)
 	for _, s := range in {
 		seen[s.n.n] = true
@@ -537,7 +551,7 @@ func (m *mach) εclose(in []state) []state {
 		case n < 0:
 			s.es[-n-1][1] = m.at
 		}
-		if s.n == m.re.end && (s.es[0][0] < s.es[0][1] || s.es[0][1] == 0) { // match
+		if s.n == m.re.end && s.es[0][0] <= s.es[0][1] { // match
 			m.es = s.es
 			continue
 		}
@@ -548,7 +562,7 @@ func (m *mach) εclose(in []state) []state {
 				continue
 			}
 			seen[e.to.n] = true
-			if e.label == nil || e.ok(m.p, m.c) {
+			if e.label == nil || e.ok(p, c) {
 				t := m.makeState(e.to)
 				copy(t.es, s.es)
 				in = append(in, t)
@@ -558,16 +572,15 @@ func (m *mach) εclose(in []state) []state {
 			out = append(out, s)
 		}
 	}
-	m.at++
 	return out
 }
 
-func (m *mach) advance(in []state) []state {
+func (m *mach) advance(p, c rune, in []state) []state {
 	seen := make([]bool, m.re.n)
 	var out []state
 	for _, s := range in {
 		for _, e := range s.n.out {
-			if e.to != nil && !seen[e.to.n] && !e.epsilon() && e.ok(m.p, m.c) {
+			if e.to != nil && !seen[e.to.n] && !e.epsilon() && e.ok(p, c) {
 				seen[e.to.n] = true
 				t := m.makeState(e.to)
 				copy(t.es, s.es)
@@ -576,17 +589,4 @@ func (m *mach) advance(in []state) []state {
 		}
 	}
 	return out
-}
-
-func (m *mach) consume() error {
-	m.p = m.c
-	switch r, _, err := m.in.ReadRune(); {
-	case err == io.EOF:
-		m.c = eof
-	case err != nil:
-		return err
-	default:
-		m.c = r
-	}
-	return nil
 }
