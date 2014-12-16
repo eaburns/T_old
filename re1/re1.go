@@ -32,6 +32,7 @@ A match to any part of a regular expression extends as far as possible without p
 package re1
 
 import (
+	"fmt"
 	"strconv"
 	"sync"
 )
@@ -84,27 +85,32 @@ func (e *edge) ok(p, c rune) bool {
 type label interface {
 	ok(prev, cur rune) bool
 	epsilon() bool
+	String() string
 }
 
 type dotLabel struct{}
 
 func (dotLabel) ok(_, c rune) bool { return c != '\n' && c != eof }
 func (dotLabel) epsilon() bool     { return false }
+func (dotLabel) String() string    { return "<dot>" }
 
 type runeLabel rune
 
 func (l runeLabel) ok(_, c rune) bool { return c == rune(l) }
 func (runeLabel) epsilon() bool       { return false }
+func (l runeLabel) String() string    { return string([]rune{rune(l)}) }
 
 type bolLabel struct{}
 
 func (bolLabel) ok(p, _ rune) bool { return p == eof || p == '\n' }
 func (bolLabel) epsilon() bool     { return true }
+func (bolLabel) String() string    { return "<bol>" }
 
 type eolLabel struct{}
 
 func (eolLabel) ok(_, c rune) bool { return c == eof || c == '\n' }
 func (eolLabel) epsilon() bool     { return true }
+func (eolLabel) String() string    { return "<eol>" }
 
 type classLabel struct {
 	runes  []rune
@@ -129,7 +135,8 @@ func (l *classLabel) ok(_, c rune) bool {
 	return l.neg
 }
 
-func (classLabel) epsilon() bool { return false }
+func (classLabel) epsilon() bool  { return false }
+func (classLabel) String() string { return "[class]" }
 
 // A ParseError records an error encountered while parsing a regular expression.
 type ParseError struct {
@@ -218,6 +225,57 @@ func numberStates(re *Regexp) {
 			stk = append(stk, t)
 		}
 	}
+}
+
+func (re *Regexp) String() string {
+	nodes := make([]*node, re.n)
+	seen := make(map[*node]bool)
+	stk := []*node{re.start}
+	for len(stk) > 0 {
+		n := stk[len(stk)-1]
+		stk = stk[:len(stk)-1]
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		nodes[n.n] = n
+		for _, e := range n.out {
+			if e.to != nil {
+				stk = append(stk, e.to)
+			}
+		}
+	}
+	var s string
+	for _, n := range nodes {
+		s += n.String() + "\n"
+	}
+	return s
+}
+
+func (n *node) String() string {
+	s := fmt.Sprintf("%d (%p)", n.n, n)
+	switch sub := n.sub; {
+	case sub > 0:
+		s += fmt.Sprintf(" [%d]", sub-1)
+	case sub < 0:
+		s += fmt.Sprintf(" [%d]", -sub-1)
+	}
+	s += ":"
+	for _, e := range n.out {
+		s += e.String()
+	}
+	return s
+}
+
+func (e *edge) String() string {
+	if e.to == nil {
+		return ""
+	}
+	s := " {"
+	if e.label != nil {
+		s += " " + e.label.String()
+	}
+	return s + fmt.Sprintf(" %d }", e.to.n)
 }
 
 type token rune
