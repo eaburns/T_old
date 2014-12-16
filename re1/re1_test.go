@@ -153,6 +153,7 @@ var (
 		{re: "a.*", str: "abcdefg\n", want: []string{"abcdefg"}},
 		{re: ".*g", str: "abcdefg\n", want: []string{"abcdefg"}},
 		{re: "a.*g", str: "abcdefg\n", want: []string{"abcdefg"}},
+		{re: "a**", str: "aaabcd", want: []string{"aaa"}},
 
 		{re: "(abc)|(def)", str: "abc", want: []string{"abc", "abc", ""}},
 		{re: "(abc)|(def)", str: "abcdef", want: []string{"abc", "abc", ""}},
@@ -246,6 +247,19 @@ var (
 		{re: "abc(d*)", str: "xyzabcdd", from: 2, want: []string{"abcdd", "dd"}},
 		{re: "^abc|def$", str: "☺abc\ndef", from: 1, want: []string{"def"}},
 		{opts: rev, re: "abc", str: "abcdef", from: 1, want: []string{"abc"}},
+		{re: "a*", str: "xyzbc", want: []string{""}},
+		// Match the empty string at the beginning, not the later matches.
+		{re: "a*", str: "xyzabc", want: []string{""}},
+		{re: "a*", str: "xyzaaabc", want: []string{""}},
+		{re: "a**", str: "xyzaaabcd", want: []string{""}},
+		{re: ".*", str: "\n\naa", want: []string{""}},
+		{re: ".*", str: "\n\naa\n", want: []string{""}},
+		{re: "a+", str: "xyzbc", want: nil},
+		{re: "a+", str: "xyzabc", want: []string{"a"}},
+		{re: "a+", str: "xyzaaabc", want: []string{"aaa"}},
+		{re: ".+", str: "\n\n\n", want: nil},
+		{re: ".+", str: "\n\naa", want: []string{"aa"}},
+		{re: ".+", str: "\n\naa\n", want: []string{"aa"}},
 		// Wrap.
 		{re: "abc", str: "abcxyz", from: 3, want: []string{"abc"}},
 		{re: "abc", str: "abcxyz", from: 6, want: []string{"abc"}},
