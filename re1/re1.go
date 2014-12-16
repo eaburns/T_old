@@ -344,7 +344,12 @@ func e1(p *parser) *Regexp {
 	}
 	re := &Regexp{start: new(node)}
 	re.start = l.start
-	l.end.out[0].to = r.start
+	if l.end.sub == 0 {
+		// Common case: if possible, re-use l's end node.
+		*l.end = *r.start
+	} else {
+		l.end.out[0].to = r.start
+	}
 	re.end = r.end
 	return re
 }
@@ -361,18 +366,23 @@ func e2p(l *Regexp, p *parser) *Regexp {
 	re := &Regexp{start: new(node), end: new(node)}
 	switch p.next() {
 	case star:
+		if l.start.out[1].to == nil {
+			// Common case: if possible, re-use l's start node.
+			re.start = l.start
+		} else {
+			re.start.out[0].to = l.start
+		}
 		re.start.out[1].to = l.end
-		fallthrough
+		l.end.out[0].to = l.start
+		l.end.out[1].to = re.end
 	case plus:
 		re.start.out[0].to = l.start
 		l.end.out[0].to = l.start
 		l.end.out[1].to = re.end
-		break
 	case question:
 		re.start.out[0].to = l.start
 		re.start.out[1].to = l.end
 		re.end = l.end
-		break
 	case token(eof):
 		return l
 	default:
