@@ -299,6 +299,27 @@ func TestMatch(t *testing.T) {
 	}
 }
 
+func TestReuse(t *testing.T) {
+	re, err := Compile([]rune("(a)(b)(c)|(x)(y)(z)"), Options{})
+	if err != nil {
+		t.Fatalf(`Compile("(a)(b)(c)|(x)(y)(z)")=%v, want nil`, err)
+	}
+	str := "abc"
+	want := []string{"abc", "a", "b", "c", "", "", ""}
+	got := matches(str, re.Match(sliceRunes([]rune(str)), 0), false)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(`Compile("(a)(b)(c)|(x)(y)(z)").Match(%s)=%v, want %v`, str, got, want)
+	}
+	// This will get different subexpression matches.
+	// Make sure that there isn't old data from the previous match.
+	str = "xyz"
+	want = []string{"xyz", "", "", "", "x", "y", "z"}
+	got = matches(str, re.Match(sliceRunes([]rune(str)), 0), false)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf(`Compile("(a)(b)(c)|(x)(y)(z)").Match(%s)=%v, want %v`, str, got, want)
+	}
+}
+
 type sliceRunes []rune
 
 func (s sliceRunes) Rune(i int64) rune { return s[i] }

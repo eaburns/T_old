@@ -607,6 +607,9 @@ func (m *mach) match() [][2]int64 {
 		return nil
 	}
 	m.open[0].n = m.re.start
+	for i := range m.open[0].es {
+		m.open[0].es[i] = [2]int64{}
+	}
 	nopen := 1
 	for {
 		nclosed := m.εclose(p, c, nopen)
