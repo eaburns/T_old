@@ -372,7 +372,7 @@ func e2p(l *Regexp, p *parser) *Regexp {
 		} else {
 			re.start.out[0].to = l.start
 		}
-		re.start.out[1].to = l.end
+		re.start.out[1].to = re.end
 		l.end.out[0].to = l.start
 		l.end.out[1].to = re.end
 	case plus:
