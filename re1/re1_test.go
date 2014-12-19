@@ -54,6 +54,7 @@ func TestOrMatch(t *testing.T) {
 	tests := []regexpTest{
 		{re: "a|b", str: "a", want: []string{"a"}},
 		{re: "a|b", str: "b", want: []string{"b"}},
+		{re: "a*|a", str: "aaa", want: []string{"aaa"}},
 	}
 	for _, test := range tests {
 		test.run(t)
