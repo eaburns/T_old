@@ -33,6 +33,7 @@ package re1
 
 import (
 	"strconv"
+	"sync"
 )
 
 // nCache is the maximum number of machines to cache.
@@ -48,6 +49,9 @@ type Regexp struct {
 	// Nsub is the number of subexpressions,
 	// counting the 0th, which is the entire expression.
 	nsub int
+
+	lock   sync.Mutex
+	mcache []*mach
 }
 
 // Expression returns the input expression
@@ -496,39 +500,92 @@ type Runes interface {
 // The empty regular expression returns non-nil with an empty interval
 // for subexpression 0.
 func (re *Regexp) Match(rs Runes, from int64) [][2]int64 {
-	m := newMach(re)
-	m.at = from
+	m := re.get()
+	defer re.put(m)
+	m.init(from)
 	matches := m.match(rs, rs.Size())
 	if matches == nil {
-		m.at = 0
+		m.init(0)
 		matches = m.match(rs, from)
 	}
 	return matches
 }
 
+func (re *Regexp) get() *mach {
+	re.lock.Lock()
+	defer re.lock.Unlock()
+	if len(re.mcache) == 0 {
+		return newMach(re)
+	}
+	m := re.mcache[0]
+	re.mcache = re.mcache[1:]
+	return m
+}
+
+func (re *Regexp) put(m *mach) {
+	re.lock.Lock()
+	defer re.lock.Unlock()
+	if len(re.mcache) < nCache {
+		re.mcache = append(re.mcache, m)
+	}
+}
+
 type mach struct {
-	re      *Regexp
-	at      int64
-	matches [][2]int64
-	q0, q1  *queue
+	re          *Regexp
+	at          int64
+	cap         [][2]int64
+	q0, q1      *queue
+	stack       []*state
+	seen, false []bool // false is to zero seen.
+	free        *state
+}
+
+type state struct {
+	node *node
+	cap  [][2]int64
+	next *state
 }
 
 func newMach(re *Regexp) *mach {
 	return &mach{
-		re: re,
-		q0: newQueue(re.n),
-		q1: newQueue(re.n),
+		re:    re,
+		q0:    newQueue(re.n),
+		q1:    newQueue(re.n),
+		stack: make([]*state, re.n),
+		seen:  make([]bool, re.n),
+		false: make([]bool, re.n),
 	}
 }
 
-func (m *mach) get(n *node) *state {
-	return &state{node: n, matches: make([][2]int64, m.re.nsub)}
+func (m *mach) init(from int64) {
+	m.at = from
+	m.cap = nil
+	for p := m.q0.head; p != nil; p = p.next {
+		m.put(p)
+	}
+	m.q0.head, m.q0.tail = nil, nil
+	for p := m.q1.head; p != nil; p = p.next {
+		m.put(p)
+	}
+	m.q1.head, m.q1.tail = nil, nil
 }
 
-type state struct {
-	node    *node
-	matches [][2]int64
-	next    *state
+func (m *mach) get(n *node) (s *state) {
+	if m.free == nil {
+		return &state{node: n, cap: make([][2]int64, m.re.nsub)}
+	}
+	s = m.free
+	m.free = m.free.next
+	for i := range s.cap {
+		s.cap[i] = [2]int64{}
+	}
+	s.node = n
+	return s
+}
+
+func (m *mach) put(s *state) {
+	s.next = m.free
+	m.free = s
 }
 
 type queue struct {
@@ -539,8 +596,6 @@ type queue struct {
 func newQueue(n int) *queue { return &queue{mem: make([]bool, n)} }
 
 func (q *queue) empty() bool { return q.head == nil }
-
-func (q *queue) clear() { q.head, q.tail = nil, nil }
 
 func (q *queue) push(s *state) {
 	if q.tail != nil {
@@ -557,6 +612,10 @@ func (q *queue) push(s *state) {
 func (q *queue) pop() *state {
 	s := q.head
 	q.head = q.head.next
+	if q.head == nil {
+		q.tail = nil
+	}
+	s.next = nil
 	q.mem[s.node.n] = false
 	return s
 }
@@ -568,73 +627,69 @@ func (m *mach) match(rs Runes, end int64) [][2]int64 {
 		prev = rs.Rune(p)
 	}
 	cur := eof
-	if c := m.at; c >= 0 && c < sz {
-		cur = rs.Rune(c)
+	if m.at >= 0 && m.at < sz {
+		cur = rs.Rune(m.at)
 	}
 	for {
-		if m.matches == nil && !m.q0.mem[m.re.start.n] && m.at <= end {
+		if m.cap == nil && !m.q0.mem[m.re.start.n] && m.at <= end {
 			m.q0.push(m.get(m.re.start))
 		}
 		if m.q0.empty() {
 			break
 		}
-
 		for !m.q0.empty() {
 			s := m.q0.pop()
 			m.step(s, prev, cur)
 		}
-
 		m.at++
 		prev, cur = cur, eof
-		if c := m.at; c >= 0 && c < sz {
-			cur = rs.Rune(c)
+		if m.at >= 0 && m.at < sz {
+			cur = rs.Rune(m.at)
 		}
 		m.q0, m.q1 = m.q1, m.q0
 	}
-	return m.matches
+	return m.cap
 }
 
 func (m *mach) step(s0 *state, prev, cur rune) {
-	stk := []*state{s0}
-	onStk := make([]bool, m.re.n)
+	stk, seen := m.stack[:1], m.seen
+	copy(seen, m.false)
+	stk[0], seen[s0.node.n] = s0, true
 	for len(stk) > 0 {
 		s := stk[len(stk)-1]
 		stk = stk[:len(stk)-1]
 
 		switch sub := s.node.sub; {
 		case sub > 0:
-			s.matches[sub-1][0] = m.at
+			s.cap[sub-1][0] = m.at
 		case sub < 0:
-			s.matches[-sub-1][1] = m.at
+			s.cap[-sub-1][1] = m.at
 		}
 
-		if s.node == m.re.end {
-			if m.matches != nil && m.matches[0][0] < s.matches[0][0] {
-				continue
+		if s.node == m.re.end && (m.cap == nil || m.cap[0][0] >= s.cap[0][0]) {
+			if m.cap == nil {
+				m.cap = make([][2]int64, m.re.nsub)
 			}
-			if m.matches == nil {
-				m.matches = make([][2]int64, m.re.nsub)
-			}
-			copy(m.matches, s.matches)
+			copy(m.cap, s.cap)
 		}
 
 		for i := range s.node.out {
-			e := &s.node.out[i]
-			if e.to == nil {
+			switch e := &s.node.out[i]; {
+			case e.to == nil:
 				continue
-			}
-			if e.epsilon() {
-				if (e.label == nil || e.label.ok(prev, cur)) && !onStk[e.to.n] {
-					onStk[e.to.n] = true
+			case e.epsilon():
+				if !seen[e.to.n] && (e.label == nil || e.label.ok(prev, cur)) {
+					seen[e.to.n] = true
 					t := m.get(e.to)
-					copy(t.matches, s.matches)
+					copy(t.cap, s.cap)
 					stk = append(stk, t)
 				}
-			} else if e.label.ok(prev, cur) && !m.q1.mem[e.to.n] {
+			case !m.q1.mem[e.to.n] && e.label.ok(prev, cur):
 				t := m.get(e.to)
-				copy(t.matches, s.matches)
+				copy(t.cap, s.cap)
 				m.q1.push(t)
 			}
 		}
+		m.put(s)
 	}
 }
