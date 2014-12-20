@@ -534,6 +534,7 @@ type mach struct {
 	re          *Regexp
 	at          int64
 	cap         [][2]int64
+	lit         label
 	q0, q1      *queue
 	stack       []*state
 	seen, false []bool // false is to zero seen.
@@ -547,7 +548,7 @@ type state struct {
 }
 
 func newMach(re *Regexp) *mach {
-	return &mach{
+	m := &mach{
 		re:    re,
 		q0:    newQueue(re.n),
 		q1:    newQueue(re.n),
@@ -555,6 +556,10 @@ func newMach(re *Regexp) *mach {
 		seen:  make([]bool, re.n),
 		false: make([]bool, re.n),
 	}
+	if s := re.start.out[0].to; s.out[1].to == nil && !s.out[0].epsilon() {
+		m.lit = s.out[0].label
+	}
+	return m
 }
 
 func (m *mach) init(from int64) {
@@ -631,6 +636,13 @@ func (m *mach) match(rs Runes, end int64) [][2]int64 {
 		cur = rs.Rune(m.at)
 	}
 	for {
+		for m.q0.empty() && m.lit != nil && !m.lit.ok(prev, cur) && m.at <= end {
+			m.at++
+			prev, cur = cur, eof
+			if m.at >= 0 && m.at < sz {
+				cur = rs.Rune(m.at)
+			}
+		}
 		if m.cap == nil && !m.q0.mem[m.re.start.n] && m.at <= end {
 			m.q0.push(m.get(m.re.start))
 		}
