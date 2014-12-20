@@ -106,7 +106,7 @@ func TestRunesRead(t *testing.T) {
 	}
 }
 
-func TestRunesGet(t *testing.T) {
+func TestRunesReadFrom(t *testing.T) {
 	tests := []struct {
 		init, get, want string
 	}{
@@ -125,7 +125,7 @@ func TestRunesGet(t *testing.T) {
 	for _, test := range tests {
 		b := NewRunes(testBlockSize)
 		defer b.Close()
-		n, err := b.Get(bytes.NewBuffer([]byte(test.get)))
+		n, err := b.ReadFrom(bytes.NewBuffer([]byte(test.get)))
 		if l := int64(len(test.get)); n != l || err != nil {
 			t.Errorf("Get(%s)=%v,%v, want %v,nil", test.get, n, err, l)
 			continue
@@ -138,7 +138,7 @@ func TestRunesGet(t *testing.T) {
 	}
 }
 
-func TestRunesPut(t *testing.T) {
+func TestRunesWriteTo(t *testing.T) {
 	big := make([]rune, testBlockSize*2)
 	for i := range big {
 		big[i] = rune(i)
@@ -161,7 +161,7 @@ func TestRunesPut(t *testing.T) {
 		}
 
 		f := bytes.NewBuffer(nil)
-		n, err := b.Put(f)
+		n, err := b.WriteTo(f)
 		if l := int64(len(test)); n != l || err != nil {
 			t.Errorf(`b.Put("%s")=%v,%v, want %v,nil`, test, n, err, l)
 			continue

@@ -1,6 +1,7 @@
 package buffer
 
 import (
+	"bufio"
 	"encoding/binary"
 	"io"
 	"unicode/utf8"
@@ -62,14 +63,18 @@ func (b *Runes) Write(rs []rune, at Address) error {
 	return b.bytes.Write(bs, at.asBytes())
 }
 
-// Get overwrites the buffer with the contents of the io.RuneReader.
+// ReadFrom overwrites the buffer with the UTF8 contents of the io.Reader.
 // The return value is the number of bytes read.
-func (b *Runes) Get(r io.RuneReader) (int, error) {
+func (b *Runes) ReadFrom(r io.Reader) (int64, error) {
+	rr, ok := r.(io.RuneReader)
+	if !ok {
+		rr = bufio.NewReader(r)
+	}
 	at := Address{From: 0, To: b.Size()}
-	var tot int
+	var tot int64
 	for {
-		r, w, err := r.ReadRune()
-		tot += w
+		r, w, err := rr.ReadRune()
+		tot += int64(w)
 		switch {
 		case err == io.EOF:
 			return tot, nil
@@ -83,11 +88,11 @@ func (b *Runes) Get(r io.RuneReader) (int, error) {
 	}
 }
 
-// Put writes the UTF8 encoding of the buffer to the io.Writer.
+// WriteTo writes the UTF8 encoding of the buffer to the io.Writer.
 // The return value is the number of bytes written.
-func (b *Runes) Put(w io.Writer) (int, error) {
+func (b *Runes) WriteTo(w io.Writer) (int64, error) {
 	const n = 512
-	var tot int
+	var tot int64
 	var at Address
 	for at.From < b.Size() {
 		at.To = at.From + int64(b.bytes.blockSize*runeBytes)
@@ -105,7 +110,7 @@ func (b *Runes) Put(w io.Writer) (int, error) {
 			o += utf8.EncodeRune(bs[o:], r)
 		}
 		m, err := w.Write(bs[:o])
-		tot += m
+		tot += int64(m)
 		if err != nil {
 			return tot, err
 		}
