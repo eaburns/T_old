@@ -14,16 +14,16 @@ const testBlockSize = 8
 func makeTestBytes(t *testing.T) *Bytes {
 	b := NewBytes(testBlockSize)
 	// Add 3 full blocks.
-	n, err := b.Insert([]byte("01234567abcdefghSTUVWXYZ"), 0)
+	n, err := b.insert([]byte("01234567abcdefghSTUVWXYZ"), 0)
 	if n != 24 || err != nil {
 		b.Close()
-		t.Fatalf(`Insert("01234567abcdefghSTUVWXYZ", 0)=%v,%v, want 24,nil`, n, err)
+		t.Fatalf(`insert("01234567abcdefghSTUVWXYZ", 0)=%v,%v, want 24,nil`, n, err)
 	}
 	// Split block 1 in the middle.
-	n, err = b.Insert([]byte("!@#"), 12)
+	n, err = b.insert([]byte("!@#"), 12)
 	if n != 3 || err != nil {
 		b.Close()
-		t.Fatalf(`Insert("!@#", 12)=%v,%v, want 3,nil`, n, err)
+		t.Fatalf(`insert("!@#", 12)=%v,%v, want 3,nil`, n, err)
 	}
 	ns := make([]int, len(b.blocks))
 	for i, blk := range b.blocks {
@@ -90,16 +90,16 @@ func TestEmptyReadAtEOF(t *testing.T) {
 
 	str := "Hello, World!"
 	l := len(str)
-	if n, err := b.Insert([]byte(str), 0); n != l || err != nil {
-		t.Fatalf("Insert(%v, 0)=%v,%v, want %v,nil", str, n, err, l)
+	if n, err := b.insert([]byte(str), 0); n != l || err != nil {
+		t.Fatalf("insert(%v, 0)=%v,%v, want %v,nil", str, n, err, l)
 	}
 
 	if n, err := b.ReadAt([]byte{}, 1); n != 0 || err != nil {
 		t.Errorf("ReadAt([]byte{}, 1)=%v,%v, want 0,nil", n, err)
 	}
 
-	if n, err := b.Delete(int64(l), 0); n != int64(l) || err != nil {
-		t.Fatalf("Delete(%v, 0)=%v,%v, want %v, nil", l, n, err, l)
+	if n, err := b.delete(int64(l), 0); n != int64(l) || err != nil {
+		t.Fatalf("delete(%v, 0)=%v,%v, want %v, nil", l, n, err, l)
 	}
 	if s := b.Size(); s != 0 {
 		t.Fatalf("b.Size()=%d, want 0", s)
@@ -153,20 +153,20 @@ func TestInsert(t *testing.T) {
 		b := NewBytes(testBlockSize)
 		defer b.Close()
 		if len(test.init) > 0 {
-			n, err := b.Insert([]byte(test.init), 0)
+			n, err := b.insert([]byte(test.init), 0)
 			if n != len(test.init) || err != nil {
-				t.Errorf("%+v init failed: Insert(%v, 0)=%v,%v, want %v,nil",
+				t.Errorf("%+v init failed: insert(%v, 0)=%v,%v, want %v,nil",
 					test, test.init, n, err, len(test.init))
 				continue
 			}
 		}
-		n, err := b.Insert([]byte(test.add), test.at)
+		n, err := b.insert([]byte(test.add), test.at)
 		m := len(test.add)
 		if test.err != nil {
 			m = 0
 		}
 		if n != m || err != test.err {
-			t.Errorf("%+v add failed: Insert(%v, %v)=%v,%v, want %v,%v",
+			t.Errorf("%+v add failed: insert(%v, %v)=%v,%v, want %v,%v",
 				test, test.add, test.at, n, err, m, test.err)
 			continue
 		}
@@ -227,9 +227,9 @@ func TestDelete(t *testing.T) {
 		if test.err != nil {
 			m = 0
 		}
-		n, err := b.Delete(test.n, test.at)
+		n, err := b.delete(test.n, test.at)
 		if n != m || err != test.err {
-			t.Errorf("Delete(%v, %v)=%v,%v, want %v,%v",
+			t.Errorf("delete(%v, %v)=%v,%v, want %v,%v",
 				test.n, test.at, n, err, m, test.err)
 			continue
 		}
@@ -253,17 +253,17 @@ func TestBlockAlloc(t *testing.T) {
 
 	b := NewBytes(testBlockSize)
 	defer b.Close()
-	n, err := b.Insert(bs, 0)
+	n, err := b.insert(bs, 0)
 	if n != l || err != nil {
-		t.Fatalf(`Initial Insert(%v, 0)=%v,%v, want %v,nil`, bs, n, err, l)
+		t.Fatalf(`Initial insert(%v, 0)=%v,%v, want %v,nil`, bs, n, err, l)
 	}
 	if len(b.blocks) != 2 {
 		t.Fatalf("After initial insert: len(b.blocks)=%v, want 2", len(b.blocks))
 	}
 
-	m, err := b.Delete(int64(l), 0)
+	m, err := b.delete(int64(l), 0)
 	if m != int64(l) || err != nil {
-		t.Fatalf(`Delete(%v, 0)=%v,%v, want 5,nil`, l, m, err)
+		t.Fatalf(`delete(%v, 0)=%v,%v, want 5,nil`, l, m, err)
 	}
 	if len(b.blocks) != 0 {
 		t.Fatalf("After delete: len(b.blocks)=%v, want 0", len(b.blocks))
@@ -275,9 +275,9 @@ func TestBlockAlloc(t *testing.T) {
 	bs = bs[:testBlockSize/2]
 	l = len(bs)
 
-	n, err = b.Insert(bs, 0)
+	n, err = b.insert(bs, 0)
 	if n != l || err != nil {
-		t.Fatalf(`Second Insert(%v, 7)=%v,%v, want %v,nil`, bs, n, err, l)
+		t.Fatalf(`Second insert(%v, 7)=%v,%v, want %v,nil`, bs, n, err, l)
 	}
 	if len(b.blocks) != 1 {
 		t.Fatalf("After second insert: len(b.blocks)=%d, want 1", len(b.blocks))
@@ -293,18 +293,18 @@ func TestInsertDeleteAndRead(t *testing.T) {
 	defer b.Close()
 
 	const hiWorld = "Hello, World!"
-	n, err := b.Insert([]byte(hiWorld), 0)
+	n, err := b.insert([]byte(hiWorld), 0)
 	if l := len(hiWorld); n != l || err != nil {
-		t.Fatalf(`Insert(%s, 0)=%v,%v, want %v,nil`, hiWorld, n, err, l)
+		t.Fatalf(`insert(%s, 0)=%v,%v, want %v,nil`, hiWorld, n, err, l)
 	}
 	bs, err := ioutil.ReadAll(&bytesReader{b: b})
 	if s := string(bs); s != hiWorld || err != nil {
 		t.Fatalf(`ReadAll(·)=%v,%v, want %s,nil`, s, err, hiWorld)
 	}
 
-	m, err := b.Delete(5, 7)
+	m, err := b.delete(5, 7)
 	if m != 5 || err != nil {
-		t.Fatalf(`Delete(5, 7)=%v,%v, want 5,nil`, m, err)
+		t.Fatalf(`delete(5, 7)=%v,%v, want 5,nil`, m, err)
 	}
 	bs, err = ioutil.ReadAll(&bytesReader{b: b})
 	if s := string(bs); s != "Hello, !" || err != nil {
@@ -312,9 +312,9 @@ func TestInsertDeleteAndRead(t *testing.T) {
 	}
 
 	const gophers = "Gophers"
-	n, err = b.Insert([]byte(gophers), 7)
+	n, err = b.insert([]byte(gophers), 7)
 	if l := len(gophers); n != l || err != nil {
-		t.Fatalf(`Insert(%s, 7)=%v,%v, want %v,nil`, gophers, n, err, l)
+		t.Fatalf(`insert(%s, 7)=%v,%v, want %v,nil`, gophers, n, err, l)
 	}
 	bs, err = ioutil.ReadAll(&bytesReader{b: b})
 	if s := string(bs); s != "Hello, Gophers!" || err != nil {

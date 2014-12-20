@@ -111,7 +111,7 @@ func (b *Bytes) ReadAt(bs []byte, at int64) (int, error) {
 // After adding, the byte at the address is the first of the added bytes.
 // The return value is the number of bytes added and any error that was encountered.
 // It is an error to add at a negative address or an address that is greater than the buffer size.
-func (b *Bytes) Insert(bs []byte, at int64) (int, error) {
+func (b *Bytes) insert(bs []byte, at int64) (int, error) {
 	if at < 0 || at > b.Size() {
 		return 0, AddressError(Point(at))
 	}
@@ -152,7 +152,7 @@ func (b *Bytes) Insert(bs []byte, at int64) (int, error) {
 // Delete deletes a range of bytes from the Bytes buffer.
 // The return value is the number of bytes deleted.
 // If fewer than n bytes are deleted, the error states why.
-func (b *Bytes) Delete(n, at int64) (int64, error) {
+func (b *Bytes) delete(n, at int64) (int64, error) {
 	if n < 0 {
 		return 0, CountError(n)
 	}
