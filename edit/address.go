@@ -1,5 +1,7 @@
 package edit
 
+import "github.com/eaburns/T/edit/buffer"
+
 const runeBytes = 4
 
 // An AddressError records an error caused by an invalid address.
@@ -27,4 +29,11 @@ func (a Address) byteSize() int64 {
 // of the From portion of the Address.
 func (a Address) fromByte() int64 {
 	return a.From * runeBytes
+}
+
+func (a Address) bufferAddress() buffer.Address {
+	return buffer.Address{
+		From: a.fromByte(),
+		To:   a.fromByte() + a.byteSize(),
+	}
 }

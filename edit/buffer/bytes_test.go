@@ -5,9 +5,91 @@ import (
 	"io/ioutil"
 	"reflect"
 	"testing"
+	"unicode/utf8"
 )
 
 const testBlockSize = 8
+
+func TestBytesWrite(t *testing.T) {
+	tests := []struct {
+		init  string
+		write string
+		at    Address
+		want  string
+		err   error
+	}{
+		{at: Address{From: 1, To: 2}, err: AddressError(Address{From: 1, To: 2})},
+		{at: Address{From: -1, To: 0}, err: AddressError(Address{From: -1, To: 0})},
+		{at: Address{From: 0, To: 1}, err: AddressError(Address{From: 0, To: 1})},
+		{at: Address{From: 2, To: 1}, err: AddressError(Address{From: 2, To: 1})},
+
+		{init: "", write: "", at: Address{}, want: ""},
+		{init: "", write: "Hello, World!", at: Address{}, want: "Hello, World!"},
+		{init: "", write: "Hello, 世界", at: Address{}, want: "Hello, 世界"},
+		{init: "Hello, World!", write: "", at: Address{0, 13}, want: ""},
+		{init: "Hello, !", write: "World", at: Address{7, 7}, want: "Hello, World!"},
+		{init: "Hello, World", write: "! ☺", at: Address{12, 12}, want: "Hello, World! ☺"},
+		{init: ", World!", write: "Hello", at: Address{0, 0}, want: "Hello, World!"},
+	}
+	for _, test := range tests {
+		b := NewBytes(testBlockSize)
+		defer b.Close()
+		if err := b.Write([]byte(test.init), Address{}); err != nil {
+			t.Errorf("init Write(%v, Address{})=%v, want nil", test.init, err)
+			continue
+		}
+		if err := b.Write([]byte(test.write), test.at); err != test.err {
+			t.Errorf("Write(%v, %v)=%v, want %v", test.write, test.at, err, test.err)
+			continue
+		}
+		if test.err != nil {
+			continue
+		}
+		bs, err := b.Read(Address{From: 0, To: b.Size()})
+		if s := string(bs); s != test.want || err != nil {
+			t.Errorf(`%+v Read(Address{0, %d})="%s",%v, want "%v",nil`,
+				test, b.Size(), s, err, test.want)
+			continue
+		}
+	}
+}
+
+func TestBytesRead(t *testing.T) {
+	const hi = "Hello, 世界"
+	tests := []struct {
+		init string
+		at   Address
+		want string
+		err  error
+	}{
+		{at: Address{From: 1, To: 2}, err: AddressError(Address{From: 1, To: 2})},
+		{at: Address{From: -1, To: 0}, err: AddressError(Address{From: -1, To: 0})},
+		{at: Address{From: 0, To: 1}, err: AddressError(Address{From: 0, To: 1})},
+		{at: Address{From: 2, To: 1}, err: AddressError(Address{From: 2, To: 1})},
+
+		{init: "", at: Address{}, want: ""},
+		{init: "Hello, World!", at: Address{13, 13}, want: ""},
+		{init: "Hello, World!", at: Address{0, 13}, want: "Hello, World!"},
+		{init: hi, at: Address{0, int64(len(hi))}, want: hi},
+		{init: hi, at: Address{1, int64(len(hi))}, want: "ello, 世界"},
+		{init: hi, at: Address{0, int64(len(hi) - utf8.RuneLen('界'))}, want: "Hello, 世"},
+		{init: hi, at: Address{1, int64(len(hi) - utf8.RuneLen('界'))}, want: "ello, 世"},
+	}
+	for _, test := range tests {
+		b := NewBytes(testBlockSize)
+		defer b.Close()
+		if err := b.Write([]byte(test.init), Address{}); err != nil {
+			t.Errorf("init Write(%v, Address{})=%v, want nil", test.init, err)
+			continue
+		}
+		bs, err := b.Read(test.at)
+		if s := string(bs); s != test.want || err != test.err {
+			t.Errorf(`Read(%v)="%s",%v, want "%v",%v`,
+				test.at, s, err, test.want, test.err)
+			continue
+		}
+	}
+}
 
 func TestReadAt(t *testing.T) {
 	b := makeTestBytes(t)

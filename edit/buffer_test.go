@@ -88,7 +88,7 @@ func TestBufferRead(t *testing.T) {
 		{init: "Hello, 世界", at: Address{0, 9}, want: "Hello, 世界"},
 		{init: "Hello, 世界", at: Address{1, 9}, want: "ello, 世界"},
 		{init: "Hello, 世界", at: Address{0, 8}, want: "Hello, 世"},
-		{init: "Hello, 世界", at: Address{0, 8}, want: "Hello, 世"},
+		{init: "Hello, 世界", at: Address{1, 8}, want: "ello, 世"},
 	}
 	for _, test := range tests {
 		b := NewBuffer()

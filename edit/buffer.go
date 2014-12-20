@@ -53,12 +53,10 @@ func (b *Buffer) Read(at Address) ([]rune, error) {
 	if at.From < 0 || at.From > at.To || at.To > b.Size() {
 		return nil, AddressError(at)
 	}
-
-	bs := make([]byte, at.byteSize())
-	if _, err := b.bytes.ReadAt(bs, at.fromByte()); err != nil {
+	bs, err := b.bytes.Read(at.bufferAddress())
+	if err != nil {
 		return nil, err
 	}
-
 	rs := make([]rune, 0, at.Size())
 	for len(bs) > 0 {
 		r := rune(binary.LittleEndian.Uint32(bs))
@@ -73,18 +71,11 @@ func (b *Buffer) Write(rs []rune, at Address) error {
 	if at.From < 0 || at.From > at.To || at.To > b.Size() {
 		return AddressError(at)
 	}
-
-	if _, err := b.bytes.Delete(at.byteSize(), at.fromByte()); err != nil {
-		return err
-	}
-
 	bs := make([]byte, len(rs)*runeBytes)
 	for i, r := range rs {
 		binary.LittleEndian.PutUint32(bs[i*runeBytes:], uint32(r))
 	}
-
-	_, err := b.bytes.Insert(bs, at.fromByte())
-	return err
+	return b.bytes.Write(bs, at.bufferAddress())
 }
 
 // Get overwrites the buffer with the contents of the io.RuneReader.

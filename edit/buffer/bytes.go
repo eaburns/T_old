@@ -75,6 +75,30 @@ func (b *Bytes) Size() int64 {
 	return b.size
 }
 
+// Read returns the bytes in the range of an Address in the buffer.
+func (b *Bytes) Read(at Address) ([]byte, error) {
+	if at.From < 0 || at.From > at.To || at.To > b.Size() {
+		return nil, AddressError(at)
+	}
+	bs := make([]byte, at.Size())
+	if _, err := b.ReadAt(bs, at.From); err != nil {
+		return nil, err
+	}
+	return bs, nil
+}
+
+// Write writes bytes to the range of an Address in the buffer.
+func (b *Bytes) Write(bs []byte, at Address) error {
+	if at.From < 0 || at.From > at.To || at.To > b.Size() {
+		return AddressError(at)
+	}
+	if _, err := b.delete(at.Size(), at.From); err != nil {
+		return err
+	}
+	_, err := b.insert(bs, at.From)
+	return err
+}
+
 // ReadAt reads bytes from the Bytes buffer starting at the address.
 // The return value is the number of bytes read.
 // If fewer than len(bs) bytes are read then the error states why.
