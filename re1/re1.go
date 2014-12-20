@@ -72,14 +72,6 @@ type edge struct {
 	to    *node
 }
 
-func (e *edge) epsilon() bool {
-	return e.label == nil || e.label.epsilon()
-}
-
-func (e *edge) ok(p, c rune) bool {
-	return e.label != nil && e.label.ok(p, c)
-}
-
 type label interface {
 	ok(prev, cur rune) bool
 	epsilon() bool
@@ -556,7 +548,8 @@ func newMachine(re *Regexp) *machine {
 		seen:  make([]bool, re.n),
 		false: make([]bool, re.n),
 	}
-	if s := re.start.out[0].to; s.out[1].to == nil && !s.out[0].epsilon() {
+	if s := re.start.out[0].to; s.out[1].to == nil &&
+		s.out[0].label != nil && !s.out[0].label.epsilon() {
 		m.lit = s.out[0].label
 	}
 	return m
@@ -689,7 +682,7 @@ func (m *machine) step(s0 *state, prev, cur rune) {
 			switch e := &s.node.out[i]; {
 			case e.to == nil:
 				continue
-			case e.epsilon():
+			case e.label == nil || e.label.epsilon():
 				if !seen[e.to.n] && (e.label == nil || e.label.ok(prev, cur)) {
 					seen[e.to.n] = true
 					t := m.get(e.to)
