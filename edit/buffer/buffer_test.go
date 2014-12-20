@@ -98,7 +98,7 @@ func TestEmptyReadAtEOF(t *testing.T) {
 		t.Errorf("ReadAt([]byte{}, 1)=%v,%v, want 0,nil", n, err)
 	}
 
-	if n, err := b.Delete(int64(l), 0); n != l || err != nil {
+	if n, err := b.Delete(int64(l), 0); n != int64(l) || err != nil {
 		t.Fatalf("Delete(%v, 0)=%v,%v, want %v, nil", l, n, err, l)
 	}
 	if s := b.Size(); s != 0 {
@@ -223,7 +223,7 @@ func TestDelete(t *testing.T) {
 		b := makeTestBuffer(t)
 		defer b.Close()
 
-		m := int(b.Size()) - len(test.want)
+		m := b.Size() - int64(len(test.want))
 		if test.err != nil {
 			m = 0
 		}
@@ -261,9 +261,9 @@ func TestBlockAlloc(t *testing.T) {
 		t.Fatalf("After initial insert: len(b.blocks)=%v, want 2", len(b.blocks))
 	}
 
-	n, err = b.Delete(int64(l), 0)
-	if n != l || err != nil {
-		t.Fatalf(`Delete(%v, 0)=%v,%v, want 5,nil`, l, n, err)
+	m, err := b.Delete(int64(l), 0)
+	if m != int64(l) || err != nil {
+		t.Fatalf(`Delete(%v, 0)=%v,%v, want 5,nil`, l, m, err)
 	}
 	if len(b.blocks) != 0 {
 		t.Fatalf("After delete: len(b.blocks)=%v, want 0", len(b.blocks))
@@ -302,9 +302,9 @@ func TestInsertDeleteAndRead(t *testing.T) {
 		t.Fatalf(`ReadAll(·)=%v,%v, want %s,nil`, s, err, hiWorld)
 	}
 
-	n, err = b.Delete(5, 7)
-	if n != 5 || err != nil {
-		t.Fatalf(`Delete(5, 7)=%v,%v, want 5,nil`, n, err)
+	m, err := b.Delete(5, 7)
+	if m != 5 || err != nil {
+		t.Fatalf(`Delete(5, 7)=%v,%v, want 5,nil`, m, err)
 	}
 	bs, err = ioutil.ReadAll(&reader{b: b})
 	if s := string(bs); s != "Hello, !" || err != nil {

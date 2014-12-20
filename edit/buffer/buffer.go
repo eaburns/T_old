@@ -159,14 +159,14 @@ func (b *Buffer) Insert(bs []byte, at int64) (int, error) {
 // Delete deletes a range of bytes from the Buffer.
 // The return value is the number of bytes deleted.
 // If fewer than n bytes are deleted, the error states why.
-func (b *Buffer) Delete(n, at int64) (int, error) {
+func (b *Buffer) Delete(n, at int64) (int64, error) {
 	if n < 0 {
 		return 0, CountError(n)
 	}
 	if at < 0 || at+n > b.Size() {
 		return 0, AddressError(at)
 	}
-	var tot int
+	var tot int64
 	for n > 0 {
 		i, q0 := b.blockAt(at)
 		blk, err := b.get(i)
@@ -190,7 +190,7 @@ func (b *Buffer) Delete(n, at int64) (int, error) {
 			blk.n -= m
 		}
 		n -= int64(m)
-		tot += m
+		tot += int64(m)
 		b.size -= int64(m)
 	}
 	return tot, nil
