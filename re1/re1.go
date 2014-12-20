@@ -50,9 +50,8 @@ type Regexp struct {
 	// counting the 0th, which is the entire expression.
 	nsub int
 
-	// A cache of machines for running the regexp.
-	l  sync.Mutex
-	ms []*mach
+	lock   sync.Mutex
+	mcache []*machine
 }
 
 // Expression returns the input expression
@@ -71,14 +70,6 @@ type node struct {
 type edge struct {
 	label label
 	to    *node
-}
-
-func (e *edge) epsilon() bool {
-	return e.label == nil || e.label.epsilon()
-}
-
-func (e *edge) ok(p, c rune) bool {
-	return e.label != nil && e.label.ok(p, c)
 }
 
 type label interface {
@@ -501,201 +492,209 @@ type Runes interface {
 // The empty regular expression returns non-nil with an empty interval
 // for subexpression 0.
 func (re *Regexp) Match(rs Runes, from int64) [][2]int64 {
-	m := re.get(rs)
+	m := re.get()
 	defer re.put(m)
-	// i <= rs.Size(), because we want to run the machine
-	// once even if rs.Size()==0. This allows an empty regexp
-	// to match empty Runes.
-	for i := from; i <= rs.Size(); i++ {
-		m.at = i
-		if es := m.match(); es != nil {
-			return es
-		}
+	m.init(from)
+	matches := m.match(rs, rs.Size())
+	if matches == nil {
+		m.init(0)
+		matches = m.match(rs, from)
 	}
-	for i := int64(0); i < from; i++ {
-		m.at = i
-		if es := m.match(); es != nil {
-			return es
-		}
-	}
-	return nil
+	return matches
 }
 
-func (re *Regexp) get(rs Runes) *mach {
-	var m *mach
-	re.l.Lock()
-	if len(re.ms) > 0 {
-		m = re.ms[len(re.ms)-1]
-		re.ms = re.ms[:len(re.ms)-1]
-	} else {
-		m = newMach(re)
+func (re *Regexp) get() *machine {
+	re.lock.Lock()
+	defer re.lock.Unlock()
+	if len(re.mcache) == 0 {
+		return newMachine(re)
 	}
-	re.l.Unlock()
-	m.rs = rs
+	m := re.mcache[0]
+	re.mcache = re.mcache[1:]
 	return m
 }
 
-func (re *Regexp) put(m *mach) {
-	m.matches = nil
-	re.l.Lock()
-	if len(re.ms) < nCache {
-		re.ms = append(re.ms, m)
+func (re *Regexp) put(m *machine) {
+	re.lock.Lock()
+	defer re.lock.Unlock()
+	if len(re.mcache) < nCache {
+		re.mcache = append(re.mcache, m)
 	}
-	re.l.Unlock()
 }
 
-type mach struct {
-	re      *Regexp
-	rs      Runes
-	at      int64
-	matches [][2]int64
-
-	// Label of the first consuming state
-	// or nil if the first state is not consuming.
-	// Used to quickly fail on obvious non-matches.
-	l0 label
-
-	// Pre-allocated memory.
-	open, closed []state
-	seen, false  []bool // false is all false, for zeroing seen.
-	es           [][2]int64
+type machine struct {
+	re          *Regexp
+	at          int64
+	cap         [][2]int64
+	lit         label
+	q0, q1      *queue
+	stack       []*state
+	seen, false []bool // false is to zero seen.
+	free        *state
 }
 
 type state struct {
-	n  *node
-	es [][2]int64
+	node *node
+	cap  [][2]int64
+	next *state
 }
 
-func newMach(re *Regexp) *mach {
-	states := make([]state, re.n*2)
-	es := make([][2]int64, re.nsub*(len(states)+1))
-	for i := range states {
-		states[i].es = es[i*re.nsub : (i+1)*re.nsub]
+func newMachine(re *Regexp) *machine {
+	m := &machine{
+		re:    re,
+		q0:    newQueue(re.n),
+		q1:    newQueue(re.n),
+		stack: make([]*state, re.n),
+		seen:  make([]bool, re.n),
+		false: make([]bool, re.n),
 	}
-	var l0 label
-	s0 := re.start.out[0].to
-	if s0.out[1].to == nil && !s0.out[0].epsilon() {
-		l0 = s0.out[0].label
+	if s := re.start.out[0].to; s.out[1].to == nil &&
+		s.out[0].label != nil && !s.out[0].label.epsilon() {
+		m.lit = s.out[0].label
 	}
-	bools := make([]bool, re.n*2)
-	return &mach{
-		re:     re,
-		l0:     l0,
-		open:   states[:re.n],
-		closed: states[re.n:],
-		seen:   bools[:re.n],
-		false:  bools[re.n:],
-		es:     es[len(es)-re.nsub:],
-	}
+	return m
 }
 
-func (m *mach) makeState(n *node) state {
-	return state{n: n, es: make([][2]int64, m.re.nsub)}
+func (m *machine) init(from int64) {
+	m.at = from
+	m.cap = nil
+	for p := m.q0.head; p != nil; p = p.next {
+		m.put(p)
+	}
+	m.q0.head, m.q0.tail = nil, nil
+	for p := m.q1.head; p != nil; p = p.next {
+		m.put(p)
+	}
+	m.q1.head, m.q1.tail = nil, nil
 }
 
-func (m *mach) match() [][2]int64 {
-	sz := m.rs.Size()
-	p := eof
-	if m.at > 0 && m.at-1 < sz {
-		p = m.rs.Rune(m.at - 1)
+func (m *machine) get(n *node) (s *state) {
+	if m.free == nil {
+		return &state{node: n, cap: make([][2]int64, m.re.nsub)}
 	}
-	c := eof
-	if m.at < sz {
-		c = m.rs.Rune(m.at)
+	s = m.free
+	m.free = m.free.next
+	for i := range s.cap {
+		s.cap[i] = [2]int64{}
 	}
-	if m.l0 != nil && !m.l0.ok(p, c) {
-		return nil
+	s.node = n
+	return s
+}
+
+func (m *machine) put(s *state) {
+	s.next = m.free
+	m.free = s
+}
+
+type queue struct {
+	head, tail *state
+	mem        []bool
+}
+
+func newQueue(n int) *queue { return &queue{mem: make([]bool, n)} }
+
+func (q *queue) empty() bool { return q.head == nil }
+
+func (q *queue) push(s *state) {
+	if q.tail != nil {
+		q.tail.next = s
 	}
-	m.open[0].n = m.re.start
-	for i := range m.open[0].es {
-		m.open[0].es[i] = [2]int64{}
+	if q.head == nil {
+		q.head = s
 	}
-	nopen := 1
+	q.tail = s
+	s.next = nil
+	q.mem[s.node.n] = true
+}
+
+func (q *queue) pop() *state {
+	s := q.head
+	q.head = q.head.next
+	if q.head == nil {
+		q.tail = nil
+	}
+	s.next = nil
+	q.mem[s.node.n] = false
+	return s
+}
+
+func (m *machine) match(rs Runes, end int64) [][2]int64 {
+	sz := rs.Size()
+	prev := eof
+	if p := m.at - 1; p >= 0 && p < sz {
+		prev = rs.Rune(p)
+	}
+	cur := eof
+	if m.at >= 0 && m.at < sz {
+		cur = rs.Rune(m.at)
+	}
 	for {
-		nclosed := m.εclose(p, c, nopen)
-		if nclosed == 0 {
-			return m.matches
+		for m.q0.empty() && m.lit != nil && !m.lit.ok(prev, cur) && m.at <= end {
+			m.at++
+			prev, cur = cur, eof
+			if m.at >= 0 && m.at < sz {
+				cur = rs.Rune(m.at)
+			}
 		}
-		nopen = m.advance(p, c, nclosed)
+		if m.cap == nil && !m.q0.mem[m.re.start.n] && m.at <= end {
+			m.q0.push(m.get(m.re.start))
+		}
+		if m.q0.empty() {
+			break
+		}
+		for !m.q0.empty() {
+			s := m.q0.pop()
+			m.step(s, prev, cur)
+		}
 		m.at++
-		p = c
-		if m.at < sz {
-			c = m.rs.Rune(m.at)
-		} else {
-			c = eof
+		prev, cur = cur, eof
+		if m.at >= 0 && m.at < sz {
+			cur = rs.Rune(m.at)
 		}
+		m.q0, m.q1 = m.q1, m.q0
 	}
+	return m.cap
 }
 
-func (m *mach) εclose(p, c rune, nopen int) int {
-	copy(m.seen, m.false)
-	for i := 0; i < nopen; i++ {
-		m.seen[m.open[i].n.n] = true
-	}
-	var nclosed int
-	for nopen > 0 {
-		es := m.es
-		n := m.open[nopen-1].n
-		copy(es, m.open[nopen-1].es)
-		nopen--
+func (m *machine) step(s0 *state, prev, cur rune) {
+	stk, seen := m.stack[:1], m.seen
+	copy(seen, m.false)
+	stk[0], seen[s0.node.n] = s0, true
+	for len(stk) > 0 {
+		s := stk[len(stk)-1]
+		stk = stk[:len(stk)-1]
 
-		switch sub := n.sub; {
+		switch sub := s.node.sub; {
 		case sub > 0:
-			es[sub-1][0] = m.at
+			s.cap[sub-1][0] = m.at
 		case sub < 0:
-			es[-sub-1][1] = m.at
-		}
-		if n == m.re.end && es[0][0] <= es[0][1] { // match
-			if m.matches == nil {
-				m.matches = make([][2]int64, m.re.nsub)
-			}
-			copy(m.matches, es)
-			continue
+			s.cap[-sub-1][1] = m.at
 		}
 
-		adv := false
-		for i := range n.out {
-			if n.out[i].to == nil {
-				continue
+		if s.node == m.re.end && (m.cap == nil || m.cap[0][0] >= s.cap[0][0]) {
+			if m.cap == nil {
+				m.cap = make([][2]int64, m.re.nsub)
 			}
-			e := &n.out[i]
-			if !e.epsilon() {
-				adv = true
-				continue
-			}
-			if m.seen[e.to.n] {
-				continue
-			}
-			m.seen[e.to.n] = true
-			if e.label == nil || e.ok(p, c) {
-				m.open[nopen].n = e.to
-				copy(m.open[nopen].es, es)
-				nopen++
-			}
+			copy(m.cap, s.cap)
 		}
-		if adv {
-			m.closed[nclosed].n = n
-			copy(m.closed[nclosed].es, es)
-			nclosed++
-		}
-	}
-	return nclosed
-}
 
-func (m *mach) advance(p, c rune, nclosed int) int {
-	copy(m.seen, m.false)
-	var nopen int
-	for i := 0; i < nclosed; i++ {
-		s := &m.closed[i]
-		for i := range s.n.out {
-			e := &s.n.out[i]
-			if e.to != nil && !m.seen[e.to.n] && !e.epsilon() && e.ok(p, c) {
-				m.seen[e.to.n] = true
-				m.open[nopen].n = e.to
-				copy(m.open[nopen].es, s.es)
-				nopen++
+		for i := range s.node.out {
+			switch e := &s.node.out[i]; {
+			case e.to == nil:
+				continue
+			case e.label == nil || e.label.epsilon():
+				if !seen[e.to.n] && (e.label == nil || e.label.ok(prev, cur)) {
+					seen[e.to.n] = true
+					t := m.get(e.to)
+					copy(t.cap, s.cap)
+					stk = append(stk, t)
+				}
+			case !m.q1.mem[e.to.n] && e.label.ok(prev, cur):
+				t := m.get(e.to)
+				copy(t.cap, s.cap)
+				m.q1.push(t)
 			}
 		}
+		m.put(s)
 	}
-	return nopen
 }
