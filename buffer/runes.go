@@ -1,59 +1,43 @@
-// Package edit provides an API for ed-like editing of file-backed buffers.
-package edit
+package buffer
 
 import (
 	"encoding/binary"
 	"io"
 	"unicode/utf8"
-
-	"github.com/eaburns/T/edit/buffer"
 )
 
 const (
-	// BlockBytes is the block size used for the underlying buffer.Buffer.
-	blockBytes = 1024
-	// BlockRunes is the number of runes that fit in a buffer.Buffer block.
-	blockRunes = blockBytes / runeBytes
+	// RuneBytes is the number of bytes in Go's rune type.
+	runeBytes = 4
 )
 
-// A Buffer is an unbounded buffer of runes.
-type Buffer struct {
-	bytes *buffer.Bytes
+// A Runes is an unbounded rune buffer backed by a file.
+type Runes struct {
+	bytes *Bytes
 }
 
-// NewBuffer returns a new Buffer.
+// NewRunes returns a new Runes buffer.
 // The buffer caches no more than blockSize runes in memory.
-func NewBuffer() *Buffer {
-	return &Buffer{bytes: buffer.NewBytes(blockBytes)}
+func NewRunes(blockSize int) *Runes {
+	return &Runes{bytes: NewBytes(blockSize * runeBytes)}
 }
 
 // Close closes the buffer, freeing its resources.
-func (b *Buffer) Close() error {
+func (b *Runes) Close() error {
 	return b.bytes.Close()
 }
 
-// Size returns the number of runes in the Buffer.
-func (b *Buffer) Size() int64 {
+// Size returns the number of runes in the buffer.
+func (b *Runes) Size() int64 {
 	return b.bytes.Size() / runeBytes
 }
 
-// All returns the Address that identifies the entirety of the Buffer.
-func (b *Buffer) All() Address {
-	return Address{0, b.Size()}
-}
-
-// End returns the Address of the empty string at the end of the Buffer.
-func (b *Buffer) End() Address {
-	sz := b.Size()
-	return Address{sz, sz}
-}
-
 // Read returns the runes in the range of an Address in the buffer.
-func (b *Buffer) Read(at Address) ([]rune, error) {
+func (b *Runes) Read(at Address) ([]rune, error) {
 	if at.From < 0 || at.From > at.To || at.To > b.Size() {
 		return nil, AddressError(at)
 	}
-	bs, err := b.bytes.Read(at.bufferAddress())
+	bs, err := b.bytes.Read(at.asBytes())
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +51,7 @@ func (b *Buffer) Read(at Address) ([]rune, error) {
 }
 
 // Write writes runes to the range of an Address in the buffer.
-func (b *Buffer) Write(rs []rune, at Address) error {
+func (b *Runes) Write(rs []rune, at Address) error {
 	if at.From < 0 || at.From > at.To || at.To > b.Size() {
 		return AddressError(at)
 	}
@@ -75,13 +59,13 @@ func (b *Buffer) Write(rs []rune, at Address) error {
 	for i, r := range rs {
 		binary.LittleEndian.PutUint32(bs[i*runeBytes:], uint32(r))
 	}
-	return b.bytes.Write(bs, at.bufferAddress())
+	return b.bytes.Write(bs, at.asBytes())
 }
 
 // Get overwrites the buffer with the contents of the io.RuneReader.
 // The return value is the number of bytes read.
-func (b *Buffer) Get(r io.RuneReader) (int, error) {
-	at := b.All()
+func (b *Runes) Get(r io.RuneReader) (int, error) {
+	at := Address{From: 0, To: b.Size()}
 	var tot int
 	for {
 		r, w, err := r.ReadRune()
@@ -95,18 +79,18 @@ func (b *Buffer) Get(r io.RuneReader) (int, error) {
 		if err := b.Write([]rune{r}, at); err != nil {
 			return tot, err
 		}
-		at = b.End()
+		at = Address{From: b.Size(), To: b.Size()}
 	}
 }
 
 // Put writes the UTF8 encoding of the buffer to the io.Writer.
 // The return value is the number of bytes written.
-func (b *Buffer) Put(w io.Writer) (int, error) {
+func (b *Runes) Put(w io.Writer) (int, error) {
 	const n = 512
 	var tot int
 	var at Address
 	for at.From < b.Size() {
-		at.To = at.From + blockRunes
+		at.To = at.From + int64(b.bytes.blockSize*runeBytes)
 		if at.To > b.Size() {
 			at.To = b.Size()
 		}
