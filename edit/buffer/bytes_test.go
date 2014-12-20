@@ -9,33 +9,6 @@ import (
 
 const testBlockSize = 8
 
-// Initializes a buffer with the text "01234567abcd!@#efghSTUVWXYZ"
-// split across blocks of sizes: 8, 4, 3, 4, 8.
-func makeTestBytes(t *testing.T) *Bytes {
-	b := NewBytes(testBlockSize)
-	// Add 3 full blocks.
-	n, err := b.insert([]byte("01234567abcdefghSTUVWXYZ"), 0)
-	if n != 24 || err != nil {
-		b.Close()
-		t.Fatalf(`insert("01234567abcdefghSTUVWXYZ", 0)=%v,%v, want 24,nil`, n, err)
-	}
-	// Split block 1 in the middle.
-	n, err = b.insert([]byte("!@#"), 12)
-	if n != 3 || err != nil {
-		b.Close()
-		t.Fatalf(`insert("!@#", 12)=%v,%v, want 3,nil`, n, err)
-	}
-	ns := make([]int, len(b.blocks))
-	for i, blk := range b.blocks {
-		ns[i] = blk.n
-	}
-	if !reflect.DeepEqual(ns, []int{8, 4, 3, 4, 8}) {
-		b.Close()
-		t.Fatalf("blocks have sizes %v, want 8, 4, 3, 4, 8", ns)
-	}
-	return b
-}
-
 func TestReadAt(t *testing.T) {
 	b := makeTestBytes(t)
 	defer b.Close()
@@ -337,4 +310,31 @@ func (r *bytesReader) Read(bs []byte) (int, error) {
 	n, err := r.b.ReadAt(bs, r.q)
 	r.q += int64(n)
 	return n, err
+}
+
+// Initializes a buffer with the text "01234567abcd!@#efghSTUVWXYZ"
+// split across blocks of sizes: 8, 4, 3, 4, 8.
+func makeTestBytes(t *testing.T) *Bytes {
+	b := NewBytes(testBlockSize)
+	// Add 3 full blocks.
+	n, err := b.insert([]byte("01234567abcdefghSTUVWXYZ"), 0)
+	if n != 24 || err != nil {
+		b.Close()
+		t.Fatalf(`insert("01234567abcdefghSTUVWXYZ", 0)=%v,%v, want 24,nil`, n, err)
+	}
+	// Split block 1 in the middle.
+	n, err = b.insert([]byte("!@#"), 12)
+	if n != 3 || err != nil {
+		b.Close()
+		t.Fatalf(`insert("!@#", 12)=%v,%v, want 3,nil`, n, err)
+	}
+	ns := make([]int, len(b.blocks))
+	for i, blk := range b.blocks {
+		ns[i] = blk.n
+	}
+	if !reflect.DeepEqual(ns, []int{8, 4, 3, 4, 8}) {
+		b.Close()
+		t.Fatalf("blocks have sizes %v, want 8, 4, 3, 4, 8", ns)
+	}
+	return b
 }
