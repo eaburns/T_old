@@ -47,8 +47,8 @@ func TestReadAt(t *testing.T) {
 	}{
 		{n: 1, at: 27, err: io.EOF},
 		{n: 1, at: 28, err: io.EOF},
-		{n: 1, at: -1, err: AddressError(-1)},
-		{n: 1, at: -2, err: AddressError(-2)},
+		{n: 1, at: -1, err: AddressError(Point(-1))},
+		{n: 1, at: -2, err: AddressError(Point(-2))},
 
 		{n: 0, at: 0, want: ""},
 		{n: 1, at: 0, want: "0"},
@@ -118,9 +118,9 @@ func TestInsert(t *testing.T) {
 		want      string
 		err       error
 	}{
-		{init: "", add: "0", at: -1, err: AddressError(-1)},
-		{init: "", add: "0", at: 1, err: AddressError(1)},
-		{init: "0", add: "1", at: 2, err: AddressError(2)},
+		{init: "", add: "0", at: -1, err: AddressError(Point(-1))},
+		{init: "", add: "0", at: 1, err: AddressError(Point(1))},
+		{init: "0", add: "1", at: 2, err: AddressError(Point(2))},
 
 		{init: "", add: "", at: 0, want: ""},
 		{init: "", add: "0", at: 0, want: "0"},
@@ -188,8 +188,8 @@ func TestDelete(t *testing.T) {
 		want  string
 		err   error
 	}{
-		{n: 1, at: 27, err: AddressError(27)},
-		{n: 1, at: -1, err: AddressError(-1)},
+		{n: 1, at: 27, err: AddressError(Point(27))},
+		{n: 1, at: -1, err: AddressError(Point(-1))},
 		{n: -1, at: 1, err: CountError(-1)},
 
 		{n: 0, at: 0, want: "01234567abcd!@#efghSTUVWXYZ"},

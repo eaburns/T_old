@@ -8,13 +8,6 @@ import (
 	"strconv"
 )
 
-// An AddressError records an error caused by an out-of-bounds address.
-type AddressError int64
-
-func (err AddressError) Error() string {
-	return "invalid address: " + strconv.FormatInt(int64(err), 10)
-}
-
 // A CountError records an error caused by a negative count.
 type CountError int
 
@@ -89,7 +82,7 @@ func (b *Bytes) Size() int64 {
 func (b *Bytes) ReadAt(bs []byte, at int64) (int, error) {
 	switch {
 	case at < 0:
-		return 0, AddressError(at)
+		return 0, AddressError(Point(at))
 	case at == b.Size() && len(bs) == 0:
 		return 0, nil
 	case at >= b.Size():
@@ -120,7 +113,7 @@ func (b *Bytes) ReadAt(bs []byte, at int64) (int, error) {
 // It is an error to add at a negative address or an address that is greater than the buffer size.
 func (b *Bytes) Insert(bs []byte, at int64) (int, error) {
 	if at < 0 || at > b.Size() {
-		return 0, AddressError(at)
+		return 0, AddressError(Point(at))
 	}
 	var tot int
 	for len(bs) > 0 {
@@ -164,7 +157,7 @@ func (b *Bytes) Delete(n, at int64) (int64, error) {
 		return 0, CountError(n)
 	}
 	if at < 0 || at+n > b.Size() {
-		return 0, AddressError(at)
+		return 0, AddressError(Point(at))
 	}
 	var tot int64
 	for n > 0 {
@@ -216,7 +209,7 @@ func (b *Bytes) freeBlock(blk block) {
 // BlockAt panics if the address is negative or more than one past the end.
 func (b *Bytes) blockAt(at int64) (int, int64) {
 	if at < 0 || at > b.Size() {
-		panic(AddressError(at))
+		panic(AddressError(Point(at)))
 	}
 	if at == b.Size() {
 		i := len(b.blocks)
