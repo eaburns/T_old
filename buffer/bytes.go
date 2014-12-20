@@ -1,4 +1,4 @@
-// Package buffer provides unbounded, file-backed byte buffers.
+// Package buffer provides unbounded, file-backed buffers.
 package buffer
 
 import (
@@ -8,13 +8,6 @@ import (
 	"strconv"
 )
 
-// An AddressError records an error caused by an out-of-bounds address.
-type AddressError int64
-
-func (err AddressError) Error() string {
-	return "invalid address: " + strconv.FormatInt(int64(err), 10)
-}
-
 // A CountError records an error caused by a negative count.
 type CountError int
 
@@ -22,14 +15,14 @@ func (err CountError) Error() string {
 	return "invalid count: " + strconv.Itoa(int(err))
 }
 
-// A Buffer is an unbounded byte buffer backed by a file.
-type Buffer struct {
+// A Bytes is an unbounded byte buffer backed by a file.
+type Bytes struct {
 	// F is the file that backs the buffer.
 	// It is created lazily.
 	f *os.File
 	// BlockSize is the maximum number of bytes in a block.
 	blockSize int
-	// Blocks contains all blocks of the Buffer in order.
+	// Blocks contains all blocks of the buffer in order.
 	// Free contains blocks that are free to be re-allocated.
 	blocks, free []block
 	// End is the byte offset of the end of the backing file.
@@ -54,18 +47,18 @@ type block struct {
 	n int
 }
 
-// New returns a new, empty Buffer.
+// NewBytes returns a new, empty Bytes buffer.
 // No more than blockSize bytes are cached in memory.
-func New(blockSize int) *Buffer {
-	return &Buffer{
+func NewBytes(blockSize int) *Bytes {
+	return &Bytes{
 		blockSize: blockSize,
 		cached:    -1,
 		cache:     make([]byte, blockSize),
 	}
 }
 
-// Close closes the Buffer and it's backing file.
-func (b *Buffer) Close() error {
+// Close closes the Bytes buffer and it's backing file.
+func (b *Bytes) Close() error {
 	b.cache = nil
 	if b.f == nil {
 		return nil
@@ -77,19 +70,43 @@ func (b *Buffer) Close() error {
 	return os.Remove(path)
 }
 
-// Size returns the size of the Buffer in bytes.
-func (b *Buffer) Size() int64 {
+// Size returns the size of the Bytes buffer in bytes.
+func (b *Bytes) Size() int64 {
 	return b.size
 }
 
-// ReadAt reads bytes from the Buffer starting at the address.
+// Get returns the bytes in the range of an Address in the buffer.
+func (b *Bytes) Get(at Address) ([]byte, error) {
+	if at.From < 0 || at.From > at.To || at.To > b.Size() {
+		return nil, AddressError(at)
+	}
+	bs := make([]byte, at.Size())
+	if _, err := b.ReadAt(bs, at.From); err != nil {
+		return nil, err
+	}
+	return bs, nil
+}
+
+// Put overwrites the bytes in the range of an Address in the buffer.
+func (b *Bytes) Put(bs []byte, at Address) error {
+	if at.From < 0 || at.From > at.To || at.To > b.Size() {
+		return AddressError(at)
+	}
+	if _, err := b.delete(at.Size(), at.From); err != nil {
+		return err
+	}
+	_, err := b.insert(bs, at.From)
+	return err
+}
+
+// ReadAt reads bytes from the Bytes buffer starting at the address.
 // The return value is the number of bytes read.
 // If fewer than len(bs) bytes are read then the error states why.
-// If the address is beyond the end of the Buffer, 0 and io.EOF are returned.
-func (b *Buffer) ReadAt(bs []byte, at int64) (int, error) {
+// If the address is beyond the end of the buffer, 0 and io.EOF are returned.
+func (b *Bytes) ReadAt(bs []byte, at int64) (int, error) {
 	switch {
 	case at < 0:
-		return 0, AddressError(at)
+		return 0, AddressError(Point(at))
 	case at == b.Size() && len(bs) == 0:
 		return 0, nil
 	case at >= b.Size():
@@ -114,13 +131,13 @@ func (b *Buffer) ReadAt(bs []byte, at int64) (int, error) {
 	return tot, nil
 }
 
-// Insert adds the bytes to the address in the Buffer.
+// Insert adds the bytes to the address in the Bytes buffer.
 // After adding, the byte at the address is the first of the added bytes.
 // The return value is the number of bytes added and any error that was encountered.
-// It is an error to add at a negative address or an address that is greater than the Buffer size.
-func (b *Buffer) Insert(bs []byte, at int64) (int, error) {
+// It is an error to add at a negative address or an address that is greater than the buffer size.
+func (b *Bytes) insert(bs []byte, at int64) (int, error) {
 	if at < 0 || at > b.Size() {
-		return 0, AddressError(at)
+		return 0, AddressError(Point(at))
 	}
 	var tot int
 	for len(bs) > 0 {
@@ -156,17 +173,17 @@ func (b *Buffer) Insert(bs []byte, at int64) (int, error) {
 	return tot, nil
 }
 
-// Delete deletes a range of bytes from the Buffer.
+// Delete deletes a range of bytes from the Bytes buffer.
 // The return value is the number of bytes deleted.
 // If fewer than n bytes are deleted, the error states why.
-func (b *Buffer) Delete(n, at int64) (int, error) {
+func (b *Bytes) delete(n, at int64) (int64, error) {
 	if n < 0 {
 		return 0, CountError(n)
 	}
 	if at < 0 || at+n > b.Size() {
-		return 0, AddressError(at)
+		return 0, AddressError(Point(at))
 	}
-	var tot int
+	var tot int64
 	for n > 0 {
 		i, q0 := b.blockAt(at)
 		blk, err := b.get(i)
@@ -190,13 +207,13 @@ func (b *Buffer) Delete(n, at int64) (int, error) {
 			blk.n -= m
 		}
 		n -= int64(m)
-		tot += m
+		tot += int64(m)
 		b.size -= int64(m)
 	}
 	return tot, nil
 }
 
-func (b *Buffer) allocBlock() block {
+func (b *Bytes) allocBlock() block {
 	if l := len(b.free); l > 0 {
 		blk := b.free[l-1]
 		b.free = b.free[:l-1]
@@ -207,16 +224,16 @@ func (b *Buffer) allocBlock() block {
 	return blk
 }
 
-func (b *Buffer) freeBlock(blk block) {
+func (b *Bytes) freeBlock(blk block) {
 	b.free = append(b.free, block{start: blk.start})
 }
 
 // BlockAt returns the index and start address of the block containing the address.
 // If the address is one beyond the end of the file, a new block is allocated.
 // BlockAt panics if the address is negative or more than one past the end.
-func (b *Buffer) blockAt(at int64) (int, int64) {
+func (b *Bytes) blockAt(at int64) (int, int64) {
 	if at < 0 || at > b.Size() {
-		panic(AddressError(at))
+		panic(AddressError(Point(at)))
 	}
 	if at == b.Size() {
 		i := len(b.blocks)
@@ -236,7 +253,7 @@ func (b *Buffer) blockAt(at int64) (int, int64) {
 
 // insertAt inserts a block at the address and returns the new block's index.
 // If a block contains the address then it is split.
-func (b *Buffer) insertAt(at int64) (int, error) {
+func (b *Bytes) insertAt(at int64) (int, error) {
 	i, q0 := b.blockAt(at)
 	o := int(at - q0)
 	blk := b.blocks[i]
@@ -280,7 +297,7 @@ func (b *Buffer) insertAt(at int64) (int, error) {
 }
 
 // File returns an *os.File, creating a new file if one is not created yet.
-func (b *Buffer) file() (*os.File, error) {
+func (b *Bytes) file() (*os.File, error) {
 	if b.f == nil {
 		f, err := ioutil.TempFile(os.TempDir(), "edit")
 		if err != nil {
@@ -292,7 +309,7 @@ func (b *Buffer) file() (*os.File, error) {
 }
 
 // Put writes the cached block back to the file.
-func (b *Buffer) put() error {
+func (b *Bytes) put() error {
 	if b.cached < 0 || !b.dirty || len(b.cache) == 0 {
 		return nil
 	}
@@ -310,7 +327,7 @@ func (b *Buffer) put() error {
 
 // Get loads the cache with the data from the block at the given index,
 // returning a pointer to it.
-func (b *Buffer) get(i int) (*block, error) {
+func (b *Bytes) get(i int) (*block, error) {
 	if b.cached == i {
 		return &b.blocks[i], nil
 	}

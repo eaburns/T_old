@@ -1,4 +1,4 @@
-package edit
+package buffer
 
 import (
 	"bytes"
@@ -6,27 +6,27 @@ import (
 	"unicode/utf8"
 )
 
-// TestBufferBasics tests writing to a buffer and then reading it all back.
-func TestBufferBasics(t *testing.T) {
+// TestRunesBasics tests writing to a buffer and then reading it all back.
+func TestRunesBasics(t *testing.T) {
 	str := "Hello, World! ☺"
 	l := int64(utf8.RuneCountInString(str))
-	b := NewBuffer()
+	b := NewRunes(testBlockSize)
 	defer b.Close()
 
-	err := b.Write([]rune(str), Address{})
+	err := b.Put([]rune(str), Address{})
 	if err != nil {
-		t.Fatalf(`Write(%s), Address{})=%v, want nil`, str, err)
+		t.Fatalf(`Put(%s), Address{})=%v, want nil`, str, err)
 	}
 	if s := b.Size(); s != l {
 		t.Fatalf(`Size()=%d, want %d`, s, l)
 	}
-	rs, err := b.Read(b.All())
+	rs, err := b.Get(Address{From: 0, To: b.Size()})
 	if string(rs) != str || err != nil {
-		t.Fatalf(`Read(Address{0, %d})="%v",%v, want %s,nil`, b.Size(), string(rs), err, str)
+		t.Fatalf(`Get(Address{0, %d})="%v",%v, want %s,nil`, b.Size(), string(rs), err, str)
 	}
 }
 
-func TestBufferWrite(t *testing.T) {
+func TestRunesPut(t *testing.T) {
 	tests := []struct {
 		init  string
 		write string
@@ -48,29 +48,29 @@ func TestBufferWrite(t *testing.T) {
 		{init: ", World!", write: "Hello", at: Address{0, 0}, want: "Hello, World!"},
 	}
 	for _, test := range tests {
-		b := NewBuffer()
+		b := NewRunes(testBlockSize)
 		defer b.Close()
-		if err := b.Write([]rune(test.init), Address{}); err != nil {
-			t.Errorf("init Write(%v, Address{})=%v, want nil", test.init, err)
+		if err := b.Put([]rune(test.init), Address{}); err != nil {
+			t.Errorf("init Put(%v, Address{})=%v, want nil", test.init, err)
 			continue
 		}
-		if err := b.Write([]rune(test.write), test.at); err != test.err {
-			t.Errorf("Write(%v, %v)=%v, want %v", test.write, test.at, err, test.err)
+		if err := b.Put([]rune(test.write), test.at); err != test.err {
+			t.Errorf("Put(%v, %v)=%v, want %v", test.write, test.at, err, test.err)
 			continue
 		}
 		if test.err != nil {
 			continue
 		}
-		rs, err := b.Read(b.All())
+		rs, err := b.Get(Address{From: 0, To: b.Size()})
 		if s := string(rs); s != test.want || err != nil {
-			t.Errorf(`%+v Read(Address{0, %d})="%s",%v, want %v,nil`,
+			t.Errorf(`%+v Get(Address{0, %d})="%s",%v, want %v,nil`,
 				test, b.Size(), s, err, test.want)
 			continue
 		}
 	}
 }
 
-func TestBufferRead(t *testing.T) {
+func TestRunesGet(t *testing.T) {
 	tests := []struct {
 		init string
 		at   Address
@@ -88,25 +88,25 @@ func TestBufferRead(t *testing.T) {
 		{init: "Hello, 世界", at: Address{0, 9}, want: "Hello, 世界"},
 		{init: "Hello, 世界", at: Address{1, 9}, want: "ello, 世界"},
 		{init: "Hello, 世界", at: Address{0, 8}, want: "Hello, 世"},
-		{init: "Hello, 世界", at: Address{0, 8}, want: "Hello, 世"},
+		{init: "Hello, 世界", at: Address{1, 8}, want: "ello, 世"},
 	}
 	for _, test := range tests {
-		b := NewBuffer()
+		b := NewRunes(testBlockSize)
 		defer b.Close()
-		if err := b.Write([]rune(test.init), Address{}); err != nil {
-			t.Errorf("init Write(%v, Address{})=%v, want nil", test.init, err)
+		if err := b.Put([]rune(test.init), Address{}); err != nil {
+			t.Errorf("init Put(%v, Address{})=%v, want nil", test.init, err)
 			continue
 		}
-		rs, err := b.Read(test.at)
+		rs, err := b.Get(test.at)
 		if s := string(rs); s != test.want || err != test.err {
-			t.Errorf(`Read(%v)="%s",%v, want %v,%v`,
+			t.Errorf(`Get(%v)="%s",%v, want %v,%v`,
 				test.at, s, err, test.want, test.err)
 			continue
 		}
 	}
 }
 
-func TestBufferGet(t *testing.T) {
+func TestRunesReadFrom(t *testing.T) {
 	tests := []struct {
 		init, get, want string
 	}{
@@ -123,23 +123,23 @@ func TestBufferGet(t *testing.T) {
 		{get: "abc\x80def", want: "abc\uFFFDdef"},
 	}
 	for _, test := range tests {
-		b := NewBuffer()
+		b := NewRunes(testBlockSize)
 		defer b.Close()
-		n, err := b.Get(bytes.NewBuffer([]byte(test.get)))
-		if l := len(test.get); n != l || err != nil {
+		n, err := b.ReadFrom(bytes.NewBuffer([]byte(test.get)))
+		if l := int64(len(test.get)); n != l || err != nil {
 			t.Errorf("Get(%s)=%v,%v, want %v,nil", test.get, n, err, l)
 			continue
 		}
-		rs, err := b.Read(b.All())
+		rs, err := b.Get(Address{From: 0, To: b.Size()})
 		if s := string(rs); s != test.want || err != nil {
-			t.Errorf(`Read(b.All())="%s",%v, want %v,nil`, s, err, test.want)
+			t.Errorf(`Get(all)="%s",%v, want %v,nil`, s, err, test.want)
 			continue
 		}
 	}
 }
 
-func TestBufferPut(t *testing.T) {
-	big := make([]rune, blockRunes*2)
+func TestRunesWriteTo(t *testing.T) {
+	big := make([]rune, testBlockSize*2)
 	for i := range big {
 		big[i] = rune(i)
 	}
@@ -154,15 +154,15 @@ func TestBufferPut(t *testing.T) {
 		string(big),
 	}
 	for _, test := range tests {
-		b := NewBuffer()
+		b := NewRunes(testBlockSize)
 		defer b.Close()
-		if err := b.Write([]rune(test), b.End()); err != nil {
-			t.Fatalf(`b.Write("%s", b.End())=%v, want nil`, test, err)
+		if err := b.Put([]rune(test), Address{From: b.Size(), To: b.Size()}); err != nil {
+			t.Fatalf(`b.Put("%s", end)=%v, want nil`, test, err)
 		}
 
 		f := bytes.NewBuffer(nil)
-		n, err := b.Put(f)
-		if l := len(test); n != l || err != nil {
+		n, err := b.WriteTo(f)
+		if l := int64(len(test)); n != l || err != nil {
 			t.Errorf(`b.Put("%s")=%v,%v, want %v,nil`, test, n, err, l)
 			continue
 		}
