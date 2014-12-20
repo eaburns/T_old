@@ -10,7 +10,7 @@ import (
 
 const testBlockSize = 8
 
-func TestBytesWrite(t *testing.T) {
+func TestBytesPut(t *testing.T) {
 	tests := []struct {
 		init  string
 		write string
@@ -34,27 +34,27 @@ func TestBytesWrite(t *testing.T) {
 	for _, test := range tests {
 		b := NewBytes(testBlockSize)
 		defer b.Close()
-		if err := b.Write([]byte(test.init), Address{}); err != nil {
-			t.Errorf("init Write(%v, Address{})=%v, want nil", test.init, err)
+		if err := b.Put([]byte(test.init), Address{}); err != nil {
+			t.Errorf("init Put(%v, Address{})=%v, want nil", test.init, err)
 			continue
 		}
-		if err := b.Write([]byte(test.write), test.at); err != test.err {
-			t.Errorf("Write(%v, %v)=%v, want %v", test.write, test.at, err, test.err)
+		if err := b.Put([]byte(test.write), test.at); err != test.err {
+			t.Errorf("Put(%v, %v)=%v, want %v", test.write, test.at, err, test.err)
 			continue
 		}
 		if test.err != nil {
 			continue
 		}
-		bs, err := b.Read(Address{From: 0, To: b.Size()})
+		bs, err := b.Get(Address{From: 0, To: b.Size()})
 		if s := string(bs); s != test.want || err != nil {
-			t.Errorf(`%+v Read(Address{0, %d})="%s",%v, want "%v",nil`,
+			t.Errorf(`%+v Get(Address{0, %d})="%s",%v, want "%v",nil`,
 				test, b.Size(), s, err, test.want)
 			continue
 		}
 	}
 }
 
-func TestBytesRead(t *testing.T) {
+func TestBytesGet(t *testing.T) {
 	const hi = "Hello, 世界"
 	tests := []struct {
 		init string
@@ -78,13 +78,13 @@ func TestBytesRead(t *testing.T) {
 	for _, test := range tests {
 		b := NewBytes(testBlockSize)
 		defer b.Close()
-		if err := b.Write([]byte(test.init), Address{}); err != nil {
-			t.Errorf("init Write(%v, Address{})=%v, want nil", test.init, err)
+		if err := b.Put([]byte(test.init), Address{}); err != nil {
+			t.Errorf("init Put(%v, Address{})=%v, want nil", test.init, err)
 			continue
 		}
-		bs, err := b.Read(test.at)
+		bs, err := b.Get(test.at)
 		if s := string(bs); s != test.want || err != test.err {
-			t.Errorf(`Read(%v)="%s",%v, want "%v",%v`,
+			t.Errorf(`Get(%v)="%s",%v, want "%v",%v`,
 				test.at, s, err, test.want, test.err)
 			continue
 		}

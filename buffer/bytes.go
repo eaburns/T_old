@@ -75,8 +75,8 @@ func (b *Bytes) Size() int64 {
 	return b.size
 }
 
-// Read returns the bytes in the range of an Address in the buffer.
-func (b *Bytes) Read(at Address) ([]byte, error) {
+// Get returns the bytes in the range of an Address in the buffer.
+func (b *Bytes) Get(at Address) ([]byte, error) {
 	if at.From < 0 || at.From > at.To || at.To > b.Size() {
 		return nil, AddressError(at)
 	}
@@ -87,8 +87,8 @@ func (b *Bytes) Read(at Address) ([]byte, error) {
 	return bs, nil
 }
 
-// Write writes bytes to the range of an Address in the buffer.
-func (b *Bytes) Write(bs []byte, at Address) error {
+// Put overwrites the bytes in the range of an Address in the buffer.
+func (b *Bytes) Put(bs []byte, at Address) error {
 	if at.From < 0 || at.From > at.To || at.To > b.Size() {
 		return AddressError(at)
 	}

@@ -33,12 +33,12 @@ func (b *Runes) Size() int64 {
 	return b.bytes.Size() / runeBytes
 }
 
-// Read returns the runes in the range of an Address in the buffer.
-func (b *Runes) Read(at Address) ([]rune, error) {
+// Get returns the runes in the range of an Address in the buffer.
+func (b *Runes) Get(at Address) ([]rune, error) {
 	if at.From < 0 || at.From > at.To || at.To > b.Size() {
 		return nil, AddressError(at)
 	}
-	bs, err := b.bytes.Read(at.asBytes())
+	bs, err := b.bytes.Get(at.asBytes())
 	if err != nil {
 		return nil, err
 	}
@@ -51,8 +51,8 @@ func (b *Runes) Read(at Address) ([]rune, error) {
 	return rs, nil
 }
 
-// Write writes runes to the range of an Address in the buffer.
-func (b *Runes) Write(rs []rune, at Address) error {
+// Put overwrites the runes in the range of an Address in the buffer.
+func (b *Runes) Put(rs []rune, at Address) error {
 	if at.From < 0 || at.From > at.To || at.To > b.Size() {
 		return AddressError(at)
 	}
@@ -60,7 +60,7 @@ func (b *Runes) Write(rs []rune, at Address) error {
 	for i, r := range rs {
 		binary.LittleEndian.PutUint32(bs[i*runeBytes:], uint32(r))
 	}
-	return b.bytes.Write(bs, at.asBytes())
+	return b.bytes.Put(bs, at.asBytes())
 }
 
 // ReadFrom overwrites the buffer with the UTF8 contents of the io.Reader.
@@ -81,7 +81,7 @@ func (b *Runes) ReadFrom(r io.Reader) (int64, error) {
 		case err != nil:
 			return tot, err
 		}
-		if err := b.Write([]rune{r}, at); err != nil {
+		if err := b.Put([]rune{r}, at); err != nil {
 			return tot, err
 		}
 		at = Address{From: b.Size(), To: b.Size()}
@@ -99,7 +99,7 @@ func (b *Runes) WriteTo(w io.Writer) (int64, error) {
 		if at.To > b.Size() {
 			at.To = b.Size()
 		}
-		rs, err := b.Read(at)
+		rs, err := b.Get(at)
 		if err != nil {
 			return tot, err
 		}
