@@ -18,13 +18,13 @@ const (
 
 // A Buffer is an unbounded buffer of runes.
 type Buffer struct {
-	bytes *buffer.Buffer
+	bytes *buffer.Bytes
 }
 
 // NewBuffer returns a new Buffer.
 // The buffer caches no more than blockSize runes in memory.
 func NewBuffer() *Buffer {
-	return &Buffer{bytes: buffer.New(blockBytes)}
+	return &Buffer{bytes: buffer.NewBytes(blockBytes)}
 }
 
 // Close closes the buffer, freeing its resources.

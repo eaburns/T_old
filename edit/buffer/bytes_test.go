@@ -11,8 +11,8 @@ const testBlockSize = 8
 
 // Initializes a buffer with the text "01234567abcd!@#efghSTUVWXYZ"
 // split across blocks of sizes: 8, 4, 3, 4, 8.
-func makeTestBuffer(t *testing.T) *Buffer {
-	b := New(testBlockSize)
+func makeTestBytes(t *testing.T) *Bytes {
+	b := NewBytes(testBlockSize)
 	// Add 3 full blocks.
 	n, err := b.Insert([]byte("01234567abcdefghSTUVWXYZ"), 0)
 	if n != 24 || err != nil {
@@ -37,7 +37,7 @@ func makeTestBuffer(t *testing.T) *Buffer {
 }
 
 func TestReadAt(t *testing.T) {
-	b := makeTestBuffer(t)
+	b := makeTestBytes(t)
 	defer b.Close()
 	tests := []struct {
 		n    int
@@ -81,7 +81,7 @@ func TestReadAt(t *testing.T) {
 }
 
 func TestEmptyReadAtEOF(t *testing.T) {
-	b := New(testBlockSize)
+	b := NewBytes(testBlockSize)
 	defer b.Close()
 
 	if n, err := b.ReadAt([]byte{}, 0); n != 0 || err != nil {
@@ -150,7 +150,7 @@ func TestInsert(t *testing.T) {
 		{init: "0123456701234567", add: "abcdefgh", at: 8, want: "01234567abcdefgh01234567"},
 	}
 	for _, test := range tests {
-		b := New(testBlockSize)
+		b := NewBytes(testBlockSize)
 		defer b.Close()
 		if len(test.init) > 0 {
 			n, err := b.Insert([]byte(test.init), 0)
@@ -173,7 +173,7 @@ func TestInsert(t *testing.T) {
 		if test.err != nil {
 			continue
 		}
-		bs, err := ioutil.ReadAll(&reader{b: b})
+		bs, err := ioutil.ReadAll(&bytesReader{b: b})
 		if s := string(bs); s != test.want || err != nil {
 			t.Errorf("%+v read failed: ReadAll(·)=%v,%v, want %v,nil",
 				test, s, err, test.want)
@@ -220,7 +220,7 @@ func TestDelete(t *testing.T) {
 		{n: 25, at: 1, want: "0Z"},
 	}
 	for _, test := range tests {
-		b := makeTestBuffer(t)
+		b := makeTestBytes(t)
 		defer b.Close()
 
 		m := b.Size() - int64(len(test.want))
@@ -236,7 +236,7 @@ func TestDelete(t *testing.T) {
 		if test.err != nil {
 			continue
 		}
-		got, err := ioutil.ReadAll(&reader{b: b})
+		got, err := ioutil.ReadAll(&bytesReader{b: b})
 		if s := string(got); s != test.want || err != nil {
 			t.Errorf("%+v read failed: ReadAll(·)=%v,%v want %v,nil",
 				test, s, err, test.want)
@@ -251,7 +251,7 @@ func TestBlockAlloc(t *testing.T) {
 		t.Fatalf("len(bs)=%d, want >%d", l, testBlockSize)
 	}
 
-	b := New(testBlockSize)
+	b := NewBytes(testBlockSize)
 	defer b.Close()
 	n, err := b.Insert(bs, 0)
 	if n != l || err != nil {
@@ -289,7 +289,7 @@ func TestBlockAlloc(t *testing.T) {
 
 // TestInsertDeleteAndRead tests performing a few operations in sequence.
 func TestInsertDeleteAndRead(t *testing.T) {
-	b := New(testBlockSize)
+	b := NewBytes(testBlockSize)
 	defer b.Close()
 
 	const hiWorld = "Hello, World!"
@@ -297,7 +297,7 @@ func TestInsertDeleteAndRead(t *testing.T) {
 	if l := len(hiWorld); n != l || err != nil {
 		t.Fatalf(`Insert(%s, 0)=%v,%v, want %v,nil`, hiWorld, n, err, l)
 	}
-	bs, err := ioutil.ReadAll(&reader{b: b})
+	bs, err := ioutil.ReadAll(&bytesReader{b: b})
 	if s := string(bs); s != hiWorld || err != nil {
 		t.Fatalf(`ReadAll(·)=%v,%v, want %s,nil`, s, err, hiWorld)
 	}
@@ -306,7 +306,7 @@ func TestInsertDeleteAndRead(t *testing.T) {
 	if m != 5 || err != nil {
 		t.Fatalf(`Delete(5, 7)=%v,%v, want 5,nil`, m, err)
 	}
-	bs, err = ioutil.ReadAll(&reader{b: b})
+	bs, err = ioutil.ReadAll(&bytesReader{b: b})
 	if s := string(bs); s != "Hello, !" || err != nil {
 		t.Fatalf(`ReadAll(·)=%v,%v, want "Hello, !",nil`, s, err)
 	}
@@ -316,18 +316,18 @@ func TestInsertDeleteAndRead(t *testing.T) {
 	if l := len(gophers); n != l || err != nil {
 		t.Fatalf(`Insert(%s, 7)=%v,%v, want %v,nil`, gophers, n, err, l)
 	}
-	bs, err = ioutil.ReadAll(&reader{b: b})
+	bs, err = ioutil.ReadAll(&bytesReader{b: b})
 	if s := string(bs); s != "Hello, Gophers!" || err != nil {
 		t.Fatalf(`ReadAll(·)=%v,%v, want "Hello, Gophers!",nil`, s, err)
 	}
 }
 
-type reader struct {
-	b *Buffer
+type bytesReader struct {
+	b *Bytes
 	q int64
 }
 
-func (r *reader) Read(bs []byte) (int, error) {
+func (r *bytesReader) Read(bs []byte) (int, error) {
 	if r.q < 0 || r.q >= r.b.Size() {
 		// Make it out-of-range hereafter,
 		// even if the buffer grows again.
