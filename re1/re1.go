@@ -51,7 +51,7 @@ type Regexp struct {
 	nsub int
 
 	lock   sync.Mutex
-	mcache []*mach
+	mcache []*machine
 }
 
 // Expression returns the input expression
@@ -511,18 +511,18 @@ func (re *Regexp) Match(rs Runes, from int64) [][2]int64 {
 	return matches
 }
 
-func (re *Regexp) get() *mach {
+func (re *Regexp) get() *machine {
 	re.lock.Lock()
 	defer re.lock.Unlock()
 	if len(re.mcache) == 0 {
-		return newMach(re)
+		return newMachine(re)
 	}
 	m := re.mcache[0]
 	re.mcache = re.mcache[1:]
 	return m
 }
 
-func (re *Regexp) put(m *mach) {
+func (re *Regexp) put(m *machine) {
 	re.lock.Lock()
 	defer re.lock.Unlock()
 	if len(re.mcache) < nCache {
@@ -530,7 +530,7 @@ func (re *Regexp) put(m *mach) {
 	}
 }
 
-type mach struct {
+type machine struct {
 	re          *Regexp
 	at          int64
 	cap         [][2]int64
@@ -547,8 +547,8 @@ type state struct {
 	next *state
 }
 
-func newMach(re *Regexp) *mach {
-	m := &mach{
+func newMachine(re *Regexp) *machine {
+	m := &machine{
 		re:    re,
 		q0:    newQueue(re.n),
 		q1:    newQueue(re.n),
@@ -562,7 +562,7 @@ func newMach(re *Regexp) *mach {
 	return m
 }
 
-func (m *mach) init(from int64) {
+func (m *machine) init(from int64) {
 	m.at = from
 	m.cap = nil
 	for p := m.q0.head; p != nil; p = p.next {
@@ -575,7 +575,7 @@ func (m *mach) init(from int64) {
 	m.q1.head, m.q1.tail = nil, nil
 }
 
-func (m *mach) get(n *node) (s *state) {
+func (m *machine) get(n *node) (s *state) {
 	if m.free == nil {
 		return &state{node: n, cap: make([][2]int64, m.re.nsub)}
 	}
@@ -588,7 +588,7 @@ func (m *mach) get(n *node) (s *state) {
 	return s
 }
 
-func (m *mach) put(s *state) {
+func (m *machine) put(s *state) {
 	s.next = m.free
 	m.free = s
 }
@@ -625,7 +625,7 @@ func (q *queue) pop() *state {
 	return s
 }
 
-func (m *mach) match(rs Runes, end int64) [][2]int64 {
+func (m *machine) match(rs Runes, end int64) [][2]int64 {
 	sz := rs.Size()
 	prev := eof
 	if p := m.at - 1; p >= 0 && p < sz {
@@ -663,7 +663,7 @@ func (m *mach) match(rs Runes, end int64) [][2]int64 {
 	return m.cap
 }
 
-func (m *mach) step(s0 *state, prev, cur rune) {
+func (m *machine) step(s0 *state, prev, cur rune) {
 	stk, seen := m.stack[:1], m.seen
 	copy(seen, m.false)
 	stk[0], seen[s0.node.n] = s0, true
