@@ -5,7 +5,7 @@ which can be found at http://swtch.com/plan9port/man/man7/regexp.html.
 
 It reads:
 
-A regular expression specifies a set of strings of characters. A member of this set of strings is said to be matched by the regular expression. In many applications a delimiter character, commonly /, bounds a regular expression. In the following specification for regular expressions the word ‘character’ means any character (rune) but newline.
+"A regular expression specifies a set of strings of characters. A member of this set of strings is said to be matched by the regular expression. In many applications a delimiter character, commonly /, bounds a regular expression. In the following specification for regular expressions the word ‘character’ means any character (rune) but newline.
 
 The syntax for a regular expression e0 is
 	e3:    literal | charclass | '.' | '^' | '$' | '(' e0 ')'
@@ -27,7 +27,9 @@ A concatenated regular expression, e1e2, matches a match to e1 followed by a mat
 
 An alternative regular expression, e0|e1, matches either a match to e0 or a match to e1.
 
-A match to any part of a regular expression extends as far as possible without preventing a match to the remainder of the regular expression.
+A match to any part of a regular expression extends as far as possible without preventing a match to the remainder of the regular expression."
+
+In addition, re1 supports literal newline matching via \n.
 */
 package re1
 
