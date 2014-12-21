@@ -245,7 +245,6 @@ func TestDelete(t *testing.T) {
 	}{
 		{n: 1, at: 27, err: AddressError(Point(27))},
 		{n: 1, at: -1, err: AddressError(Point(-1))},
-		{n: -1, at: 1, err: CountError(-1)},
 
 		{n: 0, at: 0, want: "01234567abcd!@#efghSTUVWXYZ"},
 		{n: 1, at: 0, want: "1234567abcd!@#efghSTUVWXYZ"},

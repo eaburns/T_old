@@ -8,13 +8,6 @@ import (
 	"strconv"
 )
 
-// A CountError records an error caused by a negative count.
-type CountError int
-
-func (err CountError) Error() string {
-	return "invalid count: " + strconv.Itoa(int(err))
-}
-
 // A Bytes is an unbounded byte buffer backed by a file.
 type Bytes struct {
 	// F is the file that backs the buffer.
@@ -178,7 +171,7 @@ func (b *Bytes) insert(bs []byte, at int64) (int, error) {
 // If fewer than n bytes are deleted, the error states why.
 func (b *Bytes) delete(n, at int64) (int64, error) {
 	if n < 0 {
-		return 0, CountError(n)
+		panic("bad count: " + strconv.FormatInt(n, 10))
 	}
 	if at < 0 || at+n > b.Size() {
 		return 0, AddressError(Point(at))
