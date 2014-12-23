@@ -172,3 +172,16 @@ func TestRunesWriteTo(t *testing.T) {
 		}
 	}
 }
+
+func TestRunesRune(t *testing.T) {
+	rs := []rune("Hello, 世界!")
+	b := NewRunes(testBlockSize)
+	if err := b.Put(rs, Address{}); err != nil {
+		t.Fatalf(`b.Put("%s", Address{})=%v, want nil`, string(rs), err)
+	}
+	for i, want := range rs {
+		if got := b.Rune(int64(i)); got != want {
+			t.Errorf("b.Rune(%d)=%v, want %v", i, got, want)
+		}
+	}
+}
