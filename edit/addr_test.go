@@ -143,6 +143,74 @@ func TestRegexpAddress(t *testing.T) {
 	}
 }
 
+func TestPlusAddress(t *testing.T) {
+	tests := []addressTest{
+		{text: "abc", addr: Line(0).Plus(Rune(3)), want: pt(3)},
+		{text: "abc", addr: Rune(2).Plus(Rune(1)), want: pt(3)},
+		{text: "abc", addr: Rune(2).Plus(Rune(-1)), want: pt(1)},
+
+		{text: "abc\ndef", addr: Line(0).Plus(Line(1)), want: rng(0, 4)},
+		{text: "abc\ndef", addr: Line(1).Plus(Line(1)), want: rng(4, 7)},
+		{text: "abc\ndef", addr: Line(0).Plus(Line(-1)), want: pt(0)},
+		{text: "abc\ndef", addr: Line(1).Plus(Line(-1)), want: rng(0, 4)},
+
+		{text: "abc\ndef", addr: Rune(1).Plus(Line(0)), want: rng(1, 4)},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestMinusAddress(t *testing.T) {
+	tests := []addressTest{
+		{text: "abc", addr: Line(0).Minus(Rune(0)), want: pt(0)},
+
+		{text: "abc", addr: Rune(2).Minus(Rune(1)), want: pt(1)},
+		{text: "abc", addr: Rune(2).Minus(Rune(-1)), want: pt(3)},
+
+		{text: "abc\ndef", addr: Line(1).Minus(Line(1)), want: pt(0)},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestToAddress(t *testing.T) {
+	tests := []addressTest{
+		{text: "abc", addr: Line(0).To(End()), want: rng(0, 3)},
+		{text: "abc", dot: pt(1), addr: Dot().To(End()), want: rng(1, 3)},
+		{text: "abc\ndef", addr: Line(0).To(Line(1)), want: rng(0, 4)},
+		{text: "abc\ndef", addr: Line(1).To(Line(2)), want: rng(0, 7)},
+		{
+			text: "abcabc",
+			addr: Regexp("/abc").To(Regexp("/b")),
+			want: rng(0, 2),
+		},
+		{
+			text: "abc\ndef\nghi\njkl",
+			dot:  pt(11),
+			addr: Regexp("?abc?").Plus(Line(1)).To(Dot()),
+			want: rng(4, 11),
+		},
+		{text: "abc\ndef", addr: Line(0).To(Line(1)).To(Line(2)), want: rng(0, 7)},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestThenAddress(t *testing.T) {
+	tests := []addressTest{
+		{text: "abcabc", addr: Regexp("/abc/").Then(Regexp("/b/")), want: rng(0, 5)},
+		{text: "abcabc", addr: Regexp("/abc/").Then(Dot().Plus(Rune(1))), want: rng(0, 4)},
+		{text: "abcabc", addr: Line(0).Plus(Rune(1)).Then(Dot().Plus(Rune(1))), want: rng(1, 2)},
+		{text: "abcabc", addr: Line(0).To(Rune(1)).Then(Dot().Plus(Rune(1))), want: rng(0, 2)},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 type addressTest struct {
 	text string
 	// If rev==false, the match starts from 0.

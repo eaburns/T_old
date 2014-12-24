@@ -10,30 +10,146 @@ import (
 
 // An Address identifies a substring within a buffer.
 type Address interface {
-	Range(*Editor) (buffer.Address, error)
+	rangeFrom(from int64, ed *Editor) (buffer.Address, error)
 	String() string
+	To(Address) Address
+	Then(Address) Address
+}
+
+// All returns the address of the entire buffer: 0,$.
+func All() Address { return Line(0).To(End()) }
+
+type compoundAddr struct {
+	op     rune
+	a1, a2 Address
+}
+
+func (a compoundAddr) To(a2 Address) Address {
+	return compoundAddr{op: ',', a1: a, a2: a2}
+}
+
+func (a compoundAddr) Then(a2 Address) Address {
+	return compoundAddr{op: ';', a1: a, a2: a2}
+}
+
+func (a compoundAddr) String() string {
+	return a.a1.String() + string(a.op) + a.a2.String()
+}
+
+func (a compoundAddr) rangeFrom(from int64, ed *Editor) (buffer.Address, error) {
+	a1, err := a.a1.rangeFrom(from, ed)
+	if err != nil {
+		return buffer.Address{}, err
+	}
+	switch a.op {
+	case ',':
+		a2, err := a.a2.rangeFrom(from, ed)
+		if err != nil {
+			return buffer.Address{}, err
+		}
+		return buffer.Address{From: a1.From, To: a2.To}, nil
+	case ';':
+		origDot := ed.dot
+		ed.dot = a1
+		a2, err := a.a2.rangeFrom(a1.To, ed)
+		if err != nil {
+			ed.dot = origDot // Restore dot on error.
+			return buffer.Address{}, err
+		}
+		return buffer.Address{From: a1.From, To: a2.To}, nil
+	default:
+		panic("bad compound address")
+	}
+}
+
+// An AdditiveAddress identifies a substring within a buffer.
+// AdditiveAddresses are created using the + or - operation.
+type AdditiveAddress interface {
+	Address
+	Plus(SimpleAddress) AdditiveAddress
+	Minus(SimpleAddress) AdditiveAddress
+}
+
+type addAddr struct {
+	op rune
+	a1 AdditiveAddress
+	a2 SimpleAddress
+}
+
+func (a addAddr) To(a2 Address) Address {
+	return compoundAddr{op: ',', a1: a, a2: a2}
+}
+
+func (a addAddr) Then(a2 Address) Address {
+	return compoundAddr{op: ';', a1: a, a2: a2}
+}
+
+func (a addAddr) Plus(a2 SimpleAddress) AdditiveAddress {
+	return addAddr{op: '+', a1: a, a2: a2}
+}
+
+func (a addAddr) Minus(a2 SimpleAddress) AdditiveAddress {
+	return addAddr{op: '-', a1: a, a2: a2}
+}
+
+func (a addAddr) String() string {
+	return a.a1.String() + string(a.op) + a.a2.String()
+}
+
+func (a addAddr) rangeFrom(from int64, ed *Editor) (buffer.Address, error) {
+	a1, err := a.a1.rangeFrom(from, ed)
+	if err != nil {
+		return buffer.Address{}, err
+	}
+	switch a.op {
+	case '+':
+		return a.a2.rangeFrom(a1.To, ed)
+	case '-':
+		return a.a2.reverse().rangeFrom(a1.From, ed)
+	default:
+		panic("bad additive address")
+	}
 }
 
 // A SimpleAddress identifies a substring within a buffer.
 // SimpleAddresses can be composed to form composite addresses.
-type SimpleAddress struct{ simpleAddress }
-
-type simpleAddress interface {
-	Address
-	rangeFrom(from int64, ed *Editor) (buffer.Address, error)
+type SimpleAddress interface {
+	AdditiveAddress
 	reverse() SimpleAddress
+}
+
+type simpAddrImpl interface {
+	rangeFrom(from int64, ed *Editor) (buffer.Address, error)
+	String() string
+	reverse() SimpleAddress
+}
+
+type simpleAddr struct {
+	simpAddrImpl
+}
+
+func (a simpleAddr) To(a2 Address) Address {
+	return compoundAddr{op: ',', a1: a, a2: a2}
+}
+
+func (a simpleAddr) Then(a2 Address) Address {
+	return compoundAddr{op: ';', a1: a, a2: a2}
+}
+
+func (a simpleAddr) Plus(a2 SimpleAddress) AdditiveAddress {
+	return addAddr{op: '+', a1: a, a2: a2}
+}
+
+func (a simpleAddr) Minus(a2 SimpleAddress) AdditiveAddress {
+	return addAddr{op: '-', a1: a, a2: a2}
 }
 
 type dotAddr struct{}
 
 // Dot returns the address of the Editor's dot.
-func Dot() SimpleAddress { return SimpleAddress{dotAddr{}} }
+func Dot() SimpleAddress { return simpleAddr{dotAddr{}} }
 
 func (dotAddr) String() string { return "." }
-
-func (d dotAddr) Range(ed *Editor) (buffer.Address, error) {
-	return d.rangeFrom(0, ed)
-}
 
 func (dotAddr) rangeFrom(_ int64, ed *Editor) (buffer.Address, error) {
 	if ed.dot.From < 0 || ed.dot.To > ed.runes.Size() {
@@ -42,36 +158,28 @@ func (dotAddr) rangeFrom(_ int64, ed *Editor) (buffer.Address, error) {
 	return ed.dot, nil
 }
 
-func (d dotAddr) reverse() SimpleAddress { return SimpleAddress{d} }
+func (d dotAddr) reverse() SimpleAddress { return simpleAddr{d} }
 
 type endAddr struct{}
 
 // End returns the address of the empty string at the end of the buffer.
-func End() SimpleAddress { return SimpleAddress{endAddr{}} }
+func End() SimpleAddress { return simpleAddr{endAddr{}} }
 
 func (endAddr) String() string { return "$" }
-
-func (e endAddr) Range(ed *Editor) (buffer.Address, error) {
-	return e.rangeFrom(0, ed)
-}
 
 func (endAddr) rangeFrom(_ int64, ed *Editor) (buffer.Address, error) {
 	return buffer.Point(ed.runes.Size()), nil
 }
 
-func (e endAddr) reverse() SimpleAddress { return SimpleAddress{e} }
+func (e endAddr) reverse() SimpleAddress { return simpleAddr{e} }
 
 type runeAddr int64
 
 // Rune returns the address of the empty string after rune n.
-func Rune(n int64) SimpleAddress { return SimpleAddress{runeAddr(n)} }
+func Rune(n int64) SimpleAddress { return simpleAddr{runeAddr(n)} }
 
 func (n runeAddr) String() string {
 	return "#" + strconv.FormatInt(int64(n), 10)
-}
-
-func (n runeAddr) Range(ed *Editor) (buffer.Address, error) {
-	return n.rangeFrom(0, ed)
 }
 
 func (n runeAddr) rangeFrom(from int64, ed *Editor) (buffer.Address, error) {
@@ -82,7 +190,7 @@ func (n runeAddr) rangeFrom(from int64, ed *Editor) (buffer.Address, error) {
 	return buffer.Point(m), nil
 }
 
-func (n runeAddr) reverse() SimpleAddress { return SimpleAddress{runeAddr(-n)} }
+func (n runeAddr) reverse() SimpleAddress { return simpleAddr{runeAddr(-n)} }
 
 type lineAddr struct {
 	neg bool
@@ -92,9 +200,9 @@ type lineAddr struct {
 // Line returns the address of the nth full line.
 func Line(n int) SimpleAddress {
 	if n < 0 {
-		return SimpleAddress{lineAddr{neg: true, n: -n}}
+		return simpleAddr{lineAddr{neg: true, n: -n}}
 	}
-	return SimpleAddress{lineAddr{n: n}}
+	return simpleAddr{lineAddr{n: n}}
 }
 
 func (l lineAddr) String() string {
@@ -103,10 +211,6 @@ func (l lineAddr) String() string {
 		return "-" + n
 	}
 	return n
-}
-
-func (l lineAddr) Range(ed *Editor) (buffer.Address, error) {
-	return l.rangeFrom(0, ed)
 }
 
 func (l lineAddr) rangeFrom(from int64, ed *Editor) (buffer.Address, error) {
@@ -118,7 +222,7 @@ func (l lineAddr) rangeFrom(from int64, ed *Editor) (buffer.Address, error) {
 
 func (l lineAddr) reverse() SimpleAddress {
 	l.neg = !l.neg
-	return SimpleAddress{l}
+	return simpleAddr{l}
 }
 
 func (l lineAddr) fwd(from int64, ed *Editor) (buffer.Address, error) {
@@ -189,18 +293,14 @@ type reAddr string
 // If the delimiter is a ? then the regular expression is matched in reverse.
 // The regular expression is not compiled until the address is computed
 // on a buffer, so compilation errors will not be returned until that time.
-func Regexp(re string) SimpleAddress { return SimpleAddress{reAddr(re)} }
-
-func (r reAddr) String() string {
-	if len(r) > 0 && r[len(r)-1] == r[0] {
-		r = r[:len(r)-1]
+func Regexp(re string) SimpleAddress {
+	if len(re) == 0 {
+		re = "/"
 	}
-	return string(r)
+	return simpleAddr{reAddr(re)}
 }
 
-func (r reAddr) Range(ed *Editor) (buffer.Address, error) {
-	return r.rangeFrom(0, ed)
-}
+func (r reAddr) String() string { return string(r) + string(r[0]) }
 
 type reverse struct{ *buffer.Runes }
 
@@ -235,15 +335,15 @@ func (r reAddr) rangeFrom(from int64, ed *Editor) (a buffer.Address, err error) 
 func (r reAddr) reverse() SimpleAddress {
 	switch {
 	case len(r) == 0:
-		return SimpleAddress{r}
+		return simpleAddr{r}
 	case r[0] == '?':
 		s := []rune(string(r))
 		s[0] = '/'
-		return SimpleAddress{reAddr(string(s))}
+		return simpleAddr{reAddr(string(s))}
 	case r[0] == '/':
 		s := []rune(string(r))
 		s[0] = '?'
-		return SimpleAddress{reAddr(string(s))}
+		return simpleAddr{reAddr(string(s))}
 	default:
 		panic("malformed regexp")
 	}
