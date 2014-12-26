@@ -3,6 +3,7 @@ package edit
 import (
 	"errors"
 	"strconv"
+	"unicode/utf8"
 
 	"github.com/eaburns/T/buffer"
 	"github.com/eaburns/T/re1"
@@ -288,7 +289,10 @@ func (lineAddr) nextLine(from, delta int64, ed *Editor) (int64, bool, error) {
 	return i, false, nil
 }
 
-type reAddr string
+type reAddr struct {
+	rev bool
+	re  string
+}
 
 // Regexp returns a regular expression address.
 // The regular expression must be a delimited regular expression
@@ -301,10 +305,23 @@ func Regexp(re string) SimpleAddress {
 	if len(re) == 0 {
 		re = "/"
 	}
-	return simpleAddr{reAddr(re)}
+	return simpleAddr{reAddr{rev: re[0] == '?', re: re}}
 }
 
-func (r reAddr) String() string { return string(r) + string(r[0]) }
+func (r reAddr) String() string {
+	var esc bool
+	var rs []rune
+	d, _ := utf8.DecodeRuneInString(r.re)
+	for i, ru := range r.re {
+		rs = append(rs, ru)
+		// Ensure an unescaped trailing delimiter.
+		if i == len(r.re)-utf8.RuneLen(ru) && (i == 0 || ru != d || esc) {
+			rs = append(rs, d)
+		}
+		esc = !esc && ru == '\\'
+	}
+	return string(rs)
+}
 
 type reverse struct{ *buffer.Runes }
 
@@ -313,13 +330,12 @@ func (r reverse) Rune(i int64) rune {
 }
 
 func (r reAddr) rangeFrom(from int64, ed *Editor) (a buffer.Address, err error) {
-	rev := len(r) > 0 && r[0] == '?'
-	re, err := re1.Compile([]rune(string(r)), re1.Options{Delimited: true, Reverse: rev})
+	re, err := re1.Compile([]rune(r.re), re1.Options{Delimited: true, Reverse: r.rev})
 	if err != nil {
 		return a, err
 	}
 	runes := re1.Runes(ed.runes)
-	if rev {
+	if r.rev {
 		runes = reverse{ed.runes}
 		from = runes.Size() - from
 	}
@@ -329,7 +345,7 @@ func (r reAddr) rangeFrom(from int64, ed *Editor) (a buffer.Address, err error) 
 		return a, errors.New("no match")
 	}
 	a = buffer.Address{From: match[0][0], To: match[0][1]}
-	if rev {
+	if r.rev {
 		a.From, a.To = runes.Size()-a.To, runes.Size()-a.From
 	}
 	return a, nil
@@ -337,18 +353,6 @@ func (r reAddr) rangeFrom(from int64, ed *Editor) (a buffer.Address, err error) 
 }
 
 func (r reAddr) reverse() SimpleAddress {
-	switch {
-	case len(r) == 0:
-		return simpleAddr{r}
-	case r[0] == '?':
-		s := []rune(string(r))
-		s[0] = '/'
-		return simpleAddr{reAddr(string(s))}
-	case r[0] == '/':
-		s := []rune(string(r))
-		s[0] = '?'
-		return simpleAddr{reAddr(string(s))}
-	default:
-		panic("malformed regexp")
-	}
+	r.rev = !r.rev
+	return simpleAddr{r}
 }

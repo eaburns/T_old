@@ -145,6 +145,35 @@ func TestRegexpAddress(t *testing.T) {
 	}
 }
 
+// Tests regexp String().
+func TestRegexpString(t *testing.T) {
+	tests := []struct {
+		re, want string
+	}{
+		{"", "//"},
+		{"/", "//"},
+		{"☺", "☺☺"},
+		{"//", "//"},
+		{"☺☺", "☺☺"},
+		{`/\/`, `/\//`},
+		{`☺\☺`, `☺\☺☺`},
+		{"/abc", "/abc/"},
+		{"/abc/", "/abc/"},
+		{"☺abc", "☺abc☺"},
+		{"☺abc☺", "☺abc☺"},
+		{"/abc", "/abc/"},
+		{`/abc\/`, `/abc\//`},
+		{`☺abc\☺`, `☺abc\☺☺`},
+	}
+	for _, test := range tests {
+		re := Regexp(test.re)
+		if s := re.String(); s != test.want {
+			t.Errorf("Regexp(%s).String()=%s, want %s", strconv.Quote(test.re),
+				strconv.Quote(s), strconv.Quote(test.want))
+		}
+	}
+}
+
 func TestPlusAddress(t *testing.T) {
 	tests := []addressTest{
 		{text: "abc", addr: Line(0).Plus(Rune(3)), want: pt(3)},
