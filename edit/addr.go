@@ -227,66 +227,56 @@ func (l lineAddr) reverse() SimpleAddress {
 }
 
 func (l lineAddr) fwd(from int64, ed *Editor) (buffer.Address, error) {
-	switch {
-	case l.n == 0 && from == 0:
-		return buffer.Point(0), nil
-	case from == 0 || ed.runes.Rune(from-1) == '\n':
-		l.n-- // Already at the start of a line.
-	}
-	var err error
-	var nl bool
 	a := buffer.Address{From: from, To: from}
-	for i := 0; i < l.n+1; i++ {
-		if !nl && a.To >= ed.runes.Size() && l.n > 0 {
-			return buffer.Address{}, errors.New("line address out of range")
+	if a.To > 0 {
+		for a.To < ed.runes.Size() && ed.runes.Rune(a.To-1) != '\n' {
+			a.To++
 		}
-		a.From = a.To
-		a.To, nl, err = l.nextLine(a.From, +1, ed)
-		if err != nil {
-			return buffer.Address{}, err
+		if l.n > 0 {
+			a.From = a.To
 		}
+	}
+	for l.n > 0 && a.To < ed.runes.Size() {
+		r := ed.runes.Rune(a.To)
+		a.To++
+		if r == '\n' {
+			l.n--
+			if l.n > 0 {
+				a.From = a.To
+			}
+		}
+	}
+	if l.n > 1 || l.n == 1 && a.To < ed.runes.Size() {
+		return buffer.Address{}, errors.New("line address out of range")
 	}
 	return a, nil
 }
 
 func (l lineAddr) rev(from int64, ed *Editor) (buffer.Address, error) {
-	var err error
-	var nl bool
 	a := buffer.Address{From: from, To: from}
-	for i := 0; i < l.n+1; i++ {
-		if a.From == 0 && i == l.n {
-			a = buffer.Point(0)
-			break
-		}
-		if i > 0 && a.From <= 0 {
-			return buffer.Address{}, errors.New("line address out of range")
-		}
-		a.To = a.From
-		if nl {
+	if a.From < ed.runes.Size() {
+		for a.From > 0 && ed.runes.Rune(a.From-1) != '\n' {
 			a.From--
 		}
-		a.From, nl, err = l.nextLine(a.From, -1, ed)
-		if err != nil {
-			return buffer.Address{}, err
+		a.To = a.From
+	}
+	for l.n > 0 && a.From > 0 {
+		r := ed.runes.Rune(a.From - 1)
+		a.From--
+		if r == '\n' {
+			l.n--
+			a.To = a.From + 1
+		} else if a.From == 0 {
+			a.To = a.From
 		}
+	}
+	if l.n > 1 {
+		return buffer.Address{}, errors.New("line address out of range")
+	}
+	for a.From > 0 && ed.runes.Rune(a.From-1) != '\n' {
+		a.From--
 	}
 	return a, nil
-}
-
-// NextLine returns the address of the empty string
-// immediately after the next \n or 0
-// or the address of the end of the buffer.
-func (lineAddr) nextLine(from, delta int64, ed *Editor) (int64, bool, error) {
-	var i int64
-	for i = from; delta > 0 && i < ed.runes.Size() || delta < 0 && i > 0; i += delta {
-		switch {
-		case delta < 0 && ed.runes.Rune(i-1) == '\n':
-			return i, true, nil
-		case delta > 0 && ed.runes.Rune(i) == '\n':
-			return i + 1, true, nil
-		}
-	}
-	return i, false, nil
 }
 
 type reAddr struct {
