@@ -89,6 +89,8 @@ func TestLineAddress(t *testing.T) {
 		{dot: pt(2), text: "aa", addr: Line(0).reverse(), want: rng(0, 2)},
 		{dot: pt(3), text: "aa\n", addr: Line(0).reverse(), want: pt(3)},
 		{dot: pt(2), text: "aa", addr: Line(-1), want: pt(0)},
+		{dot: pt(1), text: "aa", addr: Line(-1), want: pt(0)},
+		{dot: pt(1), text: "abc\ndef", addr: Line(-1), want: pt(0)},
 		{dot: pt(3), text: "aa\n", addr: Line(-1), want: rng(0, 3)},
 		{dot: pt(1), text: "\n", addr: Line(-1), want: rng(0, 1)},
 		{dot: pt(5), text: "aa\nbb", addr: Line(-2), want: pt(0)},
@@ -148,13 +150,13 @@ func TestPlusAddress(t *testing.T) {
 		{text: "abc", addr: Line(0).Plus(Rune(3)), want: pt(3)},
 		{text: "abc", addr: Rune(2).Plus(Rune(1)), want: pt(3)},
 		{text: "abc", addr: Rune(2).Plus(Rune(-1)), want: pt(1)},
-
 		{text: "abc\ndef", addr: Line(0).Plus(Line(1)), want: rng(0, 4)},
 		{text: "abc\ndef", addr: Line(1).Plus(Line(1)), want: rng(4, 7)},
 		{text: "abc\ndef", addr: Line(0).Plus(Line(-1)), want: pt(0)},
 		{text: "abc\ndef", addr: Line(1).Plus(Line(-1)), want: rng(0, 4)},
-
 		{text: "abc\ndef", addr: Rune(1).Plus(Line(0)), want: rng(1, 4)},
+
+		{text: "abc\ndef", dot: pt(1), addr: Dot().Plus(Line(-1)), want: pt(0)},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -164,11 +166,10 @@ func TestPlusAddress(t *testing.T) {
 func TestMinusAddress(t *testing.T) {
 	tests := []addressTest{
 		{text: "abc", addr: Line(0).Minus(Rune(0)), want: pt(0)},
-
 		{text: "abc", addr: Rune(2).Minus(Rune(1)), want: pt(1)},
 		{text: "abc", addr: Rune(2).Minus(Rune(-1)), want: pt(3)},
-
 		{text: "abc\ndef", addr: Line(1).Minus(Line(1)), want: pt(0)},
+		{text: "abc\ndef", dot: rng(1, 6), addr: Dot().Minus(Line(1)).Plus(Line(1)), want: rng(0, 4)},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -234,7 +235,9 @@ func (test addressTest) run(t *testing.T) {
 	if err != nil {
 		errStr = err.Error()
 	}
-	if !regexp.MustCompile(test.err).MatchString(errStr) || a != test.want {
+	if a != test.want ||
+		(test.err == "" && errStr != "") ||
+		(test.err != "" && !regexp.MustCompile(test.err).MatchString(errStr)) {
 		t.Errorf(`Address("%s").range(%d, %v)=%v, %v, want %v, %v`,
 			test.addr.String(), test.dot, strconv.Quote(test.text), a, err,
 			test.want, test.err)

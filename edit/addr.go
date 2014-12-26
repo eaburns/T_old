@@ -253,7 +253,11 @@ func (l lineAddr) rev(from int64, ed *Editor) (buffer.Address, error) {
 	var nl bool
 	a := buffer.Address{From: from, To: from}
 	for i := 0; i < l.n+1; i++ {
-		if !nl && a.From <= 0 {
+		if a.From == 0 && i == l.n {
+			a = buffer.Point(0)
+			break
+		}
+		if i > 0 && a.From <= 0 {
 			return buffer.Address{}, errors.New("line address out of range")
 		}
 		a.To = a.From
