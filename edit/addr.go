@@ -15,6 +15,8 @@ type Address interface {
 	String() string
 	To(Address) Address
 	Then(Address) Address
+	Plus(SimpleAddress) Address
+	Minus(SimpleAddress) Address
 }
 
 // All returns the address of the entire buffer: 0,$.
@@ -31,6 +33,14 @@ func (a compoundAddr) To(a2 Address) Address {
 
 func (a compoundAddr) Then(a2 Address) Address {
 	return compoundAddr{op: ';', a1: a, a2: a2}
+}
+
+func (a compoundAddr) Plus(a2 SimpleAddress) Address {
+	return addAddr{op: '+', a1: a, a2: a2}
+}
+
+func (a compoundAddr) Minus(a2 SimpleAddress) Address {
+	return addAddr{op: '-', a1: a, a2: a2}
 }
 
 func (a compoundAddr) String() string {
@@ -63,17 +73,9 @@ func (a compoundAddr) rangeFrom(from int64, ed *Editor) (buffer.Address, error) 
 	}
 }
 
-// An AdditiveAddress identifies a substring within a buffer.
-// AdditiveAddresses are created using the + or - operation.
-type AdditiveAddress interface {
-	Address
-	Plus(SimpleAddress) AdditiveAddress
-	Minus(SimpleAddress) AdditiveAddress
-}
-
 type addAddr struct {
 	op rune
-	a1 AdditiveAddress
+	a1 Address
 	a2 SimpleAddress
 }
 
@@ -85,11 +87,11 @@ func (a addAddr) Then(a2 Address) Address {
 	return compoundAddr{op: ';', a1: a, a2: a2}
 }
 
-func (a addAddr) Plus(a2 SimpleAddress) AdditiveAddress {
+func (a addAddr) Plus(a2 SimpleAddress) Address {
 	return addAddr{op: '+', a1: a, a2: a2}
 }
 
-func (a addAddr) Minus(a2 SimpleAddress) AdditiveAddress {
+func (a addAddr) Minus(a2 SimpleAddress) Address {
 	return addAddr{op: '-', a1: a, a2: a2}
 }
 
@@ -115,7 +117,7 @@ func (a addAddr) rangeFrom(from int64, ed *Editor) (buffer.Address, error) {
 // A SimpleAddress identifies a substring within a buffer.
 // SimpleAddresses can be composed to form composite addresses.
 type SimpleAddress interface {
-	AdditiveAddress
+	Address
 	reverse() SimpleAddress
 }
 
@@ -137,11 +139,11 @@ func (a simpleAddr) Then(a2 Address) Address {
 	return compoundAddr{op: ';', a1: a, a2: a2}
 }
 
-func (a simpleAddr) Plus(a2 SimpleAddress) AdditiveAddress {
+func (a simpleAddr) Plus(a2 SimpleAddress) Address {
 	return addAddr{op: '+', a1: a, a2: a2}
 }
 
-func (a simpleAddr) Minus(a2 SimpleAddress) AdditiveAddress {
+func (a simpleAddr) Minus(a2 SimpleAddress) Address {
 	return addAddr{op: '-', a1: a, a2: a2}
 }
 
