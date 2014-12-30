@@ -51,6 +51,41 @@ func (b *Runes) Get(at Address) ([]rune, error) {
 	return rs, nil
 }
 
+// A RuneReadError is paniced if Rune encounters an error
+// reading a rune that is in the bounds of the buffer.
+type RuneReadError struct{ error }
+
+// RecoverRuneReadError recovers a rune error,
+// setting the error pointed to by err to the error.
+// If the recovered error is not of type RuneReadError,
+// then it is re-paniced.
+// This function is intended to be called in a defer statement
+// with err as the address of a named error return.
+func RecoverRuneReadError(err *error) {
+	switch e := recover().(type) {
+	case nil:
+		return
+	case RuneReadError:
+		*err = e.error
+	default:
+		panic(e)
+	}
+}
+
+// Rune returns the ith rune.
+// If the rune is out of range then it panics.
+// If there is an error reading, it panics a RuneReadError containing the error.
+func (b *Runes) Rune(i int64) rune {
+	if i < 0 || i > b.Size() {
+		panic("rune index out of bounds")
+	}
+	var bs [runeBytes]byte
+	if _, err := b.bytes.ReadAt(bs[:], i*runeBytes); err != nil {
+		panic(RuneReadError{err})
+	}
+	return rune(binary.LittleEndian.Uint32(bs[:]))
+}
+
 // Put overwrites the runes in the range of an Address in the buffer.
 func (b *Runes) Put(rs []rune, at Address) error {
 	if at.From < 0 || at.From > at.To || at.To > b.Size() {
