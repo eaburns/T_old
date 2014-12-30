@@ -32,8 +32,12 @@ package re1
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 )
+
+// Meta contains the re1 metacharacters.
+const Meta = `.*+?[]()|\^$`
 
 // nCache is the maximum number of machines to cache.
 const nCache = 2
@@ -263,8 +267,7 @@ func (p *parser) next() (t token) {
 	if p.literal {
 		return token(r)
 	}
-	switch r {
-	case '\\':
+	if r == '\\' {
 		switch {
 		case p.pos == len(p.rs):
 			return '\\'
@@ -273,8 +276,13 @@ func (p *parser) next() (t token) {
 			return '\n'
 		default:
 			p.pos++
-			return token(p.rs[p.pos-1])
+			r = p.rs[p.pos-1]
+			if r != p.delim || !strings.ContainsRune(Meta, r) {
+				return token(r)
+			}
 		}
+	}
+	switch r {
 	case '.':
 		return dot
 	case '*':
