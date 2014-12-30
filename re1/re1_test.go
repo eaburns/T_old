@@ -433,9 +433,8 @@ func TestParseErrors(t *testing.T) {
 		{re: "/abc/xyz", delim: true, expr: "/abc/"},
 		{re: `/abc\/xyz`, delim: true, expr: `/abc\/xyz`},
 		{re: `/abc\/xyz/`, delim: true, expr: `/abc\/xyz/`},
-		// No error, since we hit the delimiter before the would-be error.
-		{re: `/abc/(`, delim: true, expr: `/abc/`},
-		{re: `/abc[/]xyz`, delim: true, err: ParseError{Position: 4}},
+		{re: `/abc/(`, delim: true, expr: `/abc/`}, // No error, we hit the delimiter first.
+		{re: `/abc[/]xyz`, delim: true, expr: `/abc[/]xyz`},
 		{re: `/abc[\/]xyz`, delim: true, expr: `/abc[\/]xyz`},
 	}
 	for _, test := range tests {

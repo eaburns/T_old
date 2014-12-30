@@ -447,7 +447,7 @@ func charClass(p *parser) label {
 				c.runes = append(c.runes, '\n')
 			}
 			return &c
-		case r == eof || r == p.delim:
+		case r == eof:
 			panic(ParseError{Position: p0, Message: "unclosed ]"})
 		case r == '-':
 			panic(ParseError{Position: p.pos - 1, Message: "malformed []"})
