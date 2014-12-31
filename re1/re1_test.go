@@ -44,6 +44,10 @@ func TestSimpleMatch(t *testing.T) {
 		{re: "ab", str: "ab", want: []string{"ab"}},
 		{re: "ab", str: "abcdefg", want: []string{"ab"}},
 		{re: ".", str: "☺", want: []string{"☺"}},
+		{re: `a\?`, str: "", want: nil},
+		{re: `a\?`, str: "a?", want: []string{"a?"}},
+		{re: `a\*`, str: "aa", want: nil},
+		{re: `a\*`, str: "a*", want: []string{"a*"}},
 		// This isn't in the spec, but the plan9 code seems to
 		// treat a \ at the end of input as a literal.
 		{re: `\`, str: `\`, want: []string{`\`}},
@@ -199,7 +203,7 @@ func TestLiteralMatch(t *testing.T) {
 	}
 }
 
-func TestDelineatedMatch(t *testing.T) {
+func TestDelimitedMatch(t *testing.T) {
 	tests := []regexpTest{
 		{opts: del, re: "/abc", str: "abc", want: []string{"abc"}},
 		{opts: del, re: "/abc/", str: "abc", want: []string{"abc"}},
@@ -207,6 +211,19 @@ func TestDelineatedMatch(t *testing.T) {
 		{opts: del, re: `/abc\//def`, str: "abc/", want: []string{"abc/"}},
 		{opts: del, re: `/[abc\/]*/def`, str: "abc/", want: []string{"abc/"}},
 		{opts: del, re: `/(.*),\n/def`, str: "hi,\n", want: []string{"hi,\n", "hi"}},
+		{opts: del, re: `*a\*`, str: "", want: []string{""}},
+		{opts: del, re: `*a\*`, str: "aaa", want: []string{"aaa"}},
+		{opts: del, re: `*a\**`, str: "aaa", want: []string{"aaa"}},
+		{opts: del, re: `?a\?`, str: "", want: []string{""}},
+		{opts: del, re: `?a\?`, str: "a", want: []string{"a"}},
+		{opts: del, re: `?a\??`, str: "a", want: []string{"a"}},
+		{opts: del, re: `|a\|b`, str: "a", want: []string{"a"}},
+		{opts: del, re: `|a\|b`, str: "b", want: []string{"b"}},
+		{opts: del, re: `|a\|b|`, str: "b", want: []string{"b"}},
+		{opts: del, re: `[\[a-z]+`, str: "abc", want: []string{"abc"}},
+		{opts: del, re: `[\[a-z]+[`, str: "abc", want: []string{"abc"}},
+		{opts: del, re: `$abc\$`, str: "abcdef", want: nil},
+		{opts: del, re: `$abc\$`, str: "abc\ndef", want: []string{"abc"}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -369,7 +386,7 @@ func TestParseErrors(t *testing.T) {
 		re string
 		// What the compiler actually used.
 		// If delim==false, initialized to re.
-		expr           string
+		str            string
 		delim, literal bool
 		err            error
 	}{
@@ -428,19 +445,22 @@ func TestParseErrors(t *testing.T) {
 		{re: `[\^\-\]]`},
 
 		// Delimiters.
-		{re: "/abc", delim: true, expr: "/abc"},
-		{re: "/abc/", delim: true, expr: "/abc/"},
-		{re: "/abc/xyz", delim: true, expr: "/abc/"},
-		{re: `/abc\/xyz`, delim: true, expr: `/abc\/xyz`},
-		{re: `/abc\/xyz/`, delim: true, expr: `/abc\/xyz/`},
-		// No error, since we hit the delimiter before the would-be error.
-		{re: `/abc/(`, delim: true, expr: `/abc/`},
-		{re: `/abc[/]xyz`, delim: true, err: ParseError{Position: 4}},
-		{re: `/abc[\/]xyz`, delim: true, expr: `/abc[\/]xyz`},
+		{delim: true, re: "/abc", str: "/abc"},
+		{delim: true, re: "/abc/", str: "/abc/"},
+		{delim: true, re: "/abc/xyz", str: "/abc/"},
+		{delim: true, re: `/abc\/xyz`, str: `/abc\/xyz`},
+		{delim: true, re: `/abc\/xyz/`, str: `/abc\/xyz/`},
+		{delim: true, re: `/abc/(`, str: `/abc/`}, // No error, we hit the delimiter first.
+		{delim: true, re: `/abc[/]xyz`, str: `/abc[/]xyz`},
+		{delim: true, re: `/abc[\/]xyz`, str: `/abc[\/]xyz`},
+
+		// It's impossible to close a charclass if the delimiter is ].
+		{delim: true, re: `][\]\]`, str: "]", err: ParseError{Position: 1}},
+		{delim: true, re: `][]\]]`, str: "]", err: ParseError{Position: 1}},
 	}
 	for _, test := range tests {
 		if !test.delim {
-			test.expr = test.re
+			test.str = test.re
 		}
 		re, err := Compile([]rune(test.re), Options{Delimited: test.delim, Literal: test.literal})
 		switch {
@@ -454,8 +474,8 @@ func TestParseErrors(t *testing.T) {
 		if re == nil {
 			continue
 		}
-		if s := string(re.Expression()); s != test.expr {
-			t.Errorf(`Compile("%s").Expression()="%s", want "%s"`, test.re, s, test.expr)
+		if s := string(re.Expression()); s != test.str {
+			t.Errorf(`Compile("%s").Expression()="%s", want "%s"`, test.re, s, test.str)
 		}
 	}
 }
