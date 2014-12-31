@@ -1,19 +1,23 @@
-// Package buffer provides unbounded, file-backed buffers.
+// Package buffer provides unbounded, file-backed rune buffers.
 package buffer
 
 import (
+	"encoding/binary"
+	"errors"
 	"io"
 	"io/ioutil"
 	"os"
 	"strconv"
 )
 
-// A Bytes is an unbounded byte buffer backed by a file.
-type Bytes struct {
-	// F is the file that backs the buffer.
-	// It is created lazily.
+// RuneBytes is the number of bytes in Go's rune type.
+const runeBytes = 4
+
+// A Runes is an unbounded rune buffer backed by a file.
+type Runes struct {
+	// F is the file that backs the buffer. It is created lazily.
 	f *os.File
-	// BlockSize is the maximum number of bytes in a block.
+	// BlockSize is the maximum number of runes in a block.
 	blockSize int
 	// Blocks contains all blocks of the buffer in order.
 	// Free contains blocks that are free to be re-allocated.
@@ -24,11 +28,11 @@ type Bytes struct {
 	// Cache is the index of the block whose data is currently cached.
 	cached int
 	// Cache is the cached data.
-	cache []byte
+	cache []rune
 	// Dirty tracks whether the cached data has changed since it was read.
 	dirty bool
 
-	// Size is the size of the buffer.
+	// Size is the number of runes in the buffer.
 	size int64
 }
 
@@ -36,22 +40,22 @@ type Bytes struct {
 type block struct {
 	// Start is the byte offset of the block in the file.
 	start int64
-	// N is the number of bytes in the block.
+	// N is the number of runes in the block.
 	n int
 }
 
-// NewBytes returns a new, empty Bytes buffer.
-// No more than blockSize bytes are cached in memory.
-func NewBytes(blockSize int) *Bytes {
-	return &Bytes{
+// New returns a new, empty buffer.
+// No more than blockSize runes are cached in memory.
+func New(blockSize int) *Runes {
+	return &Runes{
 		blockSize: blockSize,
 		cached:    -1,
-		cache:     make([]byte, blockSize),
+		cache:     make([]rune, blockSize),
 	}
 }
 
-// Close closes the Bytes buffer and it's backing file.
-func (b *Bytes) Close() error {
+// Close closes the buffer and removes it's backing file.
+func (b *Runes) Close() error {
 	b.cache = nil
 	if b.f == nil {
 		return nil
@@ -63,127 +67,135 @@ func (b *Bytes) Close() error {
 	return os.Remove(path)
 }
 
-// Size returns the size of the Bytes buffer in bytes.
-func (b *Bytes) Size() int64 {
-	return b.size
+// Size returns the number of runes in the buffer.
+func (b *Runes) Size() int64 { return b.size }
+
+// A RuneReadError is paniced if Rune encounters an error
+// reading a rune that is in the bounds of the buffer.
+type RuneReadError struct{ error }
+
+// RecoverRuneReadError recovers a RuneReadError,
+// setting the error pointed to by err to the error.
+// If the recovered error is not of type RuneReadError,
+// then it is re-paniced.
+// This function is intended to be called in a defer statement
+// with err as the address of a named error return.
+func RecoverRuneReadError(err *error) {
+	switch e := recover().(type) {
+	case nil:
+		return
+	case RuneReadError:
+		*err = e.error
+	default:
+		panic(e)
+	}
 }
 
-// Get returns the bytes in the range of an Address in the buffer.
-func (b *Bytes) Get(at Address) ([]byte, error) {
-	if at.From < 0 || at.From > at.To || at.To > b.Size() {
-		return nil, AddressError(at)
+// Rune returns the rune at the given offset.
+// If the rune is out of range it panics.
+// If there is an error reading, it panics a RuneReadError containing the error.
+func (b *Runes) Rune(offs int64) rune {
+	if offs < 0 || offs > b.Size() {
+		panic("rune index out of bounds")
 	}
-	bs := make([]byte, at.Size())
-	if _, err := b.ReadAt(bs, at.From); err != nil {
-		return nil, err
+	i, q0 := b.blockAt(offs)
+	if _, err := b.get(i); err != nil {
+		panic(RuneReadError{err})
 	}
-	return bs, nil
+	return b.cache[offs-q0]
 }
 
-// Put overwrites the bytes in the range of an Address in the buffer.
-func (b *Bytes) Put(bs []byte, at Address) error {
-	if at.From < 0 || at.From > at.To || at.To > b.Size() {
-		return AddressError(at)
-	}
-	if _, err := b.delete(at.Size(), at.From); err != nil {
-		return err
-	}
-	_, err := b.insert(bs, at.From)
-	return err
-}
-
-// ReadAt reads bytes from the Bytes buffer starting at the address.
-// The return value is the number of bytes read.
-// If fewer than len(bs) bytes are read then the error states why.
-// If the address is beyond the end of the buffer, 0 and io.EOF are returned.
-func (b *Bytes) ReadAt(bs []byte, at int64) (int, error) {
+// Read reads runes from the buffer beginning at a given offset.
+// The return value is the number of runes read.
+// If fewer than len(rs) runes are read then the error states why.
+// If the offset is beyond the end of the buffer, 0 and io.EOF are returned.
+func (b *Runes) Read(rs []rune, offs int64) (int, error) {
 	switch {
-	case at < 0:
-		return 0, AddressError(Point(at))
-	case at == b.Size() && len(bs) == 0:
+	case offs < 0:
+		return 0, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
+	case offs == b.Size() && len(rs) == 0:
 		return 0, nil
-	case at >= b.Size():
+	case offs >= b.Size():
 		return 0, io.EOF
 	}
 	var tot int
-	for len(bs) > 0 {
-		if at == b.Size() {
+	for len(rs) > 0 {
+		if offs == b.Size() {
 			return tot, io.EOF
 		}
-		i, q0 := b.blockAt(at)
+		i, q0 := b.blockAt(offs)
 		blk, err := b.get(i)
 		if err != nil {
 			return tot, err
 		}
-		o := int(at - q0)
-		m := copy(bs, b.cache[o:blk.n])
-		bs = bs[m:]
-		at += int64(m)
+		o := int(offs - q0)
+		m := copy(rs, b.cache[o:blk.n])
+		rs = rs[m:]
+		offs += int64(m)
 		tot += m
 	}
 	return tot, nil
 }
 
-// Insert adds the bytes to the address in the Bytes buffer.
-// After adding, the byte at the address is the first of the added bytes.
-// The return value is the number of bytes added and any error that was encountered.
-// It is an error to add at a negative address or an address that is greater than the buffer size.
-func (b *Bytes) insert(bs []byte, at int64) (int, error) {
-	if at < 0 || at > b.Size() {
-		return 0, AddressError(Point(at))
+// Insert inserts runes into the buffer at the given offset..
+// The return value is the number of runes added and any error that was encountered.
+// It is an error to add at a negative offset or an offset beyond the buffer size.
+func (b *Runes) Insert(rs []rune, offs int64) (int, error) {
+	if offs < 0 || offs > b.Size() {
+		return 0, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
 	}
 	var tot int
-	for len(bs) > 0 {
-		i, q0 := b.blockAt(at)
+	for len(rs) > 0 {
+		i, q0 := b.blockAt(offs)
 		blk, err := b.get(i)
 		if err != nil {
 			return tot, err
 		}
 		m := b.blockSize - blk.n
 		if m == 0 {
-			if i, err = b.insertAt(at); err != nil {
+			if i, err = b.insertAt(offs); err != nil {
 				return tot, err
 			}
 			if blk, err = b.get(i); err != nil {
 				return tot, err
 			}
-			q0 = at
+			q0 = offs
 			m = b.blockSize
 		}
-		if m > len(bs) {
-			m = len(bs)
+		if m > len(rs) {
+			m = len(rs)
 		}
-		o := int(at - q0)
+		o := int(offs - q0)
 		copy(b.cache[o+m:], b.cache[o:blk.n])
-		copy(b.cache[o:], bs[:m])
+		copy(b.cache[o:], rs[:m])
 		b.dirty = true
-		bs = bs[m:]
+		rs = rs[m:]
 		blk.n += m
 		b.size += int64(m)
-		at += int64(m)
+		offs += int64(m)
 		tot += m
 	}
 	return tot, nil
 }
 
-// Delete deletes a range of bytes from the Bytes buffer.
-// The return value is the number of bytes deleted.
-// If fewer than n bytes are deleted, the error states why.
-func (b *Bytes) delete(n, at int64) (int64, error) {
+// Delete deletes runes from the buffer starting at the given offset.
+// The return value is the number of runes deleted.
+// If fewer than n runes are deleted, the error states why.
+func (b *Runes) Delete(n, offs int64) (int64, error) {
 	if n < 0 {
 		panic("bad count: " + strconv.FormatInt(n, 10))
 	}
-	if at < 0 || at+n > b.Size() {
-		return 0, AddressError(Point(at))
+	if offs < 0 || offs+n > b.Size() {
+		return 0, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
 	}
 	var tot int64
 	for n > 0 {
-		i, q0 := b.blockAt(at)
+		i, q0 := b.blockAt(offs)
 		blk, err := b.get(i)
 		if err != nil {
 			return tot, err
 		}
-		o := int(at - q0)
+		o := int(offs - q0)
 		m := blk.n - o
 		if int64(m) > n {
 			m = int(n)
@@ -206,27 +218,27 @@ func (b *Bytes) delete(n, at int64) (int64, error) {
 	return tot, nil
 }
 
-func (b *Bytes) allocBlock() block {
+func (b *Runes) allocBlock() block {
 	if l := len(b.free); l > 0 {
 		blk := b.free[l-1]
 		b.free = b.free[:l-1]
 		return blk
 	}
 	blk := block{start: b.end}
-	b.end += int64(b.blockSize)
+	b.end += int64(b.blockSize * runeBytes)
 	return blk
 }
 
-func (b *Bytes) freeBlock(blk block) {
+func (b *Runes) freeBlock(blk block) {
 	b.free = append(b.free, block{start: blk.start})
 }
 
 // BlockAt returns the index and start address of the block containing the address.
 // If the address is one beyond the end of the file, a new block is allocated.
 // BlockAt panics if the address is negative or more than one past the end.
-func (b *Bytes) blockAt(at int64) (int, int64) {
+func (b *Runes) blockAt(at int64) (int, int64) {
 	if at < 0 || at > b.Size() {
-		panic(AddressError(Point(at)))
+		panic("invalid offset: " + strconv.FormatInt(at, 10))
 	}
 	if at == b.Size() {
 		i := len(b.blocks)
@@ -246,7 +258,7 @@ func (b *Bytes) blockAt(at int64) (int, int64) {
 
 // insertAt inserts a block at the address and returns the new block's index.
 // If a block contains the address then it is split.
-func (b *Bytes) insertAt(at int64) (int, error) {
+func (b *Runes) insertAt(at int64) (int, error) {
 	i, q0 := b.blockAt(at)
 	o := int(at - q0)
 	blk := b.blocks[i]
@@ -290,7 +302,7 @@ func (b *Bytes) insertAt(at int64) (int, error) {
 }
 
 // File returns an *os.File, creating a new file if one is not created yet.
-func (b *Bytes) file() (*os.File, error) {
+func (b *Runes) file() (*os.File, error) {
 	if b.f == nil {
 		f, err := ioutil.TempFile(os.TempDir(), "edit")
 		if err != nil {
@@ -302,7 +314,7 @@ func (b *Bytes) file() (*os.File, error) {
 }
 
 // Put writes the cached block back to the file.
-func (b *Bytes) put() error {
+func (b *Runes) put() error {
 	if b.cached < 0 || !b.dirty || len(b.cache) == 0 {
 		return nil
 	}
@@ -311,7 +323,11 @@ func (b *Bytes) put() error {
 	if err != nil {
 		return err
 	}
-	if _, err := f.WriteAt(b.cache[:blk.n], blk.start); err != nil {
+	bs := make([]byte, blk.n*runeBytes)
+	for i, r := range b.cache[:blk.n] {
+		binary.LittleEndian.PutUint32(bs[i*runeBytes:], uint32(r))
+	}
+	if _, err := f.WriteAt(bs, blk.start); err != nil {
 		return err
 	}
 	b.dirty = false
@@ -320,7 +336,7 @@ func (b *Bytes) put() error {
 
 // Get loads the cache with the data from the block at the given index,
 // returning a pointer to it.
-func (b *Bytes) get(i int) (*block, error) {
+func (b *Runes) get(i int) (*block, error) {
 	if b.cached == i {
 		return &b.blocks[i], nil
 	}
@@ -333,11 +349,18 @@ func (b *Bytes) get(i int) (*block, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := f.ReadAt(b.cache[:blk.n], blk.start); err != nil {
+	bs := make([]byte, blk.n*runeBytes)
+	if _, err := f.ReadAt(bs, blk.start); err != nil {
 		if err == io.EOF {
 			panic("unexpected EOF")
 		}
 		return nil, err
+	}
+	j := 0
+	for len(bs) > 0 {
+		b.cache[j] = rune(binary.LittleEndian.Uint32(bs))
+		bs = bs[runeBytes:]
+		j++
 	}
 	b.cached = i
 	b.dirty = false

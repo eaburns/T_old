@@ -17,14 +17,14 @@ func randomRunes(n int) []rune {
 }
 
 func writeBench(b *testing.B, n int) {
-	r := NewRunes(benchBlockSize)
+	r := New(benchBlockSize)
 	defer r.Close()
 	rs := randomRunes(n)
 	b.SetBytes(int64(n * runeBytes))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.Put(rs, Address{})
-		r.Put([]rune{}, Address{From: 0, To: r.Size()})
+		r.Insert(rs, 0)
+		r.Delete(int64(n), 0)
 	}
 }
 
@@ -34,13 +34,14 @@ func BenchmarkWrite4k(b *testing.B)  { writeBench(b, 4096) }
 func BenchmarkWrite10k(b *testing.B) { writeBench(b, 1048576) }
 
 func readBench(b *testing.B, n int) {
-	r := NewRunes(benchBlockSize)
+	r := New(benchBlockSize)
 	defer r.Close()
-	r.Put(randomRunes(n), Address{})
+	r.Insert(randomRunes(n), 0)
+	rs := make([]rune, n)
 	b.SetBytes(int64(n * runeBytes))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.Get(Address{From: 0, To: r.Size()})
+		r.Read(rs, 0)
 	}
 }
 
@@ -49,15 +50,18 @@ func BenchmarkRead1k(b *testing.B)  { readBench(b, 1024) }
 func BenchmarkRead4k(b *testing.B)  { readBench(b, 4096) }
 func BenchmarkRead10k(b *testing.B) { readBench(b, 1048576) }
 
-func BenchmarkRune(b *testing.B) {
-	r := NewRunes(benchBlockSize)
+func benchmarkRune(b *testing.B, n int, rnd bool) {
+	r := New(benchBlockSize)
 	defer r.Close()
-	const nRunes = 1048576
-	r.Put(randomRunes(nRunes), Address{})
+	r.Insert(randomRunes(n), 0)
 
 	inds := make([]int64, 4096)
 	for i := range inds {
-		inds[i] = rand.Int63n(nRunes)
+		if rnd {
+			inds[i] = rand.Int63n(int64(n))
+		} else {
+			inds[i] = int64(i % n)
+		}
 	}
 
 	b.SetBytes(runeBytes)
@@ -65,4 +69,10 @@ func BenchmarkRune(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		r.Rune(inds[i%len(inds)])
 	}
+
 }
+
+func BenchmarkRune10kRand(b *testing.B)   { benchmarkRune(b, 1048576, true) }
+func BenchmarkRune10kScan(b *testing.B)   { benchmarkRune(b, 1048576, false) }
+func BenchmarkRuneCacheRand(b *testing.B) { benchmarkRune(b, benchBlockSize, true) }
+func BenchmarkRuneCacheScan(b *testing.B) { benchmarkRune(b, benchBlockSize, false) }
