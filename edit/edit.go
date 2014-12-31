@@ -7,5 +7,5 @@ import "github.com/eaburns/T/buffer"
 // An Editor provides sam-like editing functionality on a buffer of runes.
 type Editor struct {
 	runes *buffer.Runes
-	dot   buffer.Address
+	dot   Range
 }

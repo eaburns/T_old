@@ -245,18 +245,18 @@ type addressTest struct {
 	text string
 	// If rev==false, the match starts from 0.
 	// If rev==true, the match starts from len(text).
-	dot  buffer.Address
+	dot  Range
 	addr Address
-	want buffer.Address
+	want Range
 	err  string // regexp matching the error string
 }
 
 func (test addressTest) run(t *testing.T) {
 	e := Editor{
 		dot:   test.dot,
-		runes: buffer.NewRunes(testBlockSize),
+		runes: buffer.New(testBlockSize),
 	}
-	if err := e.runes.Put([]rune(test.text), buffer.Point(0)); err != nil {
+	if _, err := e.runes.Insert([]rune(test.text), 0); err != nil {
 		t.Fatalf(`Put("%s")=%v, want nil`, test.text, err)
 	}
 	a, err := test.addr.rangeFrom(test.dot.To, &e)
@@ -273,5 +273,5 @@ func (test addressTest) run(t *testing.T) {
 	}
 }
 
-func pt(p int64) buffer.Address         { return buffer.Point(p) }
-func rng(from, to int64) buffer.Address { return buffer.Address{From: from, To: to} }
+func pt(p int64) Range         { return Range{From: p, To: p} }
+func rng(from, to int64) Range { return Range{From: from, To: to} }
