@@ -27,6 +27,8 @@ type Runes struct {
 
 	// Cache is the index of the block whose data is currently cached.
 	cached int
+	// Cached0 is the address of the first rune in the cached block.
+	cached0 int64
 	// Cache is the cached data.
 	cache []rune
 	// Dirty tracks whether the cached data has changed since it was read.
@@ -97,6 +99,9 @@ func RecoverRuneReadError(err *error) {
 func (b *Runes) Rune(offs int64) rune {
 	if offs < 0 || offs > b.Size() {
 		panic("rune index out of bounds")
+	}
+	if q0 := b.cached0; q0 <= offs && offs < q0+int64(b.blocks[b.cached].n) {
+		return b.cache[offs-q0]
 	}
 	i, q0 := b.blockAt(offs)
 	if _, err := b.get(i); err != nil {
@@ -364,5 +369,9 @@ func (b *Runes) get(i int) (*block, error) {
 	}
 	b.cached = i
 	b.dirty = false
+	b.cached0 = 0
+	for j := 0; j < i; j++ {
+		b.cached0 += int64(b.blocks[j].n)
+	}
 	return &b.blocks[i], nil
 }
