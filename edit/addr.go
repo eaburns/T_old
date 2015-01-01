@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	"github.com/eaburns/T/buffer"
 	"github.com/eaburns/T/re1"
+	"github.com/eaburns/T/runes"
 )
 
 // An Address identifies a substring within a buffer.
@@ -319,10 +319,10 @@ func (r reAddr) String() string {
 	return string(rs)
 }
 
-type reverse struct{ *buffer.Runes }
+type reverse struct{ *runes.Buffer }
 
 func (r reverse) Rune(i int64) rune {
-	return r.Runes.Rune(r.Runes.Size() - i - 1)
+	return r.Buffer.Rune(r.Buffer.Size() - i - 1)
 }
 
 func (r reAddr) rangeFrom(from int64, ed *Editor) (a Range, err error) {
@@ -330,19 +330,19 @@ func (r reAddr) rangeFrom(from int64, ed *Editor) (a Range, err error) {
 	if err != nil {
 		return a, err
 	}
-	runes := re1.Runes(ed.runes)
+	rs := re1.Runes(ed.runes)
 	if r.rev {
-		runes = reverse{ed.runes}
-		from = runes.Size() - from
+		rs = reverse{ed.runes}
+		from = rs.Size() - from
 	}
-	defer buffer.RecoverRuneReadError(&err)
-	match := re.Match(runes, from)
+	defer runes.RecoverRuneReadError(&err)
+	match := re.Match(rs, from)
 	if match == nil {
 		return a, errors.New("no match")
 	}
 	a = Range{From: match[0][0], To: match[0][1]}
 	if r.rev {
-		a.From, a.To = runes.Size()-a.To, runes.Size()-a.From
+		a.From, a.To = rs.Size()-a.To, rs.Size()-a.From
 	}
 	return a, nil
 
