@@ -245,9 +245,9 @@ type addressTest struct {
 	text string
 	// If rev==false, the match starts from 0.
 	// If rev==true, the match starts from len(text).
-	dot  Range
+	dot  addr
 	addr Address
-	want Range
+	want addr
 	err  string // regexp matching the error string
 }
 
@@ -257,7 +257,7 @@ func (test addressTest) run(t *testing.T) {
 	if _, err := e.runes.Insert([]rune(test.text), 0); err != nil {
 		t.Fatalf(`Put("%s")=%v, want nil`, test.text, err)
 	}
-	a, err := test.addr.rangeFrom(test.dot.To, &e)
+	a, err := test.addr.addrFrom(test.dot.to, &e)
 	var errStr string
 	if err != nil {
 		errStr = err.Error()
@@ -271,8 +271,8 @@ func (test addressTest) run(t *testing.T) {
 	}
 }
 
-func pt(p int64) Range         { return Range{From: p, To: p} }
-func rng(from, to int64) Range { return Range{From: from, To: to} }
+func pt(p int64) addr         { return addr{from: p, to: p} }
+func rng(from, to int64) addr { return addr{from: from, to: to} }
 
 func TestAddr(t *testing.T) {
 	tests := []struct {

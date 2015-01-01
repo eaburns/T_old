@@ -44,7 +44,7 @@ func benchmarkLine(b *testing.B, n int) {
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		if _, err := Line(i%lines).rangeFrom(0, ed); err != nil {
+		if _, err := Line(i % lines).addr(ed); err != nil {
 			b.Fatal(err.Error())
 		}
 	}
@@ -58,7 +58,7 @@ func benchmarkRegexp(b *testing.B, re string, n int) {
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		switch _, err := Regexp(re).rangeFrom(0, ed); {
+		switch _, err := Regexp(re).addr(ed); {
 		case err == nil:
 			panic("unexpected match")
 		case err != ErrNoMatch:

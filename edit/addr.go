@@ -13,17 +13,22 @@ import (
 
 // An Address identifies a substring within a buffer.
 type Address interface {
-	rangeFrom(from int64, ed *Editor) (Range, error)
+	addrFrom(from int64, ed *Editor) (addr, error)
 	String() string
 	To(Address) Address
 	Then(Address) Address
 	Plus(SimpleAddress) Address
 	Minus(SimpleAddress) Address
+	addr(*Editor) (addr, error)
 }
 
-// A Range identifies a substring within a buffer
+// A addr identifies a substring within a buffer
 // by its inclusive start offset and its exclusive end offset.
-type Range struct{ From, To int64 }
+type addr struct{ from, to int64 }
+
+// Size returns the number of runes in
+// the string identified by the range.
+func (a addr) size() int64 { return a.to - a.from }
 
 // All returns the address of the entire buffer: 0,$.
 func All() Address { return Line(0).To(End()) }
@@ -53,27 +58,31 @@ func (a compoundAddr) String() string {
 	return a.a1.String() + string(a.op) + a.a2.String()
 }
 
-func (a compoundAddr) rangeFrom(from int64, ed *Editor) (Range, error) {
-	a1, err := a.a1.rangeFrom(from, ed)
+func (a compoundAddr) addr(ed *Editor) (addr, error) {
+	return a.addrFrom(0, ed)
+}
+
+func (a compoundAddr) addrFrom(from int64, ed *Editor) (addr, error) {
+	a1, err := a.a1.addrFrom(from, ed)
 	if err != nil {
-		return Range{}, err
+		return addr{}, err
 	}
 	switch a.op {
 	case ',':
-		a2, err := a.a2.rangeFrom(from, ed)
+		a2, err := a.a2.addrFrom(from, ed)
 		if err != nil {
-			return Range{}, err
+			return addr{}, err
 		}
-		return Range{From: a1.From, To: a2.To}, nil
+		return addr{from: a1.from, to: a2.to}, nil
 	case ';':
 		origDot := ed.dot
 		ed.dot = a1
-		a2, err := a.a2.rangeFrom(a1.To, ed)
+		a2, err := a.a2.addrFrom(a1.to, ed)
 		if err != nil {
 			ed.dot = origDot // Restore dot on error.
-			return Range{}, err
+			return addr{}, err
 		}
-		return Range{From: a1.From, To: a2.To}, nil
+		return addr{from: a1.from, to: a2.to}, nil
 	default:
 		panic("bad compound address")
 	}
@@ -105,16 +114,20 @@ func (a addAddr) String() string {
 	return a.a1.String() + string(a.op) + a.a2.String()
 }
 
-func (a addAddr) rangeFrom(from int64, ed *Editor) (Range, error) {
-	a1, err := a.a1.rangeFrom(from, ed)
+func (a addAddr) addr(ed *Editor) (addr, error) {
+	return a.addrFrom(0, ed)
+}
+
+func (a addAddr) addrFrom(from int64, ed *Editor) (addr, error) {
+	a1, err := a.a1.addrFrom(from, ed)
 	if err != nil {
-		return Range{}, err
+		return addr{}, err
 	}
 	switch a.op {
 	case '+':
-		return a.a2.rangeFrom(a1.To, ed)
+		return a.a2.addrFrom(a1.to, ed)
 	case '-':
-		return a.a2.reverse().rangeFrom(a1.From, ed)
+		return a.a2.reverse().addrFrom(a1.from, ed)
 	default:
 		panic("bad additive address")
 	}
@@ -128,7 +141,7 @@ type SimpleAddress interface {
 }
 
 type simpAddrImpl interface {
-	rangeFrom(from int64, ed *Editor) (Range, error)
+	addrFrom(from int64, ed *Editor) (addr, error)
 	String() string
 	reverse() SimpleAddress
 }
@@ -153,6 +166,10 @@ func (a simpleAddr) Minus(a2 SimpleAddress) Address {
 	return addAddr{op: '-', a1: a, a2: a2}
 }
 
+func (a simpleAddr) addr(ed *Editor) (addr, error) {
+	return a.addrFrom(0, ed)
+}
+
 type dotAddr struct{}
 
 // Dot returns the address of the Editor's dot.
@@ -160,9 +177,9 @@ func Dot() SimpleAddress { return simpleAddr{dotAddr{}} }
 
 func (dotAddr) String() string { return "." }
 
-func (dotAddr) rangeFrom(_ int64, ed *Editor) (Range, error) {
-	if ed.dot.From < 0 || ed.dot.To > ed.runes.Size() {
-		return Range{}, errors.New("dot address out of range")
+func (dotAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
+	if ed.dot.from < 0 || ed.dot.to > ed.runes.Size() {
+		return addr{}, errors.New("dot address out of range")
 	}
 	return ed.dot, nil
 }
@@ -176,8 +193,8 @@ func End() SimpleAddress { return simpleAddr{endAddr{}} }
 
 func (endAddr) String() string { return "$" }
 
-func (endAddr) rangeFrom(_ int64, ed *Editor) (Range, error) {
-	return Range{From: ed.runes.Size(), To: ed.runes.Size()}, nil
+func (endAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
+	return addr{from: ed.runes.Size(), to: ed.runes.Size()}, nil
 }
 
 func (e endAddr) reverse() SimpleAddress { return simpleAddr{e} }
@@ -191,12 +208,12 @@ func (n runeAddr) String() string {
 	return "#" + strconv.FormatInt(int64(n), 10)
 }
 
-func (n runeAddr) rangeFrom(from int64, ed *Editor) (Range, error) {
+func (n runeAddr) addrFrom(from int64, ed *Editor) (addr, error) {
 	m := from + int64(n)
 	if m < 0 || m > ed.runes.Size() {
-		return Range{}, errors.New("rune address out of range")
+		return addr{}, errors.New("rune address out of range")
 	}
-	return Range{From: m, To: m}, nil
+	return addr{from: m, to: m}, nil
 }
 
 func (n runeAddr) reverse() SimpleAddress { return simpleAddr{runeAddr(-n)} }
@@ -222,7 +239,7 @@ func (l lineAddr) String() string {
 	return n
 }
 
-func (l lineAddr) rangeFrom(from int64, ed *Editor) (Range, error) {
+func (l lineAddr) addrFrom(from int64, ed *Editor) (addr, error) {
 	if l.neg {
 		return l.rev(from, ed)
 	}
@@ -234,55 +251,55 @@ func (l lineAddr) reverse() SimpleAddress {
 	return simpleAddr{l}
 }
 
-func (l lineAddr) fwd(from int64, ed *Editor) (Range, error) {
-	a := Range{From: from, To: from}
-	if a.To > 0 {
-		for a.To < ed.runes.Size() && ed.runes.Rune(a.To-1) != '\n' {
-			a.To++
+func (l lineAddr) fwd(from int64, ed *Editor) (addr, error) {
+	a := addr{from: from, to: from}
+	if a.to > 0 {
+		for a.to < ed.runes.Size() && ed.runes.Rune(a.to-1) != '\n' {
+			a.to++
 		}
 		if l.n > 0 {
-			a.From = a.To
+			a.from = a.to
 		}
 	}
-	for l.n > 0 && a.To < ed.runes.Size() {
-		r := ed.runes.Rune(a.To)
-		a.To++
+	for l.n > 0 && a.to < ed.runes.Size() {
+		r := ed.runes.Rune(a.to)
+		a.to++
 		if r == '\n' {
 			l.n--
 			if l.n > 0 {
-				a.From = a.To
+				a.from = a.to
 			}
 		}
 	}
-	if l.n > 1 || l.n == 1 && a.To < ed.runes.Size() {
-		return Range{}, errors.New("line address out of range")
+	if l.n > 1 || l.n == 1 && a.to < ed.runes.Size() {
+		return addr{}, errors.New("line address out of range")
 	}
 	return a, nil
 }
 
-func (l lineAddr) rev(from int64, ed *Editor) (Range, error) {
-	a := Range{From: from, To: from}
-	if a.From < ed.runes.Size() {
-		for a.From > 0 && ed.runes.Rune(a.From-1) != '\n' {
-			a.From--
+func (l lineAddr) rev(from int64, ed *Editor) (addr, error) {
+	a := addr{from: from, to: from}
+	if a.from < ed.runes.Size() {
+		for a.from > 0 && ed.runes.Rune(a.from-1) != '\n' {
+			a.from--
 		}
-		a.To = a.From
+		a.to = a.from
 	}
-	for l.n > 0 && a.From > 0 {
-		r := ed.runes.Rune(a.From - 1)
-		a.From--
+	for l.n > 0 && a.from > 0 {
+		r := ed.runes.Rune(a.from - 1)
+		a.from--
 		if r == '\n' {
 			l.n--
-			a.To = a.From + 1
-		} else if a.From == 0 {
-			a.To = a.From
+			a.to = a.from + 1
+		} else if a.from == 0 {
+			a.to = a.from
 		}
 	}
 	if l.n > 1 {
-		return Range{}, errors.New("line address out of range")
+		return addr{}, errors.New("line address out of range")
 	}
-	for a.From > 0 && ed.runes.Rune(a.From-1) != '\n' {
-		a.From--
+	for a.from > 0 && ed.runes.Rune(a.from-1) != '\n' {
+		a.from--
 	}
 	return a, nil
 }
@@ -332,7 +349,7 @@ func (r reverse) Rune(i int64) rune {
 	return r.Buffer.Rune(r.Buffer.Size() - i - 1)
 }
 
-func (r reAddr) rangeFrom(from int64, ed *Editor) (a Range, err error) {
+func (r reAddr) addrFrom(from int64, ed *Editor) (a addr, err error) {
 	re, err := re1.Compile([]rune(r.re), re1.Options{Delimited: true, Reverse: r.rev})
 	if err != nil {
 		return a, err
@@ -347,9 +364,9 @@ func (r reAddr) rangeFrom(from int64, ed *Editor) (a Range, err error) {
 	if match == nil {
 		return a, ErrNoMatch
 	}
-	a = Range{From: match[0][0], To: match[0][1]}
+	a = addr{from: match[0][0], to: match[0][1]}
 	if r.rev {
-		a.From, a.To = rs.Size()-a.To, rs.Size()-a.From
+		a.from, a.to = rs.Size()-a.to, rs.Size()-a.from
 	}
 	return a, nil
 
