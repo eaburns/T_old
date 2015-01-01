@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/eaburns/T/buffer"
+	"github.com/eaburns/T/runes"
 )
 
 const testBlockSize = 12
@@ -254,7 +254,7 @@ type addressTest struct {
 func (test addressTest) run(t *testing.T) {
 	e := Editor{
 		dot:   test.dot,
-		runes: buffer.New(testBlockSize),
+		runes: runes.NewBuffer(testBlockSize),
 	}
 	if _, err := e.runes.Insert([]rune(test.text), 0); err != nil {
 		t.Fatalf(`Put("%s")=%v, want nil`, test.text, err)

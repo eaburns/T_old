@@ -1,4 +1,4 @@
-package buffer
+package runes
 
 import (
 	"reflect"
@@ -10,7 +10,7 @@ const testBlockSize = 8
 
 func TestRunesRune(t *testing.T) {
 	rs := []rune("Hello, 世界!")
-	b := New(testBlockSize)
+	b := NewBuffer(testBlockSize)
 	if _, err := b.Insert(rs, 0); err != nil {
 		t.Fatalf(`b.Insert("%s", 0)=%v, want nil`, string(rs), err)
 	}
@@ -66,7 +66,7 @@ func TestReadAt(t *testing.T) {
 }
 
 func TestEmptyReadAtEOF(t *testing.T) {
-	b := New(testBlockSize)
+	b := NewBuffer(testBlockSize)
 	defer b.Close()
 
 	if n, err := b.Read([]rune{}, 0); n != 0 || err != nil {
@@ -135,7 +135,7 @@ func TestInsert(t *testing.T) {
 		{init: "0123456701234567", add: "abcdefgh", at: 8, want: "01234567abcdefgh01234567"},
 	}
 	for _, test := range tests {
-		b := New(testBlockSize)
+		b := NewBuffer(testBlockSize)
 		defer b.Close()
 		if len(test.init) > 0 {
 			n, err := b.Insert([]rune(test.init), 0)
@@ -233,7 +233,7 @@ func TestBlockAlloc(t *testing.T) {
 		t.Fatalf("len(rs)=%d, want >%d", l, testBlockSize)
 	}
 
-	b := New(testBlockSize)
+	b := NewBuffer(testBlockSize)
 	defer b.Close()
 	n, err := b.Insert(rs, 0)
 	if n != l || err != nil {
@@ -271,7 +271,7 @@ func TestBlockAlloc(t *testing.T) {
 
 // TestInsertDeleteAndRead tests performing a few operations in sequence.
 func TestInsertDeleteAndRead(t *testing.T) {
-	b := New(testBlockSize)
+	b := NewBuffer(testBlockSize)
 	defer b.Close()
 
 	const hiWorld = "Hello, World!"
@@ -308,7 +308,7 @@ func errMatch(re string, err error) bool {
 	return regexp.MustCompile(re).Match([]byte(err.Error()))
 }
 
-func readAll(b *Runes) string {
+func readAll(b *Buffer) string {
 	rs := make([]rune, b.Size())
 	if _, err := b.Read(rs, 0); err != nil {
 		panic(err)
@@ -318,8 +318,8 @@ func readAll(b *Runes) string {
 
 // Initializes a buffer with the text "01234567abcd!@#efghSTUVWXYZ"
 // split across blocks of sizes: 8, 4, 3, 4, 8.
-func makeTestBytes(t *testing.T) *Runes {
-	b := New(testBlockSize)
+func makeTestBytes(t *testing.T) *Buffer {
+	b := NewBuffer(testBlockSize)
 	// Add 3 full blocks.
 	n, err := b.Insert([]rune("01234567abcdefghSTUVWXYZ"), 0)
 	if n != 24 || err != nil {

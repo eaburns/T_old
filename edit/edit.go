@@ -2,10 +2,10 @@
 // See sam(1) for an overview: http://swtch.com/plan9port/man/man1/sam.html.
 package edit
 
-import "github.com/eaburns/T/buffer"
+import "github.com/eaburns/T/runes"
 
 // An Editor provides sam-like editing functionality on a buffer of runes.
 type Editor struct {
-	runes *buffer.Runes
+	runes *runes.Buffer
 	dot   Range
 }

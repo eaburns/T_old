@@ -11,25 +11,25 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/eaburns/T/buffer"
+	"github.com/eaburns/T/runes"
 )
 
 // benchmark based on regexp/exec_test.go
 
 func makeEditor(n int) (*Editor, int) {
 	rand.Seed(0) // For reproducibility.
-	runes := make([]rune, n)
+	rs := make([]rune, n)
 	var lines int
 	for i := 0; i < n; i++ {
 		if rand.Intn(30) == 0 {
 			lines++
-			runes[i] = '\n'
+			rs[i] = '\n'
 		} else {
-			runes[i] = rune(rand.Intn(0x7E+1-0x20) + 0x20)
+			rs[i] = rune(rand.Intn(0x7E+1-0x20) + 0x20)
 		}
 	}
-	b := buffer.New(4096)
-	if _, err := b.Insert(runes, 0); err != nil {
+	b := runes.NewBuffer(4096)
+	if _, err := b.Insert(rs, 0); err != nil {
 		panic(err)
 	}
 	return &Editor{runes: b}, lines

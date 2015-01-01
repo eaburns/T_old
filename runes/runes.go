@@ -1,5 +1,5 @@
-// Package buffer provides unbounded, file-backed rune buffers.
-package buffer
+// Package runes provides unbounded, file-backed rune buffers.
+package runes
 
 import (
 	"encoding/binary"
@@ -13,8 +13,8 @@ import (
 // RuneBytes is the number of bytes in Go's rune type.
 const runeBytes = 4
 
-// A Runes is an unbounded rune buffer backed by a file.
-type Runes struct {
+// A Buffer is an unbounded rune buffer backed by a file.
+type Buffer struct {
 	// F is the file that backs the buffer. It is created lazily.
 	f *os.File
 	// BlockSize is the maximum number of runes in a block.
@@ -46,10 +46,10 @@ type block struct {
 	n int
 }
 
-// New returns a new, empty buffer.
+// NewBuffer returns a new, empty buffer.
 // No more than blockSize runes are cached in memory.
-func New(blockSize int) *Runes {
-	return &Runes{
+func NewBuffer(blockSize int) *Buffer {
+	return &Buffer{
 		blockSize: blockSize,
 		cached:    -1,
 		cache:     make([]rune, blockSize),
@@ -57,7 +57,7 @@ func New(blockSize int) *Runes {
 }
 
 // Close closes the buffer and removes it's backing file.
-func (b *Runes) Close() error {
+func (b *Buffer) Close() error {
 	b.cache = nil
 	if b.f == nil {
 		return nil
@@ -70,7 +70,7 @@ func (b *Runes) Close() error {
 }
 
 // Size returns the number of runes in the buffer.
-func (b *Runes) Size() int64 { return b.size }
+func (b *Buffer) Size() int64 { return b.size }
 
 // A RuneReadError is paniced if Rune encounters an error
 // reading a rune that is in the bounds of the buffer.
@@ -96,7 +96,7 @@ func RecoverRuneReadError(err *error) {
 // Rune returns the rune at the given offset.
 // If the rune is out of range it panics.
 // If there is an error reading, it panics a RuneReadError containing the error.
-func (b *Runes) Rune(offs int64) rune {
+func (b *Buffer) Rune(offs int64) rune {
 	if offs < 0 || offs > b.Size() {
 		panic("rune index out of bounds")
 	}
@@ -114,7 +114,7 @@ func (b *Runes) Rune(offs int64) rune {
 // The return value is the number of runes read.
 // If fewer than len(rs) runes are read then the error states why.
 // If the offset is beyond the end of the buffer, 0 and io.EOF are returned.
-func (b *Runes) Read(rs []rune, offs int64) (int, error) {
+func (b *Buffer) Read(rs []rune, offs int64) (int, error) {
 	switch {
 	case offs < 0:
 		return 0, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
@@ -145,7 +145,7 @@ func (b *Runes) Read(rs []rune, offs int64) (int, error) {
 // Insert inserts runes into the buffer at the given offset..
 // The return value is the number of runes added and any error that was encountered.
 // It is an error to add at a negative offset or an offset beyond the buffer size.
-func (b *Runes) Insert(rs []rune, offs int64) (int, error) {
+func (b *Buffer) Insert(rs []rune, offs int64) (int, error) {
 	if offs < 0 || offs > b.Size() {
 		return 0, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
 	}
@@ -186,7 +186,7 @@ func (b *Runes) Insert(rs []rune, offs int64) (int, error) {
 // Delete deletes runes from the buffer starting at the given offset.
 // The return value is the number of runes deleted.
 // If fewer than n runes are deleted, the error states why.
-func (b *Runes) Delete(n, offs int64) (int64, error) {
+func (b *Buffer) Delete(n, offs int64) (int64, error) {
 	if n < 0 {
 		panic("bad count: " + strconv.FormatInt(n, 10))
 	}
@@ -223,7 +223,7 @@ func (b *Runes) Delete(n, offs int64) (int64, error) {
 	return tot, nil
 }
 
-func (b *Runes) allocBlock() block {
+func (b *Buffer) allocBlock() block {
 	if l := len(b.free); l > 0 {
 		blk := b.free[l-1]
 		b.free = b.free[:l-1]
@@ -234,14 +234,14 @@ func (b *Runes) allocBlock() block {
 	return blk
 }
 
-func (b *Runes) freeBlock(blk block) {
+func (b *Buffer) freeBlock(blk block) {
 	b.free = append(b.free, block{start: blk.start})
 }
 
 // BlockAt returns the index and start address of the block containing the address.
 // If the address is one beyond the end of the file, a new block is allocated.
 // BlockAt panics if the address is negative or more than one past the end.
-func (b *Runes) blockAt(at int64) (int, int64) {
+func (b *Buffer) blockAt(at int64) (int, int64) {
 	if at < 0 || at > b.Size() {
 		panic("invalid offset: " + strconv.FormatInt(at, 10))
 	}
@@ -263,7 +263,7 @@ func (b *Runes) blockAt(at int64) (int, int64) {
 
 // insertAt inserts a block at the address and returns the new block's index.
 // If a block contains the address then it is split.
-func (b *Runes) insertAt(at int64) (int, error) {
+func (b *Buffer) insertAt(at int64) (int, error) {
 	i, q0 := b.blockAt(at)
 	o := int(at - q0)
 	blk := b.blocks[i]
@@ -307,7 +307,7 @@ func (b *Runes) insertAt(at int64) (int, error) {
 }
 
 // File returns an *os.File, creating a new file if one is not created yet.
-func (b *Runes) file() (*os.File, error) {
+func (b *Buffer) file() (*os.File, error) {
 	if b.f == nil {
 		f, err := ioutil.TempFile(os.TempDir(), "edit")
 		if err != nil {
@@ -319,7 +319,7 @@ func (b *Runes) file() (*os.File, error) {
 }
 
 // Put writes the cached block back to the file.
-func (b *Runes) put() error {
+func (b *Buffer) put() error {
 	if b.cached < 0 || !b.dirty || len(b.cache) == 0 {
 		return nil
 	}
@@ -341,7 +341,7 @@ func (b *Runes) put() error {
 
 // Get loads the cache with the data from the block at the given index,
 // returning a pointer to it.
-func (b *Runes) get(i int) (*block, error) {
+func (b *Buffer) get(i int) (*block, error) {
 	if b.cached == i {
 		return &b.blocks[i], nil
 	}

@@ -1,4 +1,4 @@
-package buffer
+package runes
 
 import (
 	"math/rand"
@@ -17,7 +17,7 @@ func randomRunes(n int) []rune {
 }
 
 func writeBench(b *testing.B, n int) {
-	r := New(benchBlockSize)
+	r := NewBuffer(benchBlockSize)
 	defer r.Close()
 	rs := randomRunes(n)
 	b.SetBytes(int64(n * runeBytes))
@@ -34,7 +34,7 @@ func BenchmarkWrite4k(b *testing.B)  { writeBench(b, 4096) }
 func BenchmarkWrite10k(b *testing.B) { writeBench(b, 1048576) }
 
 func readBench(b *testing.B, n int) {
-	r := New(benchBlockSize)
+	r := NewBuffer(benchBlockSize)
 	defer r.Close()
 	r.Insert(randomRunes(n), 0)
 	rs := make([]rune, n)
@@ -51,7 +51,7 @@ func BenchmarkRead4k(b *testing.B)  { readBench(b, 4096) }
 func BenchmarkRead10k(b *testing.B) { readBench(b, 1048576) }
 
 func benchmarkRune(b *testing.B, n int, rnd bool) {
-	r := New(benchBlockSize)
+	r := NewBuffer(benchBlockSize)
 	defer r.Close()
 	r.Insert(randomRunes(n), 0)
 
