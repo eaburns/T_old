@@ -30,6 +30,34 @@ type addr struct{ from, to int64 }
 // the string identified by the range.
 func (a addr) size() int64 { return a.to - a.from }
 
+// Updates a given that b changed to size n.
+// 	If b is after a, a remains unchanged.
+// 	If b is before a, a is moved to account for the change in b's size.
+//	if b is entirely within a, a grows or shrinks to account for the change in b's size.
+// 	Otherwise, b overlaps the beginning or end or entirety of a. In this case,
+// 	a shrinks as though the edit to b deleted part of its range.
+func (a *addr) update(b addr, n int64) {
+	switch {
+	case b.from >= a.to: // b after a
+		return
+	case b.to <= a.from: // b before a
+		d := n - b.size()
+		a.from += d
+		a.to += d
+	case a.from < b.from && b.to < a.to: // b within a
+		a.to += n - b.size()
+	case b.from < a.from && a.to < b.to: // a within b
+		a.from = b.from
+		a.to = b.from
+	case a.from < b.to && b.to < a.to: // b over the beginning of a
+		sz := a.size() - (b.to - a.from)
+		a.from = b.from + n
+		a.to = a.from + sz
+	default: // b over all of or just the end of a
+		a.to = b.from
+	}
+}
+
 // All returns the address of the entire buffer: 0,$.
 func All() Address { return Line(0).To(End()) }
 
@@ -178,7 +206,7 @@ func Dot() SimpleAddress { return simpleAddr{dotAddr{}} }
 func (dotAddr) String() string { return "." }
 
 func (dotAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
-	if ed.dot.from < 0 || ed.dot.to > ed.runes.Size() {
+	if ed.dot.from < 0 || ed.dot.to > ed.buf.size() {
 		return addr{}, errors.New("dot address out of range")
 	}
 	return ed.dot, nil
@@ -194,7 +222,7 @@ func End() SimpleAddress { return simpleAddr{endAddr{}} }
 func (endAddr) String() string { return "$" }
 
 func (endAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
-	return addr{from: ed.runes.Size(), to: ed.runes.Size()}, nil
+	return addr{from: ed.buf.size(), to: ed.buf.size()}, nil
 }
 
 func (e endAddr) reverse() SimpleAddress { return simpleAddr{e} }
@@ -210,7 +238,7 @@ func (n runeAddr) String() string {
 
 func (n runeAddr) addrFrom(from int64, ed *Editor) (addr, error) {
 	m := from + int64(n)
-	if m < 0 || m > ed.runes.Size() {
+	if m < 0 || m > ed.buf.size() {
 		return addr{}, errors.New("rune address out of range")
 	}
 	return addr{from: m, to: m}, nil
@@ -254,15 +282,15 @@ func (l lineAddr) reverse() SimpleAddress {
 func (l lineAddr) fwd(from int64, ed *Editor) (addr, error) {
 	a := addr{from: from, to: from}
 	if a.to > 0 {
-		for a.to < ed.runes.Size() && ed.runes.Rune(a.to-1) != '\n' {
+		for a.to < ed.buf.size() && ed.buf.rune(a.to-1) != '\n' {
 			a.to++
 		}
 		if l.n > 0 {
 			a.from = a.to
 		}
 	}
-	for l.n > 0 && a.to < ed.runes.Size() {
-		r := ed.runes.Rune(a.to)
+	for l.n > 0 && a.to < ed.buf.size() {
+		r := ed.buf.rune(a.to)
 		a.to++
 		if r == '\n' {
 			l.n--
@@ -271,7 +299,7 @@ func (l lineAddr) fwd(from int64, ed *Editor) (addr, error) {
 			}
 		}
 	}
-	if l.n > 1 || l.n == 1 && a.to < ed.runes.Size() {
+	if l.n > 1 || l.n == 1 && a.to < ed.buf.size() {
 		return addr{}, errors.New("line address out of range")
 	}
 	return a, nil
@@ -279,14 +307,14 @@ func (l lineAddr) fwd(from int64, ed *Editor) (addr, error) {
 
 func (l lineAddr) rev(from int64, ed *Editor) (addr, error) {
 	a := addr{from: from, to: from}
-	if a.from < ed.runes.Size() {
-		for a.from > 0 && ed.runes.Rune(a.from-1) != '\n' {
+	if a.from < ed.buf.size() {
+		for a.from > 0 && ed.buf.rune(a.from-1) != '\n' {
 			a.from--
 		}
 		a.to = a.from
 	}
 	for l.n > 0 && a.from > 0 {
-		r := ed.runes.Rune(a.from - 1)
+		r := ed.buf.rune(a.from - 1)
 		a.from--
 		if r == '\n' {
 			l.n--
@@ -298,7 +326,7 @@ func (l lineAddr) rev(from int64, ed *Editor) (addr, error) {
 	if l.n > 1 {
 		return addr{}, errors.New("line address out of range")
 	}
-	for a.from > 0 && ed.runes.Rune(a.from-1) != '\n' {
+	for a.from > 0 && ed.buf.rune(a.from-1) != '\n' {
 		a.from--
 	}
 	return a, nil
@@ -345,18 +373,16 @@ func (r reAddr) String() string { return r.re }
 
 type reverse struct{ *runes.Buffer }
 
-func (r reverse) Rune(i int64) rune {
-	return r.Buffer.Rune(r.Buffer.Size() - i - 1)
-}
+func (r reverse) Rune(i int64) rune { return r.Buffer.Rune(r.Size() - i - 1) }
 
 func (r reAddr) addrFrom(from int64, ed *Editor) (a addr, err error) {
 	re, err := re1.Compile([]rune(r.re), re1.Options{Delimited: true, Reverse: r.rev})
 	if err != nil {
 		return a, err
 	}
-	rs := re1.Runes(ed.runes)
+	rs := re1.Runes(ed.buf.runes)
 	if r.rev {
-		rs = reverse{ed.runes}
+		rs = reverse{ed.buf.runes}
 		from = rs.Size() - from
 	}
 	defer runes.RecoverRuneReadError(&err)

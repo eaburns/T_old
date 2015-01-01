@@ -10,8 +10,6 @@ package edit
 import (
 	"math/rand"
 	"testing"
-
-	"github.com/eaburns/T/runes"
 )
 
 // benchmark based on regexp/exec_test.go
@@ -28,16 +26,16 @@ func makeEditor(n int) (*Editor, int) {
 			rs[i] = rune(rand.Intn(0x7E+1-0x20) + 0x20)
 		}
 	}
-	b := runes.NewBuffer(4096)
-	if _, err := b.Insert(rs, 0); err != nil {
+	ed := NewBuffer().NewEditor()
+	if err := ed.Insert(All(), rs); err != nil {
 		panic(err)
 	}
-	return &Editor{runes: b}, lines
+	return ed, lines
 }
 
 func benchmarkLine(b *testing.B, n int) {
 	ed, lines := makeEditor(n)
-	defer ed.runes.Close()
+	defer ed.buf.Close()
 	if lines == 0 {
 		b.Fatalf("too few lines: %d", lines)
 	}

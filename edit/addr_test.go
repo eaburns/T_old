@@ -5,8 +5,6 @@ import (
 	"strconv"
 	"testing"
 	"unicode/utf8"
-
-	"github.com/eaburns/T/runes"
 )
 
 const testBlockSize = 12
@@ -252,12 +250,13 @@ type addressTest struct {
 }
 
 func (test addressTest) run(t *testing.T) {
-	e := Editor{dot: test.dot, runes: runes.NewBuffer(testBlockSize)}
-	defer e.runes.Close()
-	if _, err := e.runes.Insert([]rune(test.text), 0); err != nil {
+	e := NewBuffer().NewEditor()
+	defer e.buf.Close()
+	if err := e.Append(All(), []rune(test.text)); err != nil {
 		t.Fatalf(`Put("%s")=%v, want nil`, test.text, err)
 	}
-	a, err := test.addr.addrFrom(test.dot.to, &e)
+	e.dot = test.dot // Reset dot to the test dot.
+	a, err := test.addr.addrFrom(test.dot.to, e)
 	var errStr string
 	if err != nil {
 		errStr = err.Error()
@@ -373,6 +372,52 @@ func TestAddr(t *testing.T) {
 		if got != test.want || n != test.n || err != nil {
 			t.Errorf(`Addr("%s")=%v,%d,%v, want %v,%d,nil`,
 				test.addr, got, n, err, test.want, test.n)
+		}
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	tests := []struct {
+		a, b, want addr
+		n          int64
+	}{
+		// b after a
+		{a: addr{10, 20}, b: addr{25, 30}, n: 0, want: addr{10, 20}},
+		{a: addr{10, 20}, b: addr{25, 30}, n: 100, want: addr{10, 20}},
+		{a: addr{10, 20}, b: addr{20, 30}, n: 0, want: addr{10, 20}},
+		{a: addr{10, 20}, b: addr{20, 30}, n: 100, want: addr{10, 20}},
+
+		// b before a
+		{a: addr{10, 20}, b: addr{0, 0}, n: 0, want: addr{10, 20}},
+		{a: addr{10, 20}, b: addr{0, 0}, n: 100, want: addr{110, 120}},
+		{a: addr{10, 20}, b: addr{0, 10}, n: 0, want: addr{0, 10}},
+		{a: addr{10, 20}, b: addr{0, 10}, n: 100, want: addr{100, 110}},
+
+		// b over the beginning of a
+		{a: addr{10, 20}, b: addr{0, 15}, n: 0, want: addr{0, 5}},
+		{a: addr{10, 20}, b: addr{0, 15}, n: 10, want: addr{10, 15}},
+		{a: addr{0, 3}, b: addr{0, 1}, n: 7, want: addr{7, 9}},
+
+		// b over the end of a
+		{a: addr{10, 20}, b: addr{15, 20}, n: 0, want: addr{10, 15}},
+		{a: addr{10, 20}, b: addr{15, 20}, n: 10, want: addr{10, 15}},
+
+		// b within a
+		{a: addr{10, 20}, b: addr{12, 18}, n: 0, want: addr{10, 14}},
+		{a: addr{10, 20}, b: addr{12, 18}, n: 1, want: addr{10, 15}},
+		{a: addr{10, 20}, b: addr{12, 18}, n: 100, want: addr{10, 114}},
+
+		// b over all of a
+		{a: addr{10, 20}, b: addr{10, 20}, n: 0, want: addr{10, 10}},
+		{a: addr{10, 20}, b: addr{0, 40}, n: 0, want: addr{0, 0}},
+		{a: addr{10, 20}, b: addr{0, 40}, n: 100, want: addr{0, 0}},
+	}
+	for _, test := range tests {
+		a := test.a
+		a.update(test.b, test.n)
+		if a != test.want {
+			t.Errorf("%v.update(%v, %d)=%v, want %v",
+				test.a, test.b, test.n, a, test.want)
 		}
 	}
 }
