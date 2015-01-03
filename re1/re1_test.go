@@ -7,6 +7,31 @@ import (
 	"testing"
 )
 
+func TestExpression(t *testing.T) {
+	tests := []struct {
+		re, want string
+		opts     Options
+	}{
+		{"abc", "abc", Options{}},
+		{"/abc", "/abc", Options{Delimited: true}},
+		{"/abc/", "/abc/", Options{Delimited: true}},
+		{"/", "/", Options{Delimited: true}},
+		{"//", "//", Options{Delimited: true}},
+		{"", "", Options{Delimited: true}},
+	}
+	for _, test := range tests {
+		re, err := Compile([]rune(test.re), test.opts)
+		if err != nil {
+			t.Errorf("Compile(%s, %v) had error %v", test.re, test.opts, err)
+			continue
+		}
+		if s := string(re.Expression()); s != test.want {
+			t.Errorf("Compile(%s, %v).Expression()=%s, want %s",
+				test.re, test.opts, s, test.want)
+		}
+	}
+}
+
 func TestNoMatch(t *testing.T) {
 	tests := []regexpTest{
 		{re: "a", str: "", want: nil},
@@ -24,6 +49,7 @@ func TestNoMatch(t *testing.T) {
 
 func TestEmptyMatch(t *testing.T) {
 	tests := []regexpTest{
+		{opts: del, re: "", str: "", want: []string{""}},
 		{re: "", str: "", want: []string{""}},
 		{re: "a*", str: "x", want: []string{""}},
 		{re: "a?", str: "x", want: []string{""}},
