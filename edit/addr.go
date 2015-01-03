@@ -3,6 +3,8 @@ package edit
 import (
 	"errors"
 	"strconv"
+	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/eaburns/T/re1"
@@ -356,4 +358,152 @@ func (r reAddr) rangeFrom(from int64, ed *Editor) (a Range, err error) {
 func (r reAddr) reverse() SimpleAddress {
 	r.rev = !r.rev
 	return simpleAddr{r}
+}
+
+const (
+	digits        = "0123456789"
+	simpleFirst   = "#/?$." + digits
+	additiveFirst = "+-" + simpleFirst
+)
+
+// Addr returns an Address parsed from a string.
+// TODO(eaburns): Describe the address language as per sam(1).
+func Addr(rs []rune) (Address, int, error) {
+	var a1 Address
+	var tot int
+	for {
+		var r rune
+		if len(rs) > 0 {
+			r = rs[0]
+		}
+		var n int
+		var err error
+		switch {
+		case unicode.IsSpace(r):
+			n++
+
+		case strings.ContainsRune(simpleFirst, r):
+			var a2 SimpleAddress
+			switch a2, n, err = parseSimpleAddr(rs); {
+			case err != nil:
+				return nil, n, err
+			case a1 != nil:
+				a1 = a1.Plus(a2)
+			default:
+				a1 = a2
+			}
+		case r == '+' || r == '-':
+			n++
+			if a1 == nil {
+				a1 = Dot()
+			}
+			a2, m, err := parseSimpleAddr(rs[1:])
+			n += m
+			switch {
+			case err != nil:
+				return nil, tot + n, err
+			case a2 == nil:
+				a2 = Line(1)
+			}
+			if r == '+' {
+				a1 = a1.Plus(a2)
+			} else {
+				a1 = a1.Minus(a2)
+			}
+		case r == ',' || r == ';':
+			n++
+			if a1 == nil {
+				a1 = Line(0)
+			}
+			a2, m, err := Addr(rs[1:])
+			n += m
+			switch {
+			case err != nil:
+				return nil, tot + n, err
+			case a2 == nil:
+				a2 = End()
+			}
+			if r == ',' {
+				a1 = a1.To(a2)
+			} else {
+				a1 = a1.Then(a2)
+			}
+		default:
+			return a1, tot, nil
+		}
+		tot += n
+		rs = rs[n:]
+	}
+}
+
+func parseSimpleAddr(rs []rune) (SimpleAddress, int, error) {
+	var n int
+loop:
+	for len(rs) > 0 {
+		var m int
+		var err error
+		var a SimpleAddress
+		switch r := rs[0]; {
+		case unicode.IsSpace(r):
+			n++
+		case r == '#':
+			a, m, err = parseRuneAddr(rs)
+		case strings.ContainsRune(digits, r):
+			a, m, err = parseLineAddr(rs)
+		case r == '/' || r == '?':
+			a, m, err = parseRegexpAddr(rs)
+		case r == '$':
+			a, m = End(), 1
+		case r == '.':
+			a, m = Dot(), 1
+		default:
+			break loop
+		}
+		n += m
+		if a != nil {
+			return a, n, err
+		}
+		rs = rs[n:]
+	}
+	return nil, n, nil
+}
+
+func parseRuneAddr(rs []rune) (SimpleAddress, int, error) {
+	if rs[0] != '#' {
+		panic("not a rune address")
+	}
+	var n int
+	for n = 1; n < len(rs) && strings.ContainsRune(digits, rs[n]); n++ {
+	}
+	s := "1"
+	if n > 1 {
+		s = string(rs[1:n])
+	}
+	const base, bits = 10, 64
+	r, err := strconv.ParseInt(s, base, bits)
+	return Rune(r), n, err
+}
+
+func parseLineAddr(rs []rune) (SimpleAddress, int, error) {
+	if !strings.ContainsRune(digits, rs[0]) {
+		panic("not a line address")
+	}
+	var n int
+	for n = 1; n < len(rs) && strings.ContainsRune(digits, rs[n]); n++ {
+		n++
+	}
+	l, err := strconv.Atoi(string(rs[:n]))
+	return Line(l), n, err
+}
+
+func parseRegexpAddr(rs []rune) (SimpleAddress, int, error) {
+	if rs[0] != '/' && rs[0] != '?' {
+		panic("not a regexp address")
+	}
+	opts := re1.Options{Delimited: true, Reverse: rs[0] == '?'}
+	re, err := re1.Compile(rs, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	return Regexp(string(re.Expression())), len(re.Expression()), nil
 }
