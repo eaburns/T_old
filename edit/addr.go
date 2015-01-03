@@ -285,6 +285,9 @@ func (l lineAddr) rev(from int64, ed *Editor) (Range, error) {
 	return a, nil
 }
 
+// ErrNoMatch is returned when a regular expression address fails to match.
+var ErrNoMatch = errors.New("no match")
+
 type reAddr struct {
 	rev bool
 	re  string
@@ -338,7 +341,7 @@ func (r reAddr) rangeFrom(from int64, ed *Editor) (a Range, err error) {
 	defer runes.RecoverRuneReadError(&err)
 	match := re.Match(rs, from)
 	if match == nil {
-		return a, errors.New("no match")
+		return a, ErrNoMatch
 	}
 	a = Range{From: match[0][0], To: match[0][1]}
 	if r.rev {

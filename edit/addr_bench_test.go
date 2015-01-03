@@ -57,15 +57,20 @@ func benchmarkRegexp(b *testing.B, re string, n int) {
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		Regexp(re).rangeFrom(0, ed)
+		switch _, err := Regexp(re).rangeFrom(0, ed); {
+		case err == nil:
+			panic("unexpected match")
+		case err != ErrNoMatch:
+			panic(err)
+		}
 	}
 }
 
 const (
-	easy0  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ$"
-	easy1  = "A[AB]B[BC]C[CD]D[DE]E[EF]F[FG]G[GH]H[HI]I[IJ]J$"
-	medium = "[XYZ]ABCDEFGHIJKLMNOPQRSTUVWXYZ$"
-	hard   = "[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$"
+	easy0  = "/ABCDEFGHIJKLMNOPQRSTUVWXYZ$"
+	easy1  = "/A[AB]B[BC]C[CD]D[DE]E[EF]F[FG]G[GH]H[HI]I[IJ]J$"
+	medium = "/[XYZ]ABCDEFGHIJKLMNOPQRSTUVWXYZ$"
+	hard   = "/[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$"
 )
 
 func BenchmarkRegexpEasy0x32(b *testing.B)  { benchmarkRegexp(b, easy0, 32<<0) }
