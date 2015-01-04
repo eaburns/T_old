@@ -304,23 +304,25 @@ func Regexp(re string) SimpleAddress {
 	if len(re) == 0 {
 		re = "/"
 	}
-	return simpleAddr{reAddr{rev: re[0] == '?', re: re}}
+	return simpleAddr{reAddr{rev: re[0] == '?', re: withTrailingDelim(re)}}
 }
 
-func (r reAddr) String() string {
+func withTrailingDelim(re string) string {
 	var esc bool
 	var rs []rune
-	d, _ := utf8.DecodeRuneInString(r.re)
-	for i, ru := range r.re {
+	d, _ := utf8.DecodeRuneInString(re)
+	for i, ru := range re {
 		rs = append(rs, ru)
 		// Ensure an unescaped trailing delimiter.
-		if i == len(r.re)-utf8.RuneLen(ru) && (i == 0 || ru != d || esc) {
+		if i == len(re)-utf8.RuneLen(ru) && (i == 0 || ru != d || esc) {
 			rs = append(rs, d)
 		}
 		esc = !esc && ru == '\\'
 	}
 	return string(rs)
 }
+
+func (r reAddr) String() string { return r.re }
 
 type reverse struct{ *runes.Buffer }
 
