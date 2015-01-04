@@ -367,7 +367,37 @@ const (
 )
 
 // Addr returns an Address parsed from a string.
-// TODO(eaburns): Describe the address language as per sam(1).
+//
+// The address syntax for address a0 is:
+//	a0:	{a0} ',' {a0} | {a0} ';' {a0} | {a0} '+' {a1} | {a0} '-' {a1} | a0 a1 | a1
+//	a1:	'$' | '.'| '#'{n} | n | '/' regexp {'/'} | '?' regexp {'?'}
+//	n:	'0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | n n
+//	regexp:	<a valid re1 regular expression>
+//
+// Production a1 describes simple addresses:
+//	$ is the empty string at the end of the buffer.
+//	. is the current address of the editor, called dot.
+//	#{n} is the empty string after rune number n. If n is missing then 1 is used.
+//	n is the nth line in the buffer. 0 is the string before the first full line.
+//	'/' regexp {'/'} is the first match of the regular expression.
+//	'?' regexp {'?'} is the first match of the regular expression going in reverse.
+//
+// Production a0 describes compound addresses:
+//	{a0} ',' {a0} is the string from the start of the first address to the end of the second.
+//		If the first address is missing, 0 is used.
+//		If the second address is missing, $ is used.
+//	{a0} ';' {a0} is like the previous,
+//		but with the second address evaluated from the end of the first
+//		with dot set to the first address.
+//		If the first address is missing, 0 is used.
+//		If the second address is missing, $ is used.
+//	{a0} '+' {a0} is the second address evaluated from the end of the first.
+//		If the first address is missing, . is used.
+//		If the second address is missing, 1 is used.
+//	{a0} '-' {a0} is the second address evaluated in reverse from the start of the first.
+//		If the first address is missing, . is used.
+//		If the second address is missing, 1 is used.
+// If two addresses of the form a0 a1 are present and distinct then a '+' is inserted, as in a0 '+' a1.
 func Addr(rs []rune) (Address, int, error) {
 	var a1 Address
 	var tot int
