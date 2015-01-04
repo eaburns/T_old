@@ -162,11 +162,10 @@ func Compile(rs []rune, opts Options) (re *Regexp, err error) {
 
 	p := parser{rs: rs, nsub: 1, reverse: opts.Reverse, literal: opts.Literal}
 	var n int
-	if opts.Delimited {
+	if opts.Delimited && len(p.rs) > 0 {
 		p.delim = p.rs[0]
 		p.pos = 1
 	}
-
 	re = e0(&p)
 	n += p.pos
 	if re == nil {
@@ -414,11 +413,12 @@ func e3(p *parser) *Regexp {
 		re.start.out[0].label = bolLabel{}
 	case t == carrot && p.reverse || t == dollar && !p.reverse:
 		re.start.out[0].label = eolLabel{}
+	case t == token(eof):
+		return nil
+	case t < token(eof):
+		p.back()
+		return nil
 	default:
-		if t < 0 {
-			p.back()
-			return nil
-		}
 		re.start.out[0].label = runeLabel(t)
 	}
 	return re
