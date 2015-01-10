@@ -1,3 +1,7 @@
+// Pieces copied from go/test/bench/go1/regexp_test.go,
+// which requires the following notice:
+// Copyright 2013 The Go Authors. All rights reserved.
+
 package runes
 
 import (
