@@ -37,6 +37,7 @@ func makeEditor(n int) (*Editor, int) {
 
 func benchmarkLine(b *testing.B, n int) {
 	ed, lines := makeEditor(n)
+	defer ed.runes.Close()
 	if lines == 0 {
 		b.Fatalf("too few lines: %d", lines)
 	}

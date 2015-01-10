@@ -11,6 +11,7 @@ const testBlockSize = 8
 func TestRunesRune(t *testing.T) {
 	rs := []rune("Hello, 世界!")
 	b := NewBuffer(testBlockSize)
+	defer b.Close()
 	if _, err := b.Insert(rs, 0); err != nil {
 		t.Fatalf(`b.Insert("%s", 0)=%v, want nil`, string(rs), err)
 	}

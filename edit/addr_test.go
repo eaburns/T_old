@@ -252,10 +252,8 @@ type addressTest struct {
 }
 
 func (test addressTest) run(t *testing.T) {
-	e := Editor{
-		dot:   test.dot,
-		runes: runes.NewBuffer(testBlockSize),
-	}
+	e := Editor{dot: test.dot, runes: runes.NewBuffer(testBlockSize)}
+	defer e.runes.Close()
 	if _, err := e.runes.Insert([]rune(test.text), 0); err != nil {
 		t.Fatalf(`Put("%s")=%v, want nil`, test.text, err)
 	}
