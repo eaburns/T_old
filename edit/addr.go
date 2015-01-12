@@ -535,7 +535,7 @@ loop:
 			break loop
 		}
 		n += m
-		if a != nil {
+		if a != nil || err != nil {
 			return a, n, err
 		}
 		rs = rs[n:]
@@ -565,7 +565,6 @@ func parseLineAddr(rs []rune) (SimpleAddress, int, error) {
 	}
 	var n int
 	for n = 1; n < len(rs) && strings.ContainsRune(digits, rs[n]); n++ {
-		n++
 	}
 	l, err := strconv.Atoi(string(rs[:n]))
 	return Line(l), n, err

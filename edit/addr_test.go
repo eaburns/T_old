@@ -1,6 +1,7 @@
 package edit
 
 import (
+	"math"
 	"regexp"
 	"strconv"
 	"testing"
@@ -278,6 +279,7 @@ func TestAddr(t *testing.T) {
 		addr string
 		n    int
 		want Address
+		err  string
 	}{
 		{addr: "", n: 0, want: nil},
 		{addr: " ", n: 1, want: nil},
@@ -289,12 +291,14 @@ func TestAddr(t *testing.T) {
 		{addr: "#12345", n: 6, want: Rune(12345)},
 		{addr: "#12345xyz", n: 6, want: Rune(12345)},
 		{addr: " #12345xyz", n: 7, want: Rune(12345)},
+		{addr: "#" + strconv.Itoa(math.MaxInt64) + "0", err: "out of range"},
 
 		{addr: "0", n: 1, want: Line(0)},
 		{addr: "1", n: 1, want: Line(1)},
 		{addr: "12345", n: 5, want: Line(12345)},
 		{addr: "12345xyz", n: 5, want: Line(12345)},
 		{addr: " 12345xyz", n: 6, want: Line(12345)},
+		{addr: strconv.Itoa(math.MaxInt64) + "0", err: "out of range"},
 
 		{addr: "/", n: 1, want: Regexp("/")},
 		{addr: "//", n: 2, want: Regexp("//")},
@@ -369,9 +373,17 @@ func TestAddr(t *testing.T) {
 	}
 	for _, test := range tests {
 		got, n, err := Addr([]rune(test.addr))
-		if got != test.want || n != test.n || err != nil {
-			t.Errorf(`Addr("%s")=%v,%d,%v, want %v,%d,nil`,
-				test.addr, got, n, err, test.want, test.n)
+		var errStr string
+		if err != nil {
+			errStr = err.Error()
+		}
+		if got != test.want ||
+			(test.err == "" && test.n != n) ||
+			(test.err == "" && errStr != "") ||
+			(test.err != "" && !regexp.MustCompile(test.err).MatchString(errStr)) {
+			t.Errorf(`Addr(%s)=%v,%d,%v, want %v,%d,%v`,
+				strconv.Quote(test.addr), got, n, err, test.want, test.n,
+				strconv.Quote(test.err))
 		}
 	}
 }
