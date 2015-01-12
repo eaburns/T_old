@@ -10,8 +10,6 @@ package edit
 import (
 	"math/rand"
 	"testing"
-
-	"github.com/eaburns/T/runes"
 )
 
 // benchmark based on regexp/exec_test.go
@@ -28,23 +26,23 @@ func makeEditor(n int) (*Editor, int) {
 			rs[i] = rune(rand.Intn(0x7E+1-0x20) + 0x20)
 		}
 	}
-	b := runes.NewBuffer(4096)
-	if _, err := b.Insert(rs, 0); err != nil {
+	ed := NewBuffer().NewEditor()
+	if err := ed.Insert(All(), rs); err != nil {
 		panic(err)
 	}
-	return &Editor{runes: b}, lines
+	return ed, lines
 }
 
 func benchmarkLine(b *testing.B, n int) {
 	ed, lines := makeEditor(n)
-	defer ed.runes.Close()
+	defer ed.buf.Close()
 	if lines == 0 {
 		b.Fatalf("too few lines: %d", lines)
 	}
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		if _, err := Line(i%lines).rangeFrom(0, ed); err != nil {
+		if _, err := Line(i % lines).addr(ed); err != nil {
 			b.Fatal(err.Error())
 		}
 	}
@@ -58,7 +56,7 @@ func benchmarkRegexp(b *testing.B, re string, n int) {
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		switch _, err := Regexp(re).rangeFrom(0, ed); {
+		switch _, err := Regexp(re).addr(ed); {
 		case err == nil:
 			panic("unexpected match")
 		case err != ErrNoMatch:
