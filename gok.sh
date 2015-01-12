@@ -8,6 +8,7 @@ o=$(tempfile)
 fail() {
 	echo Failed
 	cat $o
+	rm $o
 	exit 1
 }
 
@@ -23,3 +24,5 @@ go test -test.timeout=1s ./... 2>&1 > $o || fail
 
 echo Linting
 golint .
+
+rm $o
