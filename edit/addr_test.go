@@ -14,17 +14,26 @@ func TestDotAddress(t *testing.T) {
 	str := "Hello, 世界!"
 	sz := int64(utf8.RuneCountInString(str))
 	tests := []addressTest{
-		{text: str, dot: pt(0), addr: Dot(), want: pt(0)},
-		{text: str, dot: pt(5), addr: Dot(), want: pt(5)},
-		{text: str, dot: rng(5, 6), addr: Dot(), want: rng(5, 6)},
-		{text: str, dot: pt(sz), addr: Dot(), want: pt(sz)},
-		{text: str, dot: rng(0, sz), addr: Dot(), want: rng(0, sz)},
+		{text: str, dot: pt(0), addr: Dot, want: pt(0)},
+		{text: str, dot: pt(5), addr: Dot, want: pt(5)},
+		{text: str, dot: rng(5, 6), addr: Dot, want: rng(5, 6)},
+		{text: str, dot: pt(sz), addr: Dot, want: pt(sz)},
+		{text: str, dot: rng(0, sz), addr: Dot, want: rng(0, sz)},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
 
-		{text: str, dot: pt(-1), addr: Dot(), err: "out of range"},
-		{text: str, dot: rng(-1, 0), addr: Dot(), err: "out of range"},
-		{text: str, dot: pt(sz + 1), addr: Dot(), err: "out of range"},
-		{text: str, dot: rng(0, sz+1), addr: Dot(), err: "out of range"},
-		{text: str, dot: rng(-1, sz+1), addr: Dot(), err: "out of range"},
+func TestMarkAddress(t *testing.T) {
+	str := "Hello, 世界!"
+	tests := []addressTest{
+		{text: str, marks: map[rune]addr{}, addr: Mark('A'), err: "bad mark"},
+
+		{text: str, marks: map[rune]addr{'a': addr{0, 0}}, addr: Mark('a'), want: pt(0)},
+		{text: str, marks: map[rune]addr{}, addr: Mark('a'), want: pt(0)},
+		{text: str, marks: map[rune]addr{'z': addr{0, 0}}, addr: Mark('z'), want: pt(0)},
+		{text: str, marks: map[rune]addr{'z': addr{1, 9}}, addr: Mark('z'), want: rng(1, 9)},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -33,9 +42,9 @@ func TestDotAddress(t *testing.T) {
 
 func TestEndAddress(t *testing.T) {
 	tests := []addressTest{
-		{text: "", addr: End(), want: pt(0)},
-		{text: "Hello, World!", addr: End(), want: pt(13)},
-		{text: "Hello, 世界!", addr: End(), want: pt(10)},
+		{text: "", addr: End, want: pt(0)},
+		{text: "Hello, World!", addr: End, want: pt(13)},
+		{text: "Hello, 世界!", addr: End, want: pt(10)},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -184,7 +193,7 @@ func TestPlusAddress(t *testing.T) {
 		{text: "abc\ndef", addr: Line(1).Plus(Line(-1)), want: rng(0, 4)},
 		{text: "abc\ndef", addr: Rune(1).Plus(Line(0)), want: rng(1, 4)},
 
-		{text: "abc\ndef", dot: pt(1), addr: Dot().Plus(Line(-1)), want: pt(0)},
+		{text: "abc\ndef", dot: pt(1), addr: Dot.Plus(Line(-1)), want: pt(0)},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -197,7 +206,7 @@ func TestMinusAddress(t *testing.T) {
 		{text: "abc", addr: Rune(2).Minus(Rune(1)), want: pt(1)},
 		{text: "abc", addr: Rune(2).Minus(Rune(-1)), want: pt(3)},
 		{text: "abc\ndef", addr: Line(1).Minus(Line(1)), want: pt(0)},
-		{text: "abc\ndef", dot: rng(1, 6), addr: Dot().Minus(Line(1)).Plus(Line(1)), want: rng(0, 4)},
+		{text: "abc\ndef", dot: rng(1, 6), addr: Dot.Minus(Line(1)).Plus(Line(1)), want: rng(0, 4)},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -206,8 +215,8 @@ func TestMinusAddress(t *testing.T) {
 
 func TestToAddress(t *testing.T) {
 	tests := []addressTest{
-		{text: "abc", addr: Line(0).To(End()), want: rng(0, 3)},
-		{text: "abc", dot: pt(1), addr: Dot().To(End()), want: rng(1, 3)},
+		{text: "abc", addr: Line(0).To(End), want: rng(0, 3)},
+		{text: "abc", dot: pt(1), addr: Dot.To(End), want: rng(1, 3)},
 		{text: "abc\ndef", addr: Line(0).To(Line(1)), want: rng(0, 4)},
 		{text: "abc\ndef", addr: Line(1).To(Line(2)), want: rng(0, 7)},
 		{
@@ -218,7 +227,7 @@ func TestToAddress(t *testing.T) {
 		{
 			text: "abc\ndef\nghi\njkl",
 			dot:  pt(11),
-			addr: Regexp("?abc?").Plus(Line(1)).To(Dot()),
+			addr: Regexp("?abc?").Plus(Line(1)).To(Dot),
 			want: rng(4, 11),
 		},
 		{text: "abc\ndef", addr: Line(0).To(Line(1)).To(Line(2)), want: rng(0, 7)},
@@ -231,9 +240,9 @@ func TestToAddress(t *testing.T) {
 func TestThenAddress(t *testing.T) {
 	tests := []addressTest{
 		{text: "abcabc", addr: Regexp("/abc/").Then(Regexp("/b/")), want: rng(0, 5)},
-		{text: "abcabc", addr: Regexp("/abc/").Then(Dot().Plus(Rune(1))), want: rng(0, 4)},
-		{text: "abcabc", addr: Line(0).Plus(Rune(1)).Then(Dot().Plus(Rune(1))), want: rng(1, 2)},
-		{text: "abcabc", addr: Line(0).To(Rune(1)).Then(Dot().Plus(Rune(1))), want: rng(0, 2)},
+		{text: "abcabc", addr: Regexp("/abc/").Then(Dot.Plus(Rune(1))), want: rng(0, 4)},
+		{text: "abcabc", addr: Line(0).Plus(Rune(1)).Then(Dot.Plus(Rune(1))), want: rng(1, 2)},
+		{text: "abcabc", addr: Line(0).To(Rune(1)).Then(Dot.Plus(Rune(1))), want: rng(0, 2)},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -244,20 +253,24 @@ type addressTest struct {
 	text string
 	// If rev==false, the match starts from 0.
 	// If rev==true, the match starts from len(text).
-	dot  addr
-	addr Address
-	want addr
-	err  string // regexp matching the error string
+	dot   addr
+	marks map[rune]addr
+	addr  Address
+	want  addr
+	err   string // regexp matching the error string
 }
 
 func (test addressTest) run(t *testing.T) {
-	e := NewBuffer().NewEditor()
-	defer e.buf.Close()
-	if err := e.Append(All(), []rune(test.text)); err != nil {
+	ed := NewBuffer().NewEditor()
+	defer ed.buf.Close()
+	if err := ed.Append(All, []rune(test.text)); err != nil {
 		t.Fatalf(`Put("%s")=%v, want nil`, test.text, err)
 	}
-	e.dot = test.dot // Reset dot to the test dot.
-	a, err := test.addr.addrFrom(test.dot.to, e)
+	if test.marks != nil {
+		ed.marks = test.marks
+	}
+	ed.marks['.'] = test.dot // Reset dot to the test dot.
+	a, err := test.addr.addrFrom(test.dot.to, ed)
 	var errStr string
 	if err != nil {
 		errStr = err.Error()
@@ -312,56 +325,62 @@ func TestAddr(t *testing.T) {
 		{addr: "?abc def", n: 8, want: Regexp("?abc def")},
 		{addr: " ?abc def", n: 9, want: Regexp("?abc def")},
 
-		{addr: "$", n: 1, want: End()},
-		{addr: " $", n: 2, want: End()},
+		{addr: "$", n: 1, want: End},
+		{addr: " $", n: 2, want: End},
 
-		{addr: ".", n: 1, want: Dot()},
-		{addr: " .", n: 2, want: Dot()},
+		{addr: ".", n: 1, want: Dot},
+		{addr: " .", n: 2, want: Dot},
 
-		{addr: "+", n: 1, want: Dot().Plus(Line(1))},
-		{addr: "+xyz", n: 1, want: Dot().Plus(Line(1))},
-		{addr: "+5", n: 2, want: Dot().Plus(Line(5))},
+		{addr: "'m", n: 2, want: Mark('m')},
+		{addr: " 'z", n: 3, want: Mark('z')},
+		{addr: " ' a", n: 4, want: Mark('a')},
+		{addr: "'A", err: "bad mark"},
+		{addr: "'", err: "bad mark"},
+
+		{addr: "+", n: 1, want: Dot.Plus(Line(1))},
+		{addr: "+xyz", n: 1, want: Dot.Plus(Line(1))},
+		{addr: "+5", n: 2, want: Dot.Plus(Line(5))},
 		{addr: "5+", n: 2, want: Line(5).Plus(Line(1))},
 		{addr: "5+6", n: 3, want: Line(5).Plus(Line(6))},
 		{addr: " 5 + 6", n: 6, want: Line(5).Plus(Line(6))},
-		{addr: "-", n: 1, want: Dot().Minus(Line(1))},
-		{addr: "-xyz", n: 1, want: Dot().Minus(Line(1))},
-		{addr: "-5", n: 2, want: Dot().Minus(Line(5))},
+		{addr: "-", n: 1, want: Dot.Minus(Line(1))},
+		{addr: "-xyz", n: 1, want: Dot.Minus(Line(1))},
+		{addr: "-5", n: 2, want: Dot.Minus(Line(5))},
 		{addr: "5-", n: 2, want: Line(5).Minus(Line(1))},
 		{addr: "5-6", n: 3, want: Line(5).Minus(Line(6))},
 		{addr: " 5 - 6", n: 6, want: Line(5).Minus(Line(6))},
-		{addr: ".+#5", n: 4, want: Dot().Plus(Rune(5))},
-		{addr: "$-#5", n: 4, want: End().Minus(Rune(5))},
-		{addr: "$ - #5 + #3", n: 11, want: End().Minus(Rune(5)).Plus(Rune(3))},
-		{addr: "+-", n: 2, want: Dot().Plus(Line(1)).Minus(Line(1))},
-		{addr: " + - ", n: 5, want: Dot().Plus(Line(1)).Minus(Line(1))},
-		{addr: " - + ", n: 5, want: Dot().Minus(Line(1)).Plus(Line(1))},
+		{addr: ".+#5", n: 4, want: Dot.Plus(Rune(5))},
+		{addr: "$-#5", n: 4, want: End.Minus(Rune(5))},
+		{addr: "$ - #5 + #3", n: 11, want: End.Minus(Rune(5)).Plus(Rune(3))},
+		{addr: "+-", n: 2, want: Dot.Plus(Line(1)).Minus(Line(1))},
+		{addr: " + - ", n: 5, want: Dot.Plus(Line(1)).Minus(Line(1))},
+		{addr: " - + ", n: 5, want: Dot.Minus(Line(1)).Plus(Line(1))},
 		{addr: "/abc/+++---", n: 11, want: Regexp("/abc/").Plus(Line(1)).Plus(Line(1)).Plus(Line(1)).Minus(Line(1)).Minus(Line(1)).Minus(Line(1))},
 
-		{addr: ",", n: 1, want: Line(0).To(End())},
-		{addr: ",xyz", n: 1, want: Line(0).To(End())},
-		{addr: " , ", n: 3, want: Line(0).To(End())},
+		{addr: ",", n: 1, want: Line(0).To(End)},
+		{addr: ",xyz", n: 1, want: Line(0).To(End)},
+		{addr: " , ", n: 3, want: Line(0).To(End)},
 		{addr: ",1", n: 2, want: Line(0).To(Line(1))},
-		{addr: "1,", n: 2, want: Line(1).To(End())},
-		{addr: "0,$", n: 3, want: Line(0).To(End())},
-		{addr: ".,$", n: 3, want: Dot().To(End())},
+		{addr: "1,", n: 2, want: Line(1).To(End)},
+		{addr: "0,$", n: 3, want: Line(0).To(End)},
+		{addr: ".,$", n: 3, want: Dot.To(End)},
 		{addr: "1,2", n: 3, want: Line(1).To(Line(2))},
 		{addr: " 1 , 2 ", n: 7, want: Line(1).To(Line(2))},
-		{addr: ",-#5", n: 4, want: Line(0).To(Dot().Minus(Rune(5)))},
-		{addr: " , - #5", n: 7, want: Line(0).To(Dot().Minus(Rune(5)))},
-		{addr: ";", n: 1, want: Line(0).Then(End())},
-		{addr: ";xyz", n: 1, want: Line(0).Then(End())},
-		{addr: " ; ", n: 3, want: Line(0).Then(End())},
+		{addr: ",-#5", n: 4, want: Line(0).To(Dot.Minus(Rune(5)))},
+		{addr: " , - #5", n: 7, want: Line(0).To(Dot.Minus(Rune(5)))},
+		{addr: ";", n: 1, want: Line(0).Then(End)},
+		{addr: ";xyz", n: 1, want: Line(0).Then(End)},
+		{addr: " ; ", n: 3, want: Line(0).Then(End)},
 		{addr: ";1", n: 2, want: Line(0).Then(Line(1))},
-		{addr: "1;", n: 2, want: Line(1).Then(End())},
-		{addr: "0;$", n: 3, want: Line(0).Then(End())},
-		{addr: ".;$", n: 3, want: Dot().Then(End())},
+		{addr: "1;", n: 2, want: Line(1).Then(End)},
+		{addr: "0;$", n: 3, want: Line(0).Then(End)},
+		{addr: ".;$", n: 3, want: Dot.Then(End)},
 		{addr: "1;2", n: 3, want: Line(1).Then(Line(2))},
 		{addr: " 1 ; 2 ", n: 7, want: Line(1).Then(Line(2))},
-		{addr: ";-#5", n: 4, want: Line(0).Then(Dot().Minus(Rune(5)))},
-		{addr: " ; - #5 ", n: 8, want: Line(0).Then(Dot().Minus(Rune(5)))},
-		{addr: ";,", n: 2, want: Line(0).Then(Line(0).To(End()))},
-		{addr: " ; , ", n: 5, want: Line(0).Then(Line(0).To(End()))},
+		{addr: ";-#5", n: 4, want: Line(0).Then(Dot.Minus(Rune(5)))},
+		{addr: " ; - #5 ", n: 8, want: Line(0).Then(Dot.Minus(Rune(5)))},
+		{addr: ";,", n: 2, want: Line(0).Then(Line(0).To(End))},
+		{addr: " ; , ", n: 5, want: Line(0).Then(Line(0).To(End))},
 
 		// Implicit +.
 		{addr: "1#2", n: 3, want: Line(1).Plus(Rune(2))},
@@ -369,7 +388,7 @@ func TestAddr(t *testing.T) {
 		{addr: "1/abc", n: 5, want: Line(1).Plus(Regexp("/abc"))},
 		{addr: "/abc/1", n: 6, want: Regexp("/abc/").Plus(Line(1))},
 		{addr: "?abc?1", n: 6, want: Regexp("?abc?").Plus(Line(1))},
-		{addr: "$?abc", n: 5, want: End().Plus(Regexp("?abc"))},
+		{addr: "$?abc", n: 5, want: End.Plus(Regexp("?abc"))},
 	}
 	for _, test := range tests {
 		got, n, err := Addr([]rune(test.addr))

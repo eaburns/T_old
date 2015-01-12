@@ -66,11 +66,11 @@ func (test changeTest) run(f func(*Editor, Address, []rune) error, name string, 
 		t.Errorf("%v: %s(%v, %v)=%v, want nil", test, name, test.addr, test.add, err)
 		return
 	}
-	if ed.dot != test.dot {
-		t.Errorf("%v: dot=%v, want %v\n", test, ed.dot, test.dot)
+	if ed.marks['.'] != test.dot {
+		t.Errorf("%v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
 		return
 	}
-	rs, err := ed.Read(All())
+	rs, err := ed.Read(All)
 	if s := string(rs); s != test.want || err != nil {
 		t.Errorf("%v: string=%v, want %v\n",
 			test, strconv.Quote(s), strconv.Quote(test.want))
@@ -107,11 +107,11 @@ func TestEditorDelete(t *testing.T) {
 			t.Errorf("%v: Delete(%v)=%v, want nil", test, test.addr, err)
 			continue
 		}
-		if ed.dot != test.dot {
-			t.Errorf("%v: dot=%v, want %v\n", test, ed.dot, test.dot)
+		if ed.marks['.'] != test.dot {
+			t.Errorf("%v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
 			continue
 		}
-		rs, err := ed.Read(All())
+		rs, err := ed.Read(All)
 		if s := string(rs); s != test.want || err != nil {
 			t.Errorf("%v: string=%v, want %v\n",
 				test, strconv.Quote(s), strconv.Quote(test.want))

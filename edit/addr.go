@@ -11,6 +11,15 @@ import (
 	"github.com/eaburns/T/runes"
 )
 
+var (
+	// All is the address of the entire buffer: 0,$.
+	All Address = Line(0).To(End)
+	// Dot is the address of the Editor's dot.
+	Dot SimpleAddress = simpleAddr{dotAddr{}}
+	// End is the address of the empty string at the end of the buffer.
+	End SimpleAddress = simpleAddr{endAddr{}}
+)
+
 // An Address identifies a substring within a buffer.
 type Address interface {
 	addrFrom(from int64, ed *Editor) (addr, error)
@@ -58,9 +67,6 @@ func (a *addr) update(b addr, n int64) {
 	}
 }
 
-// All returns the address of the entire buffer: 0,$.
-func All() Address { return Line(0).To(End()) }
-
 type compoundAddr struct {
 	op     rune
 	a1, a2 Address
@@ -103,11 +109,11 @@ func (a compoundAddr) addrFrom(from int64, ed *Editor) (addr, error) {
 		}
 		return addr{from: a1.from, to: a2.to}, nil
 	case ';':
-		origDot := ed.dot
-		ed.dot = a1
+		origDot := ed.marks['.']
+		ed.marks['.'] = a1
 		a2, err := a.a2.addrFrom(a1.to, ed)
 		if err != nil {
-			ed.dot = origDot // Restore dot on error.
+			ed.marks['.'] = origDot // Restore dot on error.
 			return addr{}, err
 		}
 		return addr{from: a1.from, to: a2.to}, nil
@@ -200,24 +206,19 @@ func (a simpleAddr) addr(ed *Editor) (addr, error) {
 
 type dotAddr struct{}
 
-// Dot returns the address of the Editor's dot.
-func Dot() SimpleAddress { return simpleAddr{dotAddr{}} }
-
 func (dotAddr) String() string { return "." }
 
 func (dotAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
-	if ed.dot.from < 0 || ed.dot.to > ed.buf.size() {
-		return addr{}, errors.New("dot address out of range")
+	a := ed.marks['.']
+	if a.from < 0 || a.to < a.from || a.to > ed.buf.size() {
+		panic("bad dot")
 	}
-	return ed.dot, nil
+	return ed.marks['.'], nil
 }
 
 func (d dotAddr) reverse() SimpleAddress { return simpleAddr{d} }
 
 type endAddr struct{}
-
-// End returns the address of the empty string at the end of the buffer.
-func End() SimpleAddress { return simpleAddr{endAddr{}} }
 
 func (endAddr) String() string { return "$" }
 
@@ -226,6 +227,28 @@ func (endAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
 }
 
 func (e endAddr) reverse() SimpleAddress { return simpleAddr{e} }
+
+type markAddr rune
+
+// Mark returns the address of the named mark rune.
+// The rune must be a lower-case letter a-z.
+// An invalid mark rune results in an address that returns an error when evaluated.
+func Mark(r rune) SimpleAddress { return simpleAddr{markAddr(r)} }
+
+func (m markAddr) String() string { return "'" + string(rune(m)) }
+
+func (m markAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
+	a := ed.marks[rune(m)]
+	if a.from < 0 || a.to < a.from || a.to > ed.buf.size() {
+		panic("bad mark")
+	}
+	if m < 'a' || m > 'z' {
+		return addr{}, errors.New("bad mark: " + string(rune(m)))
+	}
+	return a, nil
+}
+
+func (m markAddr) reverse() SimpleAddress { return simpleAddr{m} }
 
 type runeAddr int64
 
@@ -405,7 +428,7 @@ func (r reAddr) reverse() SimpleAddress {
 
 const (
 	digits        = "0123456789"
-	simpleFirst   = "#/?$." + digits
+	simpleFirst   = "#/?$.'" + digits
 	additiveFirst = "+-" + simpleFirst
 )
 
@@ -413,8 +436,9 @@ const (
 //
 // The address syntax for address a0 is:
 //	a0:	{a0} ',' {a0} | {a0} ';' {a0} | {a0} '+' {a1} | {a0} '-' {a1} | a0 a1 | a1
-//	a1:	'$' | '.'| '#'{n} | n | '/' regexp {'/'} | '?' regexp {'?'}
-//	n:	'0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | n n
+//	a1:	'$' | '.'| '\'' l | '#'{n} | n | '/' regexp {'/'} | '?' regexp {'?'}
+//	n:	[0-9]+
+//	l:	[a-z]
 //	regexp:	<a valid re1 regular expression>
 // All address operators are left-associative.
 // The '+' and '-' operators are higher-precedence than ',' and ';'.
@@ -422,6 +446,7 @@ const (
 // Production a1 describes simple addresses:
 //	$ is the empty string at the end of the buffer.
 //	. is the current address of the editor, called dot.
+//	'l is the address of the mark named l, where l is a lower-case letter a-z.
 //	#{n} is the empty string after rune number n. If n is missing then 1 is used.
 //	n is the nth line in the buffer. 0 is the string before the first full line.
 //	'/' regexp {'/'} is the first match of the regular expression.
@@ -470,7 +495,7 @@ func Addr(rs []rune) (Address, int, error) {
 		case r == '+' || r == '-':
 			n++
 			if a1 == nil {
-				a1 = Dot()
+				a1 = Dot
 			}
 			a2, m, err := parseSimpleAddr(rs[1:])
 			n += m
@@ -496,7 +521,7 @@ func Addr(rs []rune) (Address, int, error) {
 			case err != nil:
 				return nil, tot + n, err
 			case a2 == nil:
-				a2 = End()
+				a2 = End
 			}
 			if r == ',' {
 				a1 = a1.To(a2)
@@ -521,6 +546,8 @@ loop:
 		switch r := rs[0]; {
 		case unicode.IsSpace(r):
 			n++
+		case r == '\'':
+			a, m, err = parseMarkAddr(rs)
 		case r == '#':
 			a, m, err = parseRuneAddr(rs)
 		case strings.ContainsRune(digits, r):
@@ -528,9 +555,9 @@ loop:
 		case r == '/' || r == '?':
 			a, m, err = parseRegexpAddr(rs)
 		case r == '$':
-			a, m = End(), 1
+			a, m = End, 1
 		case r == '.':
-			a, m = Dot(), 1
+			a, m = Dot, 1
 		default:
 			break loop
 		}
@@ -541,6 +568,23 @@ loop:
 		rs = rs[n:]
 	}
 	return nil, n, nil
+}
+
+func parseMarkAddr(rs []rune) (SimpleAddress, int, error) {
+	if rs[0] != '\'' {
+		panic("not a mark address")
+	}
+	n := 1
+	for ; n < len(rs) && unicode.IsSpace(rs[n]); n++ {
+	}
+	if n >= len(rs) || rs[n] < 'a' || rs[n] > 'z' {
+		got := "EOF"
+		if n < len(rs) {
+			got = string(rs[n])
+		}
+		return nil, n, errors.New("bad mark: " + got)
+	}
+	return Mark(rs[n]), n + 1, nil
 }
 
 func parseRuneAddr(rs []rune) (SimpleAddress, int, error) {
