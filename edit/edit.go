@@ -64,8 +64,8 @@ func (b *Buffer) change(ed *Editor, r addr, rs []rune) error {
 
 // An Editor provides sam-like editing functionality on a buffer of runes.
 type Editor struct {
-	buf *Buffer
-	dot addr
+	buf   *Buffer
+	marks map[rune]addr
 }
 
 // NewEditor returns a new editor that edits the buffer.
@@ -73,7 +73,7 @@ func (b *Buffer) NewEditor() *Editor {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
-	ed := &Editor{buf: b}
+	ed := &Editor{buf: b, marks: make(map[rune]addr, 2)}
 	b.eds = append(b.eds, ed)
 	return ed
 }
@@ -103,7 +103,7 @@ func (ed *Editor) Read(a Address) ([]rune, error) {
 	if err != nil {
 		return nil, err
 	}
-	ed.dot = r
+	ed.marks['.'] = r
 	rs := make([]rune, r.size())
 	if _, err := ed.buf.runes.Read(rs, r.from); err != nil {
 		return nil, err
@@ -124,7 +124,7 @@ func (ed *Editor) Change(a Address, rs []rune) error {
 	if err := ed.buf.change(ed, r, rs); err != nil {
 		return err
 	}
-	ed.dot = addr{from: r.from, to: r.from + int64(len(rs))}
+	ed.marks['.'] = addr{from: r.from, to: r.from + int64(len(rs))}
 	return nil
 }
 
@@ -150,5 +150,9 @@ func (ed *Editor) Insert(ad Address, rs []rune) error {
 // Update updates the Editor's addresses
 // given an addr that changed and its new size.
 func (ed *Editor) update(r addr, n int64) {
-	ed.dot.update(r, n)
+	for m := range ed.marks {
+		a := ed.marks[m]
+		a.update(r, n)
+		ed.marks[m] = a
+	}
 }

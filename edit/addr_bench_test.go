@@ -27,7 +27,7 @@ func makeEditor(n int) (*Editor, int) {
 		}
 	}
 	ed := NewBuffer().NewEditor()
-	if err := ed.Insert(All(), rs); err != nil {
+	if err := ed.Insert(All, rs); err != nil {
 		panic(err)
 	}
 	return ed, lines
