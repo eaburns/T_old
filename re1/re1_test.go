@@ -325,24 +325,26 @@ func TestReuse(t *testing.T) {
 	}
 	str := "abc"
 	want := []string{"abc", "a", "b", "c", "", "", ""}
-	got := matches(str, re.Match(sliceRunes([]rune(str)), 0), false)
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf(`Compile("(a)(b)(c)|(x)(y)(z)").Match(%s)=%v, want %v`, str, got, want)
+	ms, err := re.Match(sliceRunes([]rune(str)), 0)
+	got := matches(str, ms, false)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf(`Compile("(a)(b)(c)|(x)(y)(z)").Match(%s)=%v,%v want %v, nil`, str, got, err, want)
 	}
 	// This will get different subexpression matches.
 	// Make sure that there isn't old data from the previous match.
 	str = "xyz"
 	want = []string{"xyz", "", "", "", "x", "y", "z"}
-	got = matches(str, re.Match(sliceRunes([]rune(str)), 0), false)
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf(`Compile("(a)(b)(c)|(x)(y)(z)").Match(%s)=%v, want %v`, str, got, want)
+	ms, err = re.Match(sliceRunes([]rune(str)), 0)
+	got = matches(str, ms, false)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf(`Compile("(a)(b)(c)|(x)(y)(z)").Match(%s)=%v,%v, want %v,vil`, str, got, err, want)
 	}
 }
 
 type sliceRunes []rune
 
-func (s sliceRunes) Rune(i int64) rune { return s[i] }
-func (s sliceRunes) Size() int64       { return int64(len(s)) }
+func (s sliceRunes) Rune(i int64) (rune, error) { return s[i], nil }
+func (s sliceRunes) Size() int64                { return int64(len(s)) }
 
 var (
 	rev = Options{Reverse: true}
@@ -366,10 +368,12 @@ func (test *regexpTest) run(t *testing.T) {
 	if test.opts.Reverse {
 		str = reverse(test.str)
 	}
-	es := re.Match(sliceRunes([]rune(str)), test.from)
+	es, err := re.Match(sliceRunes([]rune(str)), test.from)
+	if err != nil {
+	}
 	ms := matches(test.str, es, test.opts.Reverse)
-	if (es == nil && test.want == nil) ||
-		(len(es) == len(test.want) && reflect.DeepEqual(ms, test.want)) {
+	if err == nil && (es == nil && test.want == nil ||
+		len(es) == len(test.want) && reflect.DeepEqual(ms, test.want)) {
 		return
 	}
 	got := "<nil>"
@@ -380,11 +384,14 @@ func (test *regexpTest) run(t *testing.T) {
 	if test.want != nil {
 		want = fmt.Sprintf("%v", test.want)
 	}
-	t.Errorf(`Compile("%s", %+v).Match("%s", %d)=%s, want %s`,
-		test.re, test.opts, test.str, test.from, got, want)
+	t.Errorf(`Compile("%s", %+v).Match("%s", %d)=%v,%v, want %s`,
+		test.re, test.opts, test.str, test.from, got, err, want)
 }
 
 func matches(str string, es [][2]int64, rev bool) []string {
+	if es == nil {
+		return nil
+	}
 	rs := []rune(str)
 	ss := make([]string, len(es))
 	for i, e := range es {

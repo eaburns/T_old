@@ -42,7 +42,7 @@ func (b *Buffer) size() int64 { return b.runes.Size() }
 // Returns the ith rune in the buffer.
 //
 // The caller must hold b.lock.
-func (b *Buffer) rune(i int64) rune { return b.runes.Rune(i) }
+func (b *Buffer) rune(i int64) (rune, error) { return b.runes.Rune(i) }
 
 // Change changes the runes in the range.
 //
