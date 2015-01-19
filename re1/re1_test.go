@@ -325,26 +325,24 @@ func TestReuse(t *testing.T) {
 	}
 	str := "abc"
 	want := []string{"abc", "a", "b", "c", "", "", ""}
-	ms, err := re.Match(sliceRunes([]rune(str)), 0)
-	got := matches(str, ms, false)
-	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf(`Compile("(a)(b)(c)|(x)(y)(z)").Match(%s)=%v,%v want %v, nil`, str, got, err, want)
+	got := matches(str, re.Match(sliceRunes([]rune(str)), 0), false)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf(`Compile("(a)(b)(c)|(x)(y)(z)").Match(%s)=%v want %v, nil`, str, got, want)
 	}
 	// This will get different subexpression matches.
 	// Make sure that there isn't old data from the previous match.
 	str = "xyz"
 	want = []string{"xyz", "", "", "", "x", "y", "z"}
-	ms, err = re.Match(sliceRunes([]rune(str)), 0)
-	got = matches(str, ms, false)
-	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf(`Compile("(a)(b)(c)|(x)(y)(z)").Match(%s)=%v,%v, want %v,vil`, str, got, err, want)
+	got = matches(str, re.Match(sliceRunes([]rune(str)), 0), false)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf(`Compile("(a)(b)(c)|(x)(y)(z)").Match(%s)=%v, want %v,vil`, str, got, want)
 	}
 }
 
 type sliceRunes []rune
 
-func (s sliceRunes) Rune(i int64) (rune, error) { return s[i], nil }
-func (s sliceRunes) Size() int64                { return int64(len(s)) }
+func (s sliceRunes) Rune(i int64) rune { return s[i] }
+func (s sliceRunes) Size() int64       { return int64(len(s)) }
 
 var (
 	rev = Options{Reverse: true}
@@ -368,12 +366,10 @@ func (test *regexpTest) run(t *testing.T) {
 	if test.opts.Reverse {
 		str = reverse(test.str)
 	}
-	es, err := re.Match(sliceRunes([]rune(str)), test.from)
-	if err != nil {
-	}
+	es := re.Match(sliceRunes([]rune(str)), test.from)
 	ms := matches(test.str, es, test.opts.Reverse)
-	if err == nil && (es == nil && test.want == nil ||
-		len(es) == len(test.want) && reflect.DeepEqual(ms, test.want)) {
+	if es == nil && test.want == nil ||
+		len(es) == len(test.want) && reflect.DeepEqual(ms, test.want) {
 		return
 	}
 	got := "<nil>"

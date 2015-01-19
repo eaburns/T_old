@@ -436,23 +436,43 @@ func withTrailingDelim(re string) string {
 
 func (r reAddr) String() string { return r.re }
 
-type reverse struct{ *runes.Buffer }
+type forward struct {
+	*runes.Buffer
+	err error
+}
 
-func (r reverse) Rune(i int64) (rune, error) { return r.Buffer.Rune(r.Size() - i - 1) }
+func (rs *forward) Rune(i int64) rune {
+	if rs.err != nil {
+		return -1
+	}
+	r, err := rs.Buffer.Rune(i)
+	if err != nil {
+		rs.err = err
+		return -1
+	}
+	return r
+}
+
+type reverse struct{ *forward }
+
+func (rs *reverse) Rune(i int64) rune {
+	return rs.forward.Rune(rs.Size() - i - 1)
+}
 
 func (r reAddr) addrFrom(from int64, ed *Editor) (a addr, err error) {
 	re, err := re1.Compile([]rune(r.re), re1.Options{Delimited: true, Reverse: r.rev})
 	if err != nil {
 		return a, err
 	}
-	rs := re1.Runes(ed.buf.runes)
+	fwd := &forward{Buffer: ed.buf.runes}
+	rs := re1.Runes(fwd)
 	if r.rev {
-		rs = reverse{ed.buf.runes}
+		rs = &reverse{fwd}
 		from = rs.Size() - from
 	}
-	switch match, err := re.Match(rs, from); {
-	case err != nil:
-		return a, err
+	switch match := re.Match(rs, from); {
+	case fwd.err != nil:
+		return a, fwd.err
 	case match == nil:
 		return a, ErrNoMatch
 	default:
