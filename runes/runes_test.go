@@ -16,8 +16,8 @@ func TestRunesRune(t *testing.T) {
 		t.Fatalf(`b.Insert("%s", 0)=%v, want nil`, string(rs), err)
 	}
 	for i, want := range rs {
-		if got := b.Rune(int64(i)); got != want {
-			t.Errorf("b.Rune(%d)=%v, want %v", i, got, want)
+		if got, err := b.Rune(int64(i)); err != nil || got != want {
+			t.Errorf("b.Rune(%d)=%v,%v, want %v,nil", i, got, err, want)
 		}
 	}
 }

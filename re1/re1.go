@@ -482,7 +482,11 @@ func charClass(p *parser) label {
 
 // Runes generalizes a slice or array of runes.
 type Runes interface {
-	Rune(int64) rune
+	// Rune returns the rune at a given index.
+	// If the index is out of bounds, i.e. < 0 or ≥ Size(), Rune panics.
+	// All other errors are returned along with the rune -1.
+	Rune(int64) (rune, error)
+	// Size returns the number of runes.
 	Size() int64
 }
 
@@ -498,16 +502,19 @@ type Runes interface {
 //
 // The empty regular expression returns non-nil with an empty interval
 // for subexpression 0.
-func (re *Regexp) Match(rs Runes, from int64) [][2]int64 {
+func (re *Regexp) Match(rs Runes, from int64) ([][2]int64, error) {
 	m := re.get()
 	defer re.put(m)
 	m.init(from)
-	matches := m.match(rs, rs.Size())
-	if matches == nil {
-		m.init(0)
-		matches = m.match(rs, from)
+	ms, err := m.match(rs, rs.Size())
+	if err != nil {
+		return nil, err
 	}
-	return matches
+	if ms == nil {
+		m.init(0)
+		ms, err = m.match(rs, from)
+	}
+	return ms, err
 }
 
 func (re *Regexp) get() *machine {
@@ -625,22 +632,29 @@ func (q *queue) pop() *state {
 	return s
 }
 
-func (m *machine) match(rs Runes, end int64) [][2]int64 {
+func (m *machine) match(rs Runes, end int64) ([][2]int64, error) {
+	var err error
 	sz := rs.Size()
 	prev := eof
 	if p := m.at - 1; p >= 0 && p < sz {
-		prev = rs.Rune(p)
+		if prev, err = rs.Rune(p); err != nil {
+			return nil, err
+		}
 	}
 	cur := eof
 	if m.at >= 0 && m.at < sz {
-		cur = rs.Rune(m.at)
+		if cur, err = rs.Rune(m.at); err != nil {
+			return nil, err
+		}
 	}
 	for {
 		for m.q0.empty() && m.lit != nil && !m.lit.ok(prev, cur) && m.at <= end {
 			m.at++
 			prev, cur = cur, eof
 			if m.at >= 0 && m.at < sz {
-				cur = rs.Rune(m.at)
+				if cur, err = rs.Rune(m.at); err != nil {
+					return nil, err
+				}
 			}
 		}
 		if m.cap == nil && !m.q0.mem[m.re.start.n] && m.at <= end {
@@ -656,11 +670,13 @@ func (m *machine) match(rs Runes, end int64) [][2]int64 {
 		m.at++
 		prev, cur = cur, eof
 		if m.at >= 0 && m.at < sz {
-			cur = rs.Rune(m.at)
+			if cur, err = rs.Rune(m.at); err != nil {
+				return nil, err
+			}
 		}
 		m.q0, m.q1 = m.q1, m.q0
 	}
-	return m.cap
+	return m.cap, nil
 }
 
 func (m *machine) step(s0 *state, prev, cur rune) {

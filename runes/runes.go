@@ -72,42 +72,21 @@ func (b *Buffer) Close() error {
 // Size returns the number of runes in the buffer.
 func (b *Buffer) Size() int64 { return b.size }
 
-// A RuneReadError is paniced if Rune encounters an error
-// reading a rune that is in the bounds of the buffer.
-type RuneReadError struct{ error }
-
-// RecoverRuneReadError recovers a RuneReadError,
-// setting the error pointed to by err to the error.
-// If the recovered error is not of type RuneReadError,
-// then it is re-paniced.
-// This function is intended to be called in a defer statement
-// with err as the address of a named error return.
-func RecoverRuneReadError(err *error) {
-	switch e := recover().(type) {
-	case nil:
-		return
-	case RuneReadError:
-		*err = e.error
-	default:
-		panic(e)
-	}
-}
-
 // Rune returns the rune at the given offset.
 // If the rune is out of range it panics.
 // If there is an error reading, it panics a RuneReadError containing the error.
-func (b *Buffer) Rune(offs int64) rune {
+func (b *Buffer) Rune(offs int64) (rune, error) {
 	if offs < 0 || offs > b.Size() {
 		panic("rune index out of bounds")
 	}
 	if q0 := b.cached0; q0 <= offs && offs < q0+int64(b.blocks[b.cached].n) {
-		return b.cache[offs-q0]
+		return b.cache[offs-q0], nil
 	}
 	i, q0 := b.blockAt(offs)
 	if _, err := b.get(i); err != nil {
-		panic(RuneReadError{err})
+		return -1, err
 	}
-	return b.cache[offs-q0]
+	return b.cache[offs-q0], nil
 }
 
 // Read reads runes from the buffer beginning at a given offset.

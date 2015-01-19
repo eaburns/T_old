@@ -323,7 +323,13 @@ func (l lineAddr) reverse() SimpleAddress {
 func (l lineAddr) fwd(from int64, ed *Editor) (addr, error) {
 	a := addr{from: from, to: from}
 	if a.to > 0 {
-		for a.to < ed.buf.size() && ed.buf.rune(a.to-1) != '\n' {
+		for a.to < ed.buf.size() {
+			r, err := ed.buf.rune(a.to - 1)
+			if err != nil {
+				return a, err
+			} else if r == '\n' {
+				break
+			}
 			a.to++
 		}
 		if l.n > 0 {
@@ -331,7 +337,10 @@ func (l lineAddr) fwd(from int64, ed *Editor) (addr, error) {
 		}
 	}
 	for l.n > 0 && a.to < ed.buf.size() {
-		r := ed.buf.rune(a.to)
+		r, err := ed.buf.rune(a.to)
+		if err != nil {
+			return a, err
+		}
 		a.to++
 		if r == '\n' {
 			l.n--
@@ -349,13 +358,22 @@ func (l lineAddr) fwd(from int64, ed *Editor) (addr, error) {
 func (l lineAddr) rev(from int64, ed *Editor) (addr, error) {
 	a := addr{from: from, to: from}
 	if a.from < ed.buf.size() {
-		for a.from > 0 && ed.buf.rune(a.from-1) != '\n' {
+		for a.from > 0 {
+			r, err := ed.buf.rune(a.from - 1)
+			if err != nil {
+				return a, err
+			} else if r == '\n' {
+				break
+			}
 			a.from--
 		}
 		a.to = a.from
 	}
 	for l.n > 0 && a.from > 0 {
-		r := ed.buf.rune(a.from - 1)
+		r, err := ed.buf.rune(a.from - 1)
+		if err != nil {
+			return a, err
+		}
 		a.from--
 		if r == '\n' {
 			l.n--
@@ -367,7 +385,13 @@ func (l lineAddr) rev(from int64, ed *Editor) (addr, error) {
 	if l.n > 1 {
 		return addr{}, errors.New("line address out of range")
 	}
-	for a.from > 0 && ed.buf.rune(a.from-1) != '\n' {
+	for a.from > 0 {
+		r, err := ed.buf.rune(a.from - 1)
+		if err != nil {
+			return a, err
+		} else if r == '\n' {
+			break
+		}
 		a.from--
 	}
 	return a, nil
@@ -414,7 +438,7 @@ func (r reAddr) String() string { return r.re }
 
 type reverse struct{ *runes.Buffer }
 
-func (r reverse) Rune(i int64) rune { return r.Buffer.Rune(r.Size() - i - 1) }
+func (r reverse) Rune(i int64) (rune, error) { return r.Buffer.Rune(r.Size() - i - 1) }
 
 func (r reAddr) addrFrom(from int64, ed *Editor) (a addr, err error) {
 	re, err := re1.Compile([]rune(r.re), re1.Options{Delimited: true, Reverse: r.rev})
@@ -426,16 +450,18 @@ func (r reAddr) addrFrom(from int64, ed *Editor) (a addr, err error) {
 		rs = reverse{ed.buf.runes}
 		from = rs.Size() - from
 	}
-	defer runes.RecoverRuneReadError(&err)
-	match := re.Match(rs, from)
-	if match == nil {
+	switch match, err := re.Match(rs, from); {
+	case err != nil:
+		return a, err
+	case match == nil:
 		return a, ErrNoMatch
+	default:
+		a = addr{from: match[0][0], to: match[0][1]}
+		if r.rev {
+			a.from, a.to = rs.Size()-a.to, rs.Size()-a.from
+		}
+		return a, nil
 	}
-	a = addr{from: match[0][0], to: match[0][1]}
-	if r.rev {
-		a.from, a.to = rs.Size()-a.to, rs.Size()-a.from
-	}
-	return a, nil
 
 }
 
