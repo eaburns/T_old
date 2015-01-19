@@ -26,18 +26,19 @@ type Address interface {
 	// The returned string will result in an equivalent address
 	// when parsed with Addr().
 	String() string
-	// To returns the address identifying the string
+	// To returns an address identifying the string
 	// from the start of the receiver to the end of the argument.
 	To(Address) Address
-	// Then returns and address like To,
+	// Then returns an address like To,
 	// but with dot set to the receiver address
 	// and with the argument evaluated from the end of the reciver
 	Then(Address) Address
-	// Plus returns the argument address
-	// evaluated from the end of the receiver address.
+	// Plus returns an address identifying the string
+	// of the argument address evaluated from the end of the receiver.
 	Plus(SimpleAddress) Address
-	// Minus returns the argument address
-	// evaluated in reverse from the start of the receiver address.
+	// Minus returns an address identifying the string
+	// of the argument address evaluated in reverse
+	// from the start of the receiver.
 	Minus(SimpleAddress) Address
 	addr(*Editor) (addr, error)
 	addrFrom(from int64, ed *Editor) (addr, error)
@@ -265,9 +266,13 @@ func (m markAddr) reverse() SimpleAddress { return simpleAddr{m} }
 type runeAddr int64
 
 // Rune returns the address of the empty string after rune n.
+// If n is negative, this is equivalent to the compound address -#n.
 func Rune(n int64) SimpleAddress { return simpleAddr{runeAddr(n)} }
 
 func (n runeAddr) String() string {
+	if n < 0 {
+		return "-#" + strconv.FormatInt(int64(-n), 10)
+	}
 	return "#" + strconv.FormatInt(int64(n), 10)
 }
 
@@ -287,6 +292,7 @@ type lineAddr struct {
 }
 
 // Line returns the address of the nth full line.
+// If n is negative, this is equivalent to the compound address -n.
 func Line(n int) SimpleAddress {
 	if n < 0 {
 		return simpleAddr{lineAddr{neg: true, n: -n}}

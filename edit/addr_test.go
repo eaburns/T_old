@@ -452,3 +452,48 @@ func TestUpdate(t *testing.T) {
 		}
 	}
 }
+
+// TestAddressString tests that well-formed addresses
+// have valid and parsable address Strings()s.
+func TestAddressString(t *testing.T) {
+	tests := []struct {
+		addr, want Address // If want==nil, want is set to addr.
+	}{
+		{addr: Dot},
+		{addr: End},
+		{addr: All},
+		{addr: Rune(0)},
+		{addr: Rune(100)},
+		// Rune(-100) is the string -#100, when parsed, the implicit . is inserted: .-#100.
+		{addr: Rune(-100), want: Dot.Minus(Rune(100))},
+		{addr: Line(0)},
+		{addr: Line(100)},
+		// Line(-100) is the string -100, when parsed, the implicit . is inserted: .-100.
+		{addr: Line(-100), want: Dot.Minus(Line(100))},
+		{addr: Mark('a')},
+		{addr: Mark('z')},
+		{addr: Regexp("/☺☹")},
+		{addr: Regexp("/☺☹/")},
+		{addr: Regexp("?☺☹")},
+		{addr: Regexp("?☺☹?")},
+		{addr: Dot.Plus(Line(1))},
+		{addr: Dot.Minus(Line(1))},
+		{addr: Dot.Minus(Line(1)).Plus(Line(1))},
+		{addr: Rune(1).To(Rune(2))},
+		{addr: Rune(1).Then(Rune(2))},
+		{addr: Regexp("/func").Plus(Regexp(`/\(`))},
+	}
+	for _, test := range tests {
+		if test.want == nil {
+			test.want = test.addr
+		}
+		str := test.addr.String()
+		got, _, err := Addr([]rune(str))
+		if err != nil || got != test.want {
+			t.Errorf("Addr(%v)=%v,%v want %v,nil",
+				strconv.Quote(str),
+				strconv.Quote(got.String()), err,
+				strconv.Quote(test.want.String()))
+		}
+	}
+}
