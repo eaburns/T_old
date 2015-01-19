@@ -22,13 +22,25 @@ var (
 
 // An Address identifies a substring within a buffer.
 type Address interface {
-	addrFrom(from int64, ed *Editor) (addr, error)
+	// String returns the string representation of the address.
+	// The returned string will result in an equivalent address
+	// when parsed with Addr().
 	String() string
+	// To returns the address identifying the string
+	// from the start of the receiver to the end of the argument.
 	To(Address) Address
+	// Then returns and address like To,
+	// but with dot set to the receiver address
+	// and with the argument evaluated from the end of the reciver
 	Then(Address) Address
+	// Plus returns the argument address
+	// evaluated from the end of the receiver address.
 	Plus(SimpleAddress) Address
+	// Minus returns the argument address
+	// evaluated in reverse from the start of the receiver address.
 	Minus(SimpleAddress) Address
 	addr(*Editor) (addr, error)
+	addrFrom(from int64, ed *Editor) (addr, error)
 }
 
 // A addr identifies a substring within a buffer
