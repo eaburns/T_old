@@ -381,7 +381,7 @@ type reAddr struct {
 	re  string
 }
 
-// Regexp returns a regular expression address.
+// Regexp returns an address identifying the next match of a regular expression.
 // The regular expression must be a delimited regular expression
 // using the syntax of the re1 package:
 // http://godoc.org/github.com/eaburns/T/re1.
