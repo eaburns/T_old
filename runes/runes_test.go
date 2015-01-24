@@ -1,6 +1,7 @@
 package runes
 
 import (
+	"errors"
 	"reflect"
 	"regexp"
 	"testing"
@@ -342,4 +343,44 @@ func makeTestBytes(t *testing.T) *Buffer {
 		t.Fatalf("blocks have sizes %v, want 8, 4, 3, 4, 8", ns)
 	}
 	return b
+}
+
+type errReadWriterAt struct{ error }
+
+func (e *errReadWriterAt) ReadAt([]byte, int64) (int, error)  { return 0, e.error }
+func (e *errReadWriterAt) WriteAt([]byte, int64) (int, error) { return 0, e.error }
+func (e *errReadWriterAt) Close() error                       { return e.error }
+
+// TestErrors tests some error cases. It's not exhaustive.
+func TestErrors(t *testing.T) {
+	str := []rune("Hello, World")
+	f := &errReadWriterAt{nil}
+	b := NewBufferReaderWriterAt(len(str)/2, f)
+
+	if _, err := b.Insert(str, 0); err != nil {
+		t.Fatalf("b.Insert(…)=%v, want nil", err)
+	}
+
+	// From here on, all IO causes an error.
+	f.error = errors.New("bad IO")
+
+	if _, err := b.Rune(0); err != f.error {
+		t.Errorf("b.Rune(0)=%v, want %v", err, f.error)
+	}
+	if _, err := b.Insert(str, 3); err != f.error {
+		t.Errorf("b.Insert(…)=%v, want %v", err, f.error)
+	}
+	if _, err := b.Delete(1, 0); err != f.error {
+		t.Errorf("b.Delete(…)=%v, want %v", err, f.error)
+	}
+	// The delete failed, so nothing should have been deleted.
+	if sz := b.Size(); sz != int64(len(str)) {
+		t.Errorf("b.Size()=%v, want %v", sz, len(str))
+	}
+	if _, err := b.Read(make([]rune, b.Size()), 0); err != f.error {
+		t.Errorf("b.Read(…)=%v, want %v", err, f.error)
+	}
+	if err := b.Close(); err != f.error {
+		t.Errorf("b.Close()=%v, want %v", err, f.error)
+	}
 }
