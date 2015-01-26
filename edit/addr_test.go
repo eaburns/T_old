@@ -1,11 +1,14 @@
 package edit
 
 import (
+	"errors"
 	"math"
 	"regexp"
 	"strconv"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/eaburns/T/runes"
 )
 
 const testBlockSize = 12
@@ -62,6 +65,8 @@ func TestRuneAddress(t *testing.T) {
 		{text: str, dot: pt(sz), addr: Rune(0), want: pt(sz)},
 		{text: str, dot: pt(sz), addr: Rune(-3), want: pt(sz - 3)},
 		{text: str, dot: pt(sz), addr: Rune(-sz), want: pt(0)},
+
+		{text: str, addr: Rune(10000), err: "out of range"},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -145,6 +150,7 @@ func TestRegexpAddress(t *testing.T) {
 		{text: "Hello, 世界!", addr: Regexp("?世界"), want: rng(7, 9)},
 		{text: "Hello, 世界!", dot: pt(8), addr: Regexp("/世界"), want: rng(7, 9)},
 
+		{text: "", addr: Regexp("/()"), err: "operand"},
 		{text: "Hello, 世界!", addr: Regexp("/☺"), err: "no match"},
 		{text: "Hello, 世界!", addr: Regexp("?☺"), err: "no match"},
 	}
@@ -324,6 +330,7 @@ func TestAddr(t *testing.T) {
 		{addr: "?abc?def", n: 5, want: Regexp("?abc?")},
 		{addr: "?abc def", n: 8, want: Regexp("?abc def")},
 		{addr: " ?abc def", n: 9, want: Regexp("?abc def")},
+		{addr: "/()", err: "operand"},
 
 		{addr: "$", n: 1, want: End},
 		{addr: " $", n: 2, want: End},
@@ -494,6 +501,60 @@ func TestAddressString(t *testing.T) {
 				strconv.Quote(str),
 				strconv.Quote(got.String()), err,
 				strconv.Quote(test.want.String()))
+		}
+	}
+}
+
+type errReaderAt struct{ error }
+
+func (e *errReaderAt) ReadAt([]byte, int64) (int, error)      { return 0, e.error }
+func (e *errReaderAt) WriteAt(b []byte, _ int64) (int, error) { return len(b), nil }
+
+// TestIOErrors tests IO errors when computing addresses.
+func TestIOErrors(t *testing.T) {
+	rs := []rune("Hello,\nWorld!")
+	tests := []string{
+		"1",
+		"#1+1",
+		"$-1",
+		"#3-1",
+		"/World",
+		"?World",
+		".+/World",
+		".-/World",
+		"0,/World",
+		"0;/World",
+		"/Hello/+",
+		"/Hello/-",
+		"/Hello/,",
+		"/Hello/;",
+		"/Hello/,/World",
+		"/Hello/;/World",
+		"/Hello/+/World",
+		"/Hello/-/World",
+		"/Hello/,/World",
+		"/Hello/;/World",
+	}
+	for _, test := range tests {
+		addr, n, err := Addr([]rune(test))
+		if err != nil || n != len([]rune(test)) {
+			t.Fatalf("Addr(%v)=%v,%v%v want _,%d,nil",
+				strconv.Quote(test), addr, n, err, len([]rune(test)))
+		}
+		f := &errReaderAt{nil}
+		r := runes.NewBufferReaderWriterAt(1, f)
+		e := newBufferRunes(r).NewEditor()
+		defer e.Close()
+
+		if err := e.Append(Rune(0), rs); err != nil {
+			t.Fatalf("e.Append(#0, %v)=%v, want nil", strconv.Quote(string(rs)), err)
+		}
+
+		// All subsequent reads will be errors.
+		f.error = errors.New("read error")
+		if a, err := addr.addr(e); err != f.error {
+			t.Errorf("Addr(%v).addr()=%v,%v, want addr{},%v",
+				strconv.Quote(test), a, err, f.error)
 		}
 	}
 }

@@ -39,7 +39,7 @@ func benchmark(b *testing.B, re string, n int) {
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		if ms, err := r.Match(rs, 0); err != nil || ms != nil {
+		if r.Match(rs, 0) != nil {
 			b.Fatal("match!")
 		}
 	}

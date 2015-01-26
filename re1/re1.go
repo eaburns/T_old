@@ -484,8 +484,7 @@ func charClass(p *parser) label {
 type Runes interface {
 	// Rune returns the rune at a given index.
 	// If the index is out of bounds, i.e. < 0 or ≥ Size(), Rune panics.
-	// All other errors are returned along with the rune -1.
-	Rune(int64) (rune, error)
+	Rune(int64) rune
 	// Size returns the number of runes.
 	Size() int64
 }
@@ -502,19 +501,16 @@ type Runes interface {
 //
 // The empty regular expression returns non-nil with an empty interval
 // for subexpression 0.
-func (re *Regexp) Match(rs Runes, from int64) ([][2]int64, error) {
+func (re *Regexp) Match(rs Runes, from int64) [][2]int64 {
 	m := re.get()
 	defer re.put(m)
 	m.init(from)
-	ms, err := m.match(rs, rs.Size())
-	if err != nil {
-		return nil, err
-	}
+	ms := m.match(rs, rs.Size())
 	if ms == nil {
 		m.init(0)
-		ms, err = m.match(rs, from)
+		ms = m.match(rs, from)
 	}
-	return ms, err
+	return ms
 }
 
 func (re *Regexp) get() *machine {
@@ -632,29 +628,22 @@ func (q *queue) pop() *state {
 	return s
 }
 
-func (m *machine) match(rs Runes, end int64) ([][2]int64, error) {
-	var err error
+func (m *machine) match(rs Runes, end int64) [][2]int64 {
 	sz := rs.Size()
 	prev := eof
 	if p := m.at - 1; p >= 0 && p < sz {
-		if prev, err = rs.Rune(p); err != nil {
-			return nil, err
-		}
+		prev = rs.Rune(p)
 	}
 	cur := eof
 	if m.at >= 0 && m.at < sz {
-		if cur, err = rs.Rune(m.at); err != nil {
-			return nil, err
-		}
+		cur = rs.Rune(m.at)
 	}
 	for {
 		for m.q0.empty() && m.lit != nil && !m.lit.ok(prev, cur) && m.at <= end {
 			m.at++
 			prev, cur = cur, eof
 			if m.at >= 0 && m.at < sz {
-				if cur, err = rs.Rune(m.at); err != nil {
-					return nil, err
-				}
+				cur = rs.Rune(m.at)
 			}
 		}
 		if m.cap == nil && !m.q0.mem[m.re.start.n] && m.at <= end {
@@ -670,13 +659,11 @@ func (m *machine) match(rs Runes, end int64) ([][2]int64, error) {
 		m.at++
 		prev, cur = cur, eof
 		if m.at >= 0 && m.at < sz {
-			if cur, err = rs.Rune(m.at); err != nil {
-				return nil, err
-			}
+			cur = rs.Rune(m.at)
 		}
 		m.q0, m.q1 = m.q1, m.q0
 	}
-	return m.cap, nil
+	return m.cap
 }
 
 func (m *machine) step(s0 *state, prev, cur rune) {

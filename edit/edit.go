@@ -21,7 +21,12 @@ type Buffer struct {
 
 // NewBuffer returns a new, empty buffer.
 func NewBuffer() *Buffer {
-	return &Buffer{runes: runes.NewBuffer(blockSize)}
+	return newBufferRunes(runes.NewBuffer(blockSize))
+}
+
+// NewBufferRunes is like NewBuffer, but the buffer uses the given runes.
+func newBufferRunes(r *runes.Buffer) *Buffer {
+	return &Buffer{runes: r}
 }
 
 // Close closes the buffer and all of its editors.

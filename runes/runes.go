@@ -16,7 +16,7 @@ const runeBytes = 4
 // A Buffer is an unbounded rune buffer backed by a file.
 type Buffer struct {
 	// F is the file that backs the buffer. It is created lazily.
-	f *os.File
+	f ReaderWriterAt
 	// BlockSize is the maximum number of runes in a block.
 	blockSize int
 	// Blocks contains all blocks of the buffer in order.
@@ -38,6 +38,12 @@ type Buffer struct {
 	size int64
 }
 
+// A ReaderWriterAt implements the io.ReaderAt and io.WriterAt interfaces.
+type ReaderWriterAt interface {
+	io.ReaderAt
+	io.WriterAt
+}
+
 // A block describes a portion of the buffer and its location in the backing file.
 type block struct {
 	// Start is the byte offset of the block in the file.
@@ -56,17 +62,31 @@ func NewBuffer(blockSize int) *Buffer {
 	}
 }
 
+// NewBufferReaderWriterAt is like NewBuffer but uses
+// the given ReaderWriterAt as its backing store.
+// If the ReaderWriterAt implements io.Closer, it is closed when the buffer is closed.
+// If the ReaderWriterAt is an *os.File, the file is removed when the buffer is closed.
+func NewBufferReaderWriterAt(blockSize int, f ReaderWriterAt) *Buffer {
+	b := NewBuffer(blockSize)
+	b.f = f
+	return b
+}
+
 // Close closes the buffer and removes it's backing file.
 func (b *Buffer) Close() error {
 	b.cache = nil
-	if b.f == nil {
+	switch f := b.f.(type) {
+	case *os.File:
+		path := f.Name()
+		if err := f.Close(); err != nil {
+			return err
+		}
+		return os.Remove(path)
+	case io.Closer:
+		return f.Close()
+	default:
 		return nil
 	}
-	path := b.f.Name()
-	if err := b.f.Close(); err != nil {
-		return err
-	}
-	return os.Remove(path)
 }
 
 // Size returns the number of runes in the buffer.
@@ -286,7 +306,7 @@ func (b *Buffer) insertAt(at int64) (int, error) {
 }
 
 // File returns an *os.File, creating a new file if one is not created yet.
-func (b *Buffer) file() (*os.File, error) {
+func (b *Buffer) file() (ReaderWriterAt, error) {
 	if b.f == nil {
 		f, err := ioutil.TempFile(os.TempDir(), "edit")
 		if err != nil {
