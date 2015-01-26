@@ -152,6 +152,78 @@ func (ed *Editor) Insert(ad Address, rs []rune) error {
 	return ed.Change(ad.Minus(Rune(0)), rs)
 }
 
+// Edit parses a command and performs its edit on the buffer.
+//
+// 	In the following, text surrounded by / represents delimited text.
+//	The delimiter can be any character, it need not be /.
+//	Trailing delimiters may be elided, but the opening delimiter must be present.
+//	In delimited text, \ is an escape; the following character is interpreted literally,
+//	except \n which represents a literal newline.
+//	Items in {} are optional.
+//
+// 	Commands are:
+// 	{addr} a/text/
+//	or
+//	{addr} a
+//	lines of text
+//	.	Appends after the addressed text.
+//		If an address is not supplied, dot is used.
+//	c
+//	i	Just like a, but c changes the addressed text
+//		and i inserts before the addressed text.
+//	{addr} d
+//		Deletes the addressed text.
+//		If an address is not supplied, dot is used.
+func (ed *Editor) Edit(cmd []rune) error {
+	addr, n, err := Addr(cmd)
+	switch {
+	case err != nil:
+		return err
+	case addr == nil:
+		addr = Dot
+	case len(cmd) == n:
+		return errors.New("missing command")
+	default:
+		cmd = cmd[n:]
+	}
+	switch c := cmd[0]; c {
+	case 'a':
+		return ed.Append(addr, parseText(cmd[1:]))
+	case 'c':
+		return ed.Change(addr, parseText(cmd[1:]))
+	case 'i':
+		return ed.Insert(addr, parseText(cmd[1:]))
+	case 'd':
+		return ed.Delete(addr)
+	default:
+		return errors.New("unknown command: " + string(c))
+	}
+}
+
+func parseText(cmd []rune) []rune {
+	var rs []rune
+	if len(cmd) > 0 && cmd[0] == '\n' {
+		for i := 1; i < len(cmd); i++ {
+			rs = append(rs, cmd[i])
+			if i < len(cmd)-1 && cmd[i] == '\n' && cmd[i+1] == '.' {
+				break
+			}
+		}
+	} else if len(cmd) > 0 {
+		d := cmd[0]
+		for i := 1; i < len(cmd) && cmd[i] != d; i++ {
+			if cmd[i] == '\\' && i < len(cmd)-1 {
+				i++
+				if cmd[i] == 'n' {
+					cmd[i] = '\n'
+				}
+			}
+			rs = append(rs, cmd[i])
+		}
+	}
+	return rs
+}
+
 // Update updates the Editor's addresses
 // given an addr that changed and its new size.
 func (ed *Editor) update(r addr, n int64) {

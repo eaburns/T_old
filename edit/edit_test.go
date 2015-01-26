@@ -121,50 +121,111 @@ func TestEditorDelete(t *testing.T) {
 }
 
 func TestConcurrentSimpleChanges(t *testing.T) {
-	tests := [][]struct {
-		who             int
-		addr, str, want string
-	}{
+	tests := []multiEditTest{
 		{
-			{who: 0, addr: "0", str: "世界!", want: "世界!"},
-			{who: 1, addr: "0", str: "Hello, ", want: "Hello, 世界!"},
-			{who: 0, addr: ".", str: "", want: "Hello, "},
-			{who: 1, addr: ".", str: "", want: ""},
+			{who: 0, edit: "0c/世界!", want: "世界!"},
+			{who: 1, edit: "0c/Hello, ", want: "Hello, 世界!"},
+			{who: 0, edit: ".d", want: "Hello, "},
+			{who: 1, edit: ".d", want: ""},
 		},
 		{
-			{who: 0, addr: "0", str: "世界!", want: "世界!"},
-			{who: 1, addr: "0,#1", str: "Hello, ", want: "Hello, 界!"},
-			{who: 0, addr: ".", str: "", want: "Hello, "},
-			{who: 1, addr: ".", str: "", want: ""},
+			{who: 0, edit: "0c/世界!", want: "世界!"},
+			{who: 1, edit: "0,#1c/Hello, ", want: "Hello, 界!"},
+			{who: 0, edit: ".d", want: "Hello, "},
+			{who: 1, edit: ".d", want: ""},
 		},
 	}
 	for _, test := range tests {
-		b := NewBuffer()
-		defer b.Close()
-		eds := [2]*Editor{b.NewEditor(), b.NewEditor()}
-		for _, ed := range eds {
-			defer ed.Close()
+		test.run(t)
+	}
+}
+
+func TestEditorEdit(t *testing.T) {
+	tests := []multiEditTest{
+		{{edit: "$a/Hello, World!/", want: "Hello, World!"}},
+		{{edit: "$a\nHello, World!\n.", want: "Hello, World!\n"}},
+		{{edit: `$a/Hello, World!\/`, want: "Hello, World!/"}},
+		{{edit: `$a/Hello, World!\n`, want: "Hello, World!\n"}},
+		{{edit: "$i/Hello, World!/", want: "Hello, World!"}},
+		{{edit: "$i/Hello, World!", want: "Hello, World!"}},
+		{{edit: "$i\nHello, World!\n.", want: "Hello, World!\n"}},
+		{{edit: `$i/Hello, World!\/`, want: "Hello, World!/"}},
+		{{edit: `$i/Hello, World!\n`, want: "Hello, World!\n"}},
+		{
+			{edit: "0a/Hello, World!", want: "Hello, World!"},
+			{edit: ",c/Bye", want: "Bye"},
+		},
+		{
+			{edit: "0a/Hello", want: "Hello"},
+			{edit: "/ello/c/i", want: "Hi"},
+		},
+		{
+			{edit: "0a/Hello, World!", want: "Hello, World!"},
+			{edit: "?World?c/世界", want: "Hello, 世界!"},
+		},
+		{
+			{edit: "0a/Hello, World!", want: "Hello, World!"},
+			{edit: "/, World/d", want: "Hello!"},
+		},
+		{
+			{edit: "0a/Hello, World!", want: "Hello, World!"},
+			{edit: ",d", want: ""},
+		},
+		{
+			{edit: "0a/Hello, World!", want: "Hello, World!"},
+			{edit: "d", want: ""}, // Address defaults to dot.
+		},
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/World/c/Test", want: "Hello, Test!"},
+			{edit: "c/World", want: "Hello, World!"},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+// A MultiEditTest tests mutiple edits performed on a buffer.
+// It checks that the buffer has the desired text after each edit.
+type multiEditTest []struct {
+	who        int
+	edit, want string
+}
+
+func (test multiEditTest) nEditors() int {
+	var n int
+	for _, c := range test {
+		if c.who > n {
+			n = c.who
 		}
-		for i, c := range test {
-			addr, _, err := Addr([]rune(c.addr))
-			if err != nil {
-				t.Errorf("%v, %d: bad address: %s", test, i, c.addr)
-				return
-			}
-			if err = eds[c.who].Change(addr, []rune(c.str)); err != nil {
-				t.Errorf("%v, %d, Change(%v, %v)=%v, want nil", test, i, c.addr, c.str, err)
-				break
-			}
-			rs := make([]rune, b.runes.Size())
-			if _, err := b.runes.Read(rs, 0); err != nil {
-				t.Errorf("%v, %d, read failed=%v\n", test, i, err)
-				break
-			}
-			if s := string(rs); s != c.want || err != nil {
-				t.Errorf("%v, %d: string=%v, want %v\n",
-					test, i, strconv.Quote(s), strconv.Quote(c.want))
-				break
-			}
+	}
+	return n + 1
+}
+
+func (test multiEditTest) run(t *testing.T) {
+	b := NewBuffer()
+	defer b.Close()
+	eds := make([]*Editor, test.nEditors())
+	for i := range eds {
+		eds[i] = b.NewEditor()
+		defer eds[i].Close()
+	}
+	for i, c := range test {
+		if err := eds[c.who].Edit([]rune(c.edit)); err != nil {
+			t.Errorf("%v, %d, Edit(%v)=%v, want nil", test, i,
+				strconv.Quote(c.edit), err)
+			continue
+		}
+		rs := make([]rune, b.runes.Size())
+		if _, err := b.runes.Read(rs, 0); err != nil {
+			t.Errorf("%v, %d, read failed=%v\n", test, i, err)
+			continue
+		}
+		if s := string(rs); s != c.want {
+			t.Errorf("%v, %d: string=%v, want %v\n",
+				test, i, strconv.Quote(s), strconv.Quote(c.want))
+			continue
 		}
 	}
 }
