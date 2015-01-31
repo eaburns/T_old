@@ -260,8 +260,6 @@ func parseMarkRune(cmd []rune) rune {
 // given an addr that changed and its new size.
 func (ed *Editor) update(r addr, n int64) {
 	for m := range ed.marks {
-		a := ed.marks[m]
-		a.update(r, n)
-		ed.marks[m] = a
+		ed.marks[m] = ed.marks[m].update(r, n)
 	}
 }

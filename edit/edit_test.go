@@ -216,7 +216,7 @@ func TestEditorMark(t *testing.T) {
 			{edit: "a/Hello, World!", want: "Hello, World!"},
 			{edit: "/World/m a", want: "Hello, World!"},
 			{edit: ",c/abc", want: "abc"},
-			{edit: "'a a/123", want: "123abc"},
+			{edit: "'a a/123", want: "abc123"},
 		},
 		{
 			{edit: "a/abc123xyz", want: "abc123xyz"},
@@ -228,7 +228,19 @@ func TestEditorMark(t *testing.T) {
 			{edit: "a/abc123xyz", want: "abc123xyz"},
 			{edit: "/123/m a", want: "abc123xyz"},
 			{edit: "/c123x/c/C123X", want: "abC123Xyz"},
-			{edit: "'a c/...", want: "ab...C123Xyz"},
+			{edit: "'a c/...", want: "abC123X...yz"},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/123xyz/d", want: "abc"},
+			{edit: "'a c/...", want: "abc..."},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/abc123/d", want: "xyz"},
+			{edit: "'a c/...", want: "...xyz"},
 		},
 		{
 			{edit: "a/abc123", want: "abc123"},

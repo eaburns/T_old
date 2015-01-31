@@ -52,32 +52,37 @@ type addr struct{ from, to int64 }
 // the string identified by the range.
 func (a addr) size() int64 { return a.to - a.from }
 
-// Updates a given that b changed to size n.
-// 	If b is after a, a remains unchanged.
-// 	If b is before a, a is moved to account for the change in b's size.
-//	if b is entirely within a, a grows or shrinks to account for the change in b's size.
-// 	Otherwise, b overlaps the beginning or end or entirety of a. In this case,
-// 	a shrinks as though the edit to b deleted part of its range.
-func (a *addr) update(b addr, n int64) {
-	switch {
-	case b.from >= a.to: // b after a
-		return
-	case b.to <= a.from: // b before a
-		d := n - b.size()
-		a.from += d
-		a.to += d
-	case a.from < b.from && b.to < a.to: // b within a
-		a.to += n - b.size()
-	case b.from < a.from && a.to < b.to: // a within b
-		a.from = b.from
-		a.to = b.from
-	case a.from < b.to && b.to < a.to: // b over the beginning of a
-		sz := a.size() - (b.to - a.from)
-		a.from = b.from + n
-		a.to = a.from + sz
-	default: // b over all of or just the end of a
+// Update returns a, updated to account for b changing to size n.
+func (a addr) update(b addr, n int64) addr { return a.clip(b).move(b, n) }
+
+func (a addr) clip(b addr) addr {
+	if a.from < b.from && b.to < a.to {
+		// Don't clip a if b is entirely within a.
+		return a
+	}
+	if b.contains(a.from) {
+		a.from = b.to
+	}
+	if b.contains(a.to - 1) {
 		a.to = b.from
 	}
+	if a.from > a.to {
+		a.to = a.from
+	}
+	return a
+}
+
+func (a addr) contains(p int64) bool { return a.from <= p && p < a.to }
+
+func (a addr) move(b addr, n int64) addr {
+	d := n - b.size()
+	if a.to >= b.to {
+		a.to += d
+	}
+	if a.from >= b.to {
+		a.from += d
+	}
+	return a
 }
 
 type compoundAddr struct {

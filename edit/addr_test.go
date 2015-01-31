@@ -449,11 +449,10 @@ func TestUpdate(t *testing.T) {
 		// b over all of a
 		{a: addr{10, 20}, b: addr{10, 20}, n: 0, want: addr{10, 10}},
 		{a: addr{10, 20}, b: addr{0, 40}, n: 0, want: addr{0, 0}},
-		{a: addr{10, 20}, b: addr{0, 40}, n: 100, want: addr{0, 0}},
+		{a: addr{10, 20}, b: addr{0, 40}, n: 100, want: addr{100, 100}},
 	}
 	for _, test := range tests {
-		a := test.a
-		a.update(test.b, test.n)
+		a := test.a.update(test.b, test.n)
 		if a != test.want {
 			t.Errorf("%v.update(%v, %d)=%v, want %v",
 				test.a, test.b, test.n, a, test.want)
