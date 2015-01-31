@@ -33,10 +33,10 @@ func TestMarkAddress(t *testing.T) {
 	tests := []addressTest{
 		{text: str, marks: map[rune]addr{}, addr: Mark('☺'), err: "bad mark"},
 
-		{text: str, marks: map[rune]addr{'a': addr{0, 0}}, addr: Mark('a'), want: pt(0)},
+		{text: str, marks: map[rune]addr{'a': {0, 0}}, addr: Mark('a'), want: pt(0)},
 		{text: str, marks: map[rune]addr{}, addr: Mark('a'), want: pt(0)},
-		{text: str, marks: map[rune]addr{'z': addr{0, 0}}, addr: Mark('z'), want: pt(0)},
-		{text: str, marks: map[rune]addr{'z': addr{1, 9}}, addr: Mark('z'), want: rng(1, 9)},
+		{text: str, marks: map[rune]addr{'z': {0, 0}}, addr: Mark('z'), want: pt(0)},
+		{text: str, marks: map[rune]addr{'z': {1, 9}}, addr: Mark('z'), want: rng(1, 9)},
 	}
 	for _, test := range tests {
 		test.run(t)
