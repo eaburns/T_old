@@ -5,6 +5,7 @@ package edit
 import (
 	"errors"
 	"sync"
+	"unicode"
 
 	"github.com/eaburns/T/runes"
 )
@@ -52,7 +53,7 @@ func (b *Buffer) rune(i int64) (rune, error) { return b.runes.Rune(i) }
 // Change changes the runes in the range.
 //
 // The caller must hold b.lock.
-func (b *Buffer) change(ed *Editor, r addr, rs []rune) error {
+func (b *Buffer) change(r addr, rs []rune) error {
 	if _, err := b.runes.Delete(r.size(), r.from); err != nil {
 		return err
 	}
@@ -60,9 +61,7 @@ func (b *Buffer) change(ed *Editor, r addr, rs []rune) error {
 		return err
 	}
 	for _, e := range b.eds {
-		if e != ed {
-			e.update(r, int64(len(rs)))
-		}
+		e.update(r, int64(len(rs)))
 	}
 	return nil
 }
@@ -126,7 +125,7 @@ func (ed *Editor) Change(a Address, rs []rune) error {
 	if err != nil {
 		return err
 	}
-	if err := ed.buf.change(ed, r, rs); err != nil {
+	if err := ed.buf.change(r, rs); err != nil {
 		return err
 	}
 	ed.marks['.'] = addr{from: r.from, to: r.from + int64(len(rs))}
@@ -152,6 +151,23 @@ func (ed *Editor) Insert(ad Address, rs []rune) error {
 	return ed.Change(ad.Minus(Rune(0)), rs)
 }
 
+// Mark sets a mark to an address.
+// The mark must be either a lower-case or upper-case letter or dot: [a-zA-Z.].
+// Any other mark is an error.
+// If the mark is . then dot is set to the address.
+// Otherwise the named mark is set to the address.
+func (ed *Editor) Mark(a Address, m rune) error {
+	if !isMarkRune(m) && m != '.' {
+		return errors.New("bad mark: " + string(m))
+	}
+	r, err := a.addr(ed)
+	if err != nil {
+		return err
+	}
+	ed.marks[m] = r
+	return nil
+}
+
 // Edit parses a command and performs its edit on the buffer.
 //
 // 	In the following, text surrounded by / represents delimited text.
@@ -174,6 +190,10 @@ func (ed *Editor) Insert(ad Address, rs []rune) error {
 //	{addr} d
 //		Deletes the addressed text.
 //		If an address is not supplied, dot is used.
+//	{addr} m {[a-zA-Z]}
+//		Sets the named mark to the address.
+//		If an address is not supplied, dot is used.
+//		If a mark name is not given, dot is set.
 func (ed *Editor) Edit(cmd []rune) error {
 	addr, n, err := Addr(cmd)
 	switch {
@@ -195,6 +215,8 @@ func (ed *Editor) Edit(cmd []rune) error {
 		return ed.Insert(addr, parseText(cmd[1:]))
 	case 'd':
 		return ed.Delete(addr)
+	case 'm':
+		return ed.Mark(addr, parseMarkRune(cmd[1:]))
 	default:
 		return errors.New("unknown command: " + string(c))
 	}
@@ -222,6 +244,16 @@ func parseText(cmd []rune) []rune {
 		}
 	}
 	return rs
+}
+
+func parseMarkRune(cmd []rune) rune {
+	var i int
+	for ; i < len(cmd) && unicode.IsSpace(cmd[i]); i++ {
+	}
+	if i < len(cmd) && isMarkRune(cmd[i]) {
+		return cmd[i]
+	}
+	return '.'
 }
 
 // Update updates the Editor's addresses

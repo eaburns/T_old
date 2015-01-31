@@ -31,7 +31,7 @@ func TestDotAddress(t *testing.T) {
 func TestMarkAddress(t *testing.T) {
 	str := "Hello, 世界!"
 	tests := []addressTest{
-		{text: str, marks: map[rune]addr{}, addr: Mark('A'), err: "bad mark"},
+		{text: str, marks: map[rune]addr{}, addr: Mark('☺'), err: "bad mark"},
 
 		{text: str, marks: map[rune]addr{'a': addr{0, 0}}, addr: Mark('a'), want: pt(0)},
 		{text: str, marks: map[rune]addr{}, addr: Mark('a'), want: pt(0)},
@@ -341,7 +341,8 @@ func TestAddr(t *testing.T) {
 		{addr: "'m", n: 2, want: Mark('m')},
 		{addr: " 'z", n: 3, want: Mark('z')},
 		{addr: " ' a", n: 4, want: Mark('a')},
-		{addr: "'A", err: "bad mark"},
+		{addr: "'☺", err: "bad mark"},
+		{addr: "' ☺", err: "bad mark"},
 		{addr: "'", err: "bad mark"},
 
 		{addr: "+", n: 1, want: Dot.Plus(Line(1))},

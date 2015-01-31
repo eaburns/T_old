@@ -120,6 +120,156 @@ func TestEditorDelete(t *testing.T) {
 	}
 }
 
+func TestEditorMark(t *testing.T) {
+	tests := []multiEditTest{
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/, World/m a", want: "Hello, World!"},
+			{edit: "'a d", want: "Hello!"},
+		},
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/, World/m", want: "Hello, World!"},
+			{edit: "d", want: "Hello!"},
+		},
+
+		// Edit after the mark.
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/Hello/m a", want: "Hello, World!"},
+			{edit: "/, World/d", want: "Hello!"},
+			{edit: "'a d", want: "!"},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/xyz/d", want: "abc123"},
+			{edit: "'a d", want: "abc"},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/z/d", want: "abc123xy"},
+			{edit: "'a d", want: "abcxy"},
+		},
+		{
+			{edit: "a/abc123", want: "abc123"},
+			{edit: "#3m a", want: "abc123"},
+			{edit: "$a/xyz", want: "abc123xyz"},
+			{edit: "'a a/...", want: "abc...123xyz"},
+		},
+
+		// Edit before the mark.
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/World/m a", want: "Hello, World!"},
+			{edit: "/Hello, /d", want: "World!"},
+			{edit: "'a d", want: "!"},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/abc/d", want: "123xyz"},
+			{edit: "'a d", want: "xyz"},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/a/d", want: "bc123xyz"},
+			{edit: "'a d", want: "bcxyz"},
+		},
+		{
+			{edit: "a/abc123", want: "abc123"},
+			{edit: "#3m a", want: "abc123"},
+			{edit: "#0a/xyz", want: "xyzabc123"},
+			{edit: "'a a/...", want: "xyzabc...123"},
+		},
+		{
+			{edit: "a/abc123", want: "abc123"},
+			{edit: "#3m a", want: "abc123"},
+			{edit: "#3a/xyz", want: "abcxyz123"},
+			{edit: "'a a/...", want: "abcxyz...123"},
+		},
+
+		// Edit within the mark.
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: ",m a", want: "Hello, World!"},
+			{edit: "/ /c/ Cruel /", want: "Hello, Cruel World!"},
+			{edit: "'a d", want: ""},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/2/d", want: "abc13xyz"},
+			{edit: "'a c/123", want: "abc123xyz"},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/2/a/2.5", want: "abc122.53xyz"},
+			{edit: "'a c/123", want: "abc123xyz"},
+		},
+
+		// Edit over the mark.
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/World/m a", want: "Hello, World!"},
+			{edit: ",c/abc", want: "abc"},
+			{edit: "'a a/123", want: "123abc"},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/c123x/d", want: "abyz"},
+			{edit: "'a c/123", want: "ab123yz"},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/c123x/c/C123X", want: "abC123Xyz"},
+			{edit: "'a c/...", want: "ab...C123Xyz"},
+		},
+		{
+			{edit: "a/abc123", want: "abc123"},
+			{edit: "#3m a", want: "abc123"},
+			{edit: "/bc12/d", want: "a3"},
+			{edit: "'a c/...", want: "a...3"},
+		},
+
+		// Edit over the beginning of the mark.
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/World/m a", want: "Hello, World!"},
+			{edit: "/W/c/w", want: "Hello, world!"},
+			{edit: "'a d", want: "Hello, w!"},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/bc1/d", want: "a23xyz"},
+			{edit: "'a c/bc", want: "abcxyz"},
+		},
+
+		// Edit over the end of the mark.
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/World/m a", want: "Hello, World!"},
+			{edit: "/d/c/D", want: "Hello, WorlD!"},
+			{edit: "'a d", want: "Hello, D!"},
+		},
+		{
+			{edit: "a/abc123xyz", want: "abc123xyz"},
+			{edit: "/123/m a", want: "abc123xyz"},
+			{edit: "/3xy/d", want: "abc12z"},
+			{edit: "'a c/xy", want: "abcxyz"},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 func TestConcurrentSimpleChanges(t *testing.T) {
 	tests := []multiEditTest{
 		{

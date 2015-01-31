@@ -244,7 +244,7 @@ func (e endAddr) reverse() SimpleAddress { return simpleAddr{e} }
 type markAddr rune
 
 // Mark returns the address of the named mark rune.
-// The rune must be a lower-case letter a-z.
+// The rune must be a lower-case or upper-case letter or dot: [a-zA-Z.].
 // An invalid mark rune results in an address that returns an error when evaluated.
 func Mark(r rune) SimpleAddress { return simpleAddr{markAddr(r)} }
 
@@ -255,13 +255,15 @@ func (m markAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
 	if a.from < 0 || a.to < a.from || a.to > ed.buf.size() {
 		panic("bad mark")
 	}
-	if m < 'a' || m > 'z' {
+	if !isMarkRune(rune(m)) && m != '.' {
 		return addr{}, errors.New("bad mark: " + string(rune(m)))
 	}
 	return a, nil
 }
 
 func (m markAddr) reverse() SimpleAddress { return simpleAddr{m} }
+
+func isMarkRune(r rune) bool { return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') }
 
 type runeAddr int64
 
@@ -510,7 +512,7 @@ const (
 // Production a1 describes simple addresses:
 //	$ is the empty string at the end of the buffer.
 //	. is the current address of the editor, called dot.
-//	'l is the address of the mark named l, where l is a lower-case letter a-z.
+//	'l is the address of the mark named l, where l is a lower-case or upper-case letter: [a-zA-Z.]
 //	#{n} is the empty string after rune number n. If n is missing then 1 is used.
 //	n is the nth line in the buffer. 0 is the string before the first full line.
 //	'/' regexp {'/'} is the first match of the regular expression.
@@ -641,7 +643,7 @@ func parseMarkAddr(rs []rune) (SimpleAddress, int, error) {
 	n := 1
 	for ; n < len(rs) && unicode.IsSpace(rs[n]); n++ {
 	}
-	if n >= len(rs) || rs[n] < 'a' || rs[n] > 'z' {
+	if n >= len(rs) || !isMarkRune(rs[n]) {
 		got := "EOF"
 		if n < len(rs) {
 			got = string(rs[n])
