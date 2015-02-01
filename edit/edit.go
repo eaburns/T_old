@@ -170,14 +170,14 @@ func (ed *Editor) Mark(a Address, m rune) error {
 
 // Edit parses a command and performs its edit on the buffer.
 //
-// 	In the following, text surrounded by / represents delimited text.
-//	The delimiter can be any character, it need not be /.
-//	Trailing delimiters may be elided, but the opening delimiter must be present.
-//	In delimited text, \ is an escape; the following character is interpreted literally,
-//	except \n which represents a literal newline.
-//	Items in {} are optional.
+// In the following, text surrounded by / represents delimited text.
+// The delimiter can be any character, it need not be /.
+// Trailing delimiters may be elided, but the opening delimiter must be present.
+// In delimited text, \ is an escape; the following character is interpreted literally,
+// except \n which represents a literal newline.
+// Items in {} are optional.
 //
-// 	Commands are:
+// Commands are:
 // 	{addr} a/text/
 //	or
 //	{addr} a
