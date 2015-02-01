@@ -231,6 +231,20 @@ const (
 	cbrace
 )
 
+var tokens = map[rune]token{
+	'.': dot,
+	'*': star,
+	'+': plus,
+	'?': question,
+	'[': obrace,
+	']': cbrace,
+	'(': oparen,
+	')': cparen,
+	'|': or,
+	'$': dollar,
+	'^': carrot,
+}
+
 type parser struct {
 	rs               []rune
 	prev, pos        int
@@ -281,32 +295,10 @@ func (p *parser) next() (t token) {
 			}
 		}
 	}
-	switch r {
-	case '.':
-		return dot
-	case '*':
-		return star
-	case '+':
-		return plus
-	case '?':
-		return question
-	case '[':
-		return obrace
-	case ']':
-		return cbrace
-	case '(':
-		return oparen
-	case ')':
-		return cparen
-	case '|':
-		return or
-	case '$':
-		return dollar
-	case '^':
-		return carrot
-	default:
-		return token(r)
+	if t, ok := tokens[r]; ok {
+		return t
 	}
+	return token(r)
 }
 
 func e0(p *parser) *Regexp {
@@ -630,22 +622,13 @@ func (q *queue) pop() *state {
 
 func (m *machine) match(rs Runes, end int64) [][2]int64 {
 	sz := rs.Size()
-	prev := eof
-	if p := m.at - 1; p >= 0 && p < sz {
-		prev = rs.Rune(p)
-	}
-	cur := eof
-	if m.at >= 0 && m.at < sz {
-		cur = rs.Rune(m.at)
-	}
+	p, c := runeOrEOF(rs, sz, m.at-1), runeOrEOF(rs, sz, m.at)
 	for {
-		for m.q0.empty() && m.lit != nil && !m.lit.ok(prev, cur) && m.at <= end {
+		for m.q0.empty() && m.lit != nil && !m.lit.ok(p, c) && m.at <= end {
 			m.at++
-			prev, cur = cur, eof
-			if m.at >= 0 && m.at < sz {
-				cur = rs.Rune(m.at)
-			}
+			p, c = c, runeOrEOF(rs, sz, m.at)
 		}
+
 		if m.cap == nil && !m.q0.mem[m.re.start.n] && m.at <= end {
 			m.q0.push(m.get(m.re.start))
 		}
@@ -654,19 +637,23 @@ func (m *machine) match(rs Runes, end int64) [][2]int64 {
 		}
 		for !m.q0.empty() {
 			s := m.q0.pop()
-			m.step(s, prev, cur)
+			m.step(s, p, c)
 		}
 		m.at++
-		prev, cur = cur, eof
-		if m.at >= 0 && m.at < sz {
-			cur = rs.Rune(m.at)
-		}
+		p, c = c, runeOrEOF(rs, sz, m.at)
 		m.q0, m.q1 = m.q1, m.q0
 	}
 	return m.cap
 }
 
-func (m *machine) step(s0 *state, prev, cur rune) {
+func runeOrEOF(rs Runes, sz, i int64) rune {
+	if i < 0 || i >= sz {
+		return eof
+	}
+	return rs.Rune(i)
+}
+
+func (m *machine) step(s0 *state, p, c rune) {
 	stk, seen := m.stack[:1], m.seen
 	copy(seen, m.false)
 	stk[0], seen[s0.node.n] = s0, true
@@ -693,13 +680,13 @@ func (m *machine) step(s0 *state, prev, cur rune) {
 			case e.to == nil:
 				continue
 			case e.label == nil || e.label.epsilon():
-				if !seen[e.to.n] && (e.label == nil || e.label.ok(prev, cur)) {
+				if !seen[e.to.n] && (e.label == nil || e.label.ok(p, c)) {
 					seen[e.to.n] = true
 					t := m.get(e.to)
 					copy(t.cap, s.cap)
 					stk = append(stk, t)
 				}
-			case !m.q1.mem[e.to.n] && e.label.ok(prev, cur):
+			case !m.q1.mem[e.to.n] && e.label.ok(p, c):
 				t := m.get(e.to)
 				copy(t.cap, s.cap)
 				m.q1.push(t)

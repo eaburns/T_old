@@ -170,14 +170,14 @@ func (ed *Editor) Mark(a Address, m rune) error {
 
 // Edit parses a command and performs its edit on the buffer.
 //
-// 	In the following, text surrounded by / represents delimited text.
-//	The delimiter can be any character, it need not be /.
-//	Trailing delimiters may be elided, but the opening delimiter must be present.
-//	In delimited text, \ is an escape; the following character is interpreted literally,
-//	except \n which represents a literal newline.
-//	Items in {} are optional.
+// In the following, text surrounded by / represents delimited text.
+// The delimiter can be any character, it need not be /.
+// Trailing delimiters may be elided, but the opening delimiter must be present.
+// In delimited text, \ is an escape; the following character is interpreted literally,
+// except \n which represents a literal newline.
+// Items in {} are optional.
 //
-// 	Commands are:
+// Commands are:
 // 	{addr} a/text/
 //	or
 //	{addr} a
@@ -223,25 +223,38 @@ func (ed *Editor) Edit(cmd []rune) error {
 }
 
 func parseText(cmd []rune) []rune {
+	switch {
+	case len(cmd) > 0 && cmd[0] == '\n':
+		return parseLines(cmd)
+	case len(cmd) > 0:
+		return parseDelimited(cmd)
+	default:
+		return nil
+	}
+}
+
+func parseLines(cmd []rune) []rune {
 	var rs []rune
-	if len(cmd) > 0 && cmd[0] == '\n' {
-		for i := 1; i < len(cmd); i++ {
-			rs = append(rs, cmd[i])
-			if i < len(cmd)-1 && cmd[i] == '\n' && cmd[i+1] == '.' {
-				break
+	for i := 1; i < len(cmd); i++ {
+		rs = append(rs, cmd[i])
+		if i < len(cmd)-1 && cmd[i] == '\n' && cmd[i+1] == '.' {
+			break
+		}
+	}
+	return rs
+}
+
+func parseDelimited(cmd []rune) []rune {
+	var rs []rune
+	d := cmd[0]
+	for i := 1; i < len(cmd) && cmd[i] != d; i++ {
+		if cmd[i] == '\\' && i < len(cmd)-1 {
+			i++
+			if cmd[i] == 'n' {
+				cmd[i] = '\n'
 			}
 		}
-	} else if len(cmd) > 0 {
-		d := cmd[0]
-		for i := 1; i < len(cmd) && cmd[i] != d; i++ {
-			if cmd[i] == '\\' && i < len(cmd)-1 {
-				i++
-				if cmd[i] == 'n' {
-					cmd[i] = '\n'
-				}
-			}
-			rs = append(rs, cmd[i])
-		}
+		rs = append(rs, cmd[i])
 	}
 	return rs
 }

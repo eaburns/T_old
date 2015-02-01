@@ -609,7 +609,6 @@ func Addr(rs []rune) (Address, int, error) {
 
 func parseSimpleAddr(rs []rune) (SimpleAddress, int, error) {
 	var n int
-loop:
 	for len(rs) > 0 {
 		var m int
 		var err error
@@ -630,7 +629,7 @@ loop:
 		case r == '.':
 			a, m = Dot, 1
 		default:
-			break loop
+			return nil, n, nil
 		}
 		n += m
 		if a != nil || err != nil {
