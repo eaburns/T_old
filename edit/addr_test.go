@@ -31,12 +31,12 @@ func TestDotAddress(t *testing.T) {
 func TestMarkAddress(t *testing.T) {
 	str := "Hello, 世界!"
 	tests := []addressTest{
-		{text: str, marks: map[rune]addr{}, addr: Mark('A'), err: "bad mark"},
+		{text: str, marks: map[rune]addr{}, addr: Mark('☺'), err: "bad mark"},
 
-		{text: str, marks: map[rune]addr{'a': addr{0, 0}}, addr: Mark('a'), want: pt(0)},
+		{text: str, marks: map[rune]addr{'a': {0, 0}}, addr: Mark('a'), want: pt(0)},
 		{text: str, marks: map[rune]addr{}, addr: Mark('a'), want: pt(0)},
-		{text: str, marks: map[rune]addr{'z': addr{0, 0}}, addr: Mark('z'), want: pt(0)},
-		{text: str, marks: map[rune]addr{'z': addr{1, 9}}, addr: Mark('z'), want: rng(1, 9)},
+		{text: str, marks: map[rune]addr{'z': {0, 0}}, addr: Mark('z'), want: pt(0)},
+		{text: str, marks: map[rune]addr{'z': {1, 9}}, addr: Mark('z'), want: rng(1, 9)},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -341,7 +341,8 @@ func TestAddr(t *testing.T) {
 		{addr: "'m", n: 2, want: Mark('m')},
 		{addr: " 'z", n: 3, want: Mark('z')},
 		{addr: " ' a", n: 4, want: Mark('a')},
-		{addr: "'A", err: "bad mark"},
+		{addr: "'☺", err: "bad mark"},
+		{addr: "' ☺", err: "bad mark"},
 		{addr: "'", err: "bad mark"},
 
 		{addr: "+", n: 1, want: Dot.Plus(Line(1))},
@@ -448,11 +449,10 @@ func TestUpdate(t *testing.T) {
 		// b over all of a
 		{a: addr{10, 20}, b: addr{10, 20}, n: 0, want: addr{10, 10}},
 		{a: addr{10, 20}, b: addr{0, 40}, n: 0, want: addr{0, 0}},
-		{a: addr{10, 20}, b: addr{0, 40}, n: 100, want: addr{0, 0}},
+		{a: addr{10, 20}, b: addr{0, 40}, n: 100, want: addr{100, 100}},
 	}
 	for _, test := range tests {
-		a := test.a
-		a.update(test.b, test.n)
+		a := test.a.update(test.b, test.n)
 		if a != test.want {
 			t.Errorf("%v.update(%v, %d)=%v, want %v",
 				test.a, test.b, test.n, a, test.want)
