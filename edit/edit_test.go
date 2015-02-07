@@ -282,6 +282,81 @@ func TestEditorMark(t *testing.T) {
 	}
 }
 
+func TestEditorSubstitute(t *testing.T) {
+	tests := []multiEditTest{
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: ",s/World/世界", want: "Hello, 世界!"},
+			{edit: "d", want: ""},
+		},
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/World/s/World/世界", want: "Hello, 世界!"},
+			{edit: "d", want: "Hello, !"},
+		},
+		{
+			{edit: "a/abcabc", want: "abcabc"},
+			{edit: ",s/abc/defg/", want: "defgabc"},
+		},
+		{
+			{edit: "a/abcabcabc", want: "abcabcabc"},
+			{edit: ",s/abc/defg/g", want: "defgdefgdefg"},
+		},
+		{
+			{edit: "a/abcabcabc", want: "abcabcabc"},
+			{edit: "/abcabc/s/abc/defg/g", want: "defgdefgabc"},
+			{edit: "d", want: "abc"},
+		},
+		{
+			{edit: "a/abc abc", want: "abc abc"},
+			{edit: ",s/abc/defg/", want: "defg abc"},
+		},
+		{
+			{edit: "a/abc abc abc", want: "abc abc abc"},
+			{edit: ",s/abc/defg/g", want: "defg defg defg"},
+		},
+		{
+			{edit: "a/abc abc abc", want: "abc abc abc"},
+			{edit: "/abc abc/s/abc/defg/g", want: "defg defg abc"},
+			{edit: "d", want: " abc"},
+		},
+		{
+			{edit: "a/abcabc", want: "abcabc"},
+			{edit: ",s/abc/de/", want: "deabc"},
+		},
+		{
+			{edit: "a/abcabcabc", want: "abcabcabc"},
+			{edit: ",s/abc/de/g", want: "dedede"},
+		},
+		{
+			{edit: "a/abcabcabc", want: "abcabcabc"},
+			{edit: "/abcabc/s/abc/de/g", want: "dedeabc"},
+			{edit: "d", want: "abc"},
+		},
+		{
+			{edit: "a/abcabcabc", want: "abcabcabc"},
+			{edit: "s/abc//g", want: ""},
+			{edit: "a/xyz", want: "xyz"},
+		},
+		{
+			{edit: "a/func f()", want: "func f()"},
+			{edit: `s/func (.*)\(\)/func (T)\1()`, want: "func (T)f()"},
+			{edit: "d", want: ""},
+		},
+		{
+			{edit: "a/abcdefghi", want: "abcdefghi"},
+			{edit: `s/(abc)(def)(ghi)/\0 \3 \2 \1`, want: "abcdefghi ghi def abc"},
+		},
+		{
+			{edit: "a/abc", want: "abc"},
+			{edit: `s/abc/\1`, want: ""},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 func TestConcurrentSimpleChanges(t *testing.T) {
 	tests := []multiEditTest{
 		{
