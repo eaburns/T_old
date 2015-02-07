@@ -7,6 +7,7 @@ import (
 	"sync"
 	"unicode"
 
+	"github.com/eaburns/T/re1"
 	"github.com/eaburns/T/runes"
 )
 
@@ -168,6 +169,128 @@ func (ed *Editor) Mark(a Address, m rune) error {
 	return nil
 }
 
+// Substitute substitutes text for the first match
+// of the regular expression in the addressed range.
+// When substituting, a backslash followed by a digit d
+// stands for the string that matched the d-th subexpression.
+// \n is a literal newline.
+// If g is true then all matches in the address range are substituted.
+// Dot is set to the modified address.
+func (ed *Editor) Substitute(a Address, re *re1.Regexp, sub []rune, g bool) error {
+	ed.buf.lock.Lock()
+	defer ed.buf.lock.Unlock()
+
+	r, err := a.addr(ed)
+	if err != nil {
+		return err
+	}
+	r0 := r
+
+	for {
+		d, m, err := ed.sub1(r, re, sub)
+		if err != nil {
+			return err
+		}
+		if m == nil {
+			break
+		}
+		r0.to += d
+		r.to += d
+		r.from = m[0][1] + d
+		if !g {
+			break
+		}
+	}
+	ed.marks['.'] = r0
+	return nil
+}
+
+func (ed *Editor) sub1(r addr, re *re1.Regexp, sub []rune) (int64, [][2]int64, error) {
+	m, err := ed.subMatch(r, re)
+	if err != nil || m == nil {
+		return 0, m, err
+	}
+	repl, err := ed.subText(m, sub)
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := ed.buf.change(addr{m[0][0], m[0][1]}, repl); err != nil {
+		return 0, nil, err
+	}
+	return int64(len(repl)) - (m[0][1] - m[0][0]), m, err
+}
+
+func (ed *Editor) subText(m [][2]int64, sub []rune) ([]rune, error) {
+	var rs []rune
+	for i := 0; i < len(sub); i++ {
+		d := escDigit(sub[i:])
+		if d < 0 {
+			rs = append(rs, sub[i])
+			continue
+		}
+		sub, err := ed.subExpr(m, d)
+		if err != nil {
+			return nil, err
+		}
+		rs = append(rs, sub...)
+		i++
+	}
+	return rs, nil
+}
+
+// EscDigit returns the digit from \[0-9]
+// or -1 if the text does not represent an escaped digit.
+func escDigit(sub []rune) int {
+	if len(sub) >= 2 && sub[0] == '\\' && unicode.IsDigit(sub[1]) {
+		return int(sub[1] - '0')
+	}
+	return -1
+}
+
+func (ed *Editor) subExpr(m [][2]int64, n int) ([]rune, error) {
+	if n >= len(m) {
+		return nil, nil
+	}
+	rs := make([]rune, m[n][1]-m[n][0])
+	if _, err := ed.buf.runes.Read(rs, m[n][0]); err != nil {
+		return nil, err
+	}
+	return rs, nil
+}
+
+type runeSlice struct {
+	buf *runes.Buffer
+	addr
+	err error
+}
+
+func (rs *runeSlice) Size() int64 { return rs.size() }
+
+func (rs *runeSlice) Rune(i int64) rune {
+	switch {
+	case i < 0 || i >= rs.size():
+		panic("index out of bounds")
+	case rs.err != nil:
+		return -1
+	}
+	r, err := rs.buf.Rune(rs.from + i)
+	if err != nil {
+		rs.err = err
+		return -1
+	}
+	return r
+}
+
+func (ed *Editor) subMatch(r addr, re *re1.Regexp) ([][2]int64, error) {
+	rs := &runeSlice{buf: ed.buf.runes, addr: r}
+	m := re.Match(rs, 0)
+	for i := range m {
+		m[i][0] += r.from
+		m[i][1] += r.from
+	}
+	return m, rs.err
+}
+
 // Edit parses a command and performs its edit on the buffer.
 //
 // In the following, text surrounded by / represents delimited text.
@@ -194,6 +317,15 @@ func (ed *Editor) Mark(a Address, m rune) error {
 //		Sets the named mark to the address.
 //		If an address is not supplied, dot is used.
 //		If a mark name is not given, dot is set.
+//	{addr} s/regexp/text/
+//		Substitute substitutes text for the first match
+// 		of the regular expression in the addressed range.
+// 		When substituting, a backslash followed by a digit d
+// 		stands for the string that matched the d-th subexpression.
+//		\n is a literal newline.
+// 		If the delimiter after the text is followed by the letter g
+//		then all matches in the address range are substituted.
+//		If an address is not supplied, dot is used.
 func (ed *Editor) Edit(cmd []rune) error {
 	addr, n, err := Addr(cmd)
 	switch {
@@ -217,6 +349,16 @@ func (ed *Editor) Edit(cmd []rune) error {
 		return ed.Delete(addr)
 	case 'm':
 		return ed.Mark(addr, parseMarkRune(cmd[1:]))
+	case 's':
+		re, err := re1.Compile(cmd[1:], re1.Options{Delimited: true})
+		if err != nil {
+			return err
+		}
+		exp := re.Expression()
+		cmd = cmd[1+len(exp):]
+		sub := parseDelimited(exp[0], true, cmd)
+		g := len(sub) < len(cmd)-1 && cmd[len(sub)+1] == 'g'
+		return ed.Substitute(addr, re, sub, g)
 	default:
 		return errors.New("unknown command: " + string(c))
 	}
@@ -227,7 +369,7 @@ func parseText(cmd []rune) []rune {
 	case len(cmd) > 0 && cmd[0] == '\n':
 		return parseLines(cmd)
 	case len(cmd) > 0:
-		return parseDelimited(cmd)
+		return parseDelimited(cmd[0], false, cmd[1:])
 	default:
 		return nil
 	}
@@ -244,11 +386,13 @@ func parseLines(cmd []rune) []rune {
 	return rs
 }
 
-func parseDelimited(cmd []rune) []rune {
+func parseDelimited(d rune, digits bool, cmd []rune) []rune {
 	var rs []rune
-	d := cmd[0]
-	for i := 1; i < len(cmd) && cmd[i] != d; i++ {
+	for i := 0; i < len(cmd) && cmd[i] != d; i++ {
 		if cmd[i] == '\\' && i < len(cmd)-1 {
+			if digits && unicode.IsDigit(cmd[i+1]) {
+				rs = append(rs, '\\')
+			}
 			i++
 			if cmd[i] == 'n' {
 				cmd[i] = '\n'
