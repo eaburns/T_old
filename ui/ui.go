@@ -23,7 +23,6 @@ type UI interface {
 type Window interface {
 	// Events returns a channel of the Window's events.
 	// The channel is closed when the Window is Closed.
-	// Events() returns nil when called on a closed Window.
 	Events() <-chan interface{}
 	// Draw calls the Draw method of a Drawer
 	// with a Canvas on this Window.
@@ -34,6 +33,9 @@ type Window interface {
 
 // A Canvas represents a portion of a Window.
 // It provides functionality for drawing on the Window.
+//
+// Metods on Canvas must only be called
+// from the go routine that calls Drawer.Draw.
 type Canvas interface {
 	// Bounds returns the bounds of the Canvas within its Window.
 	Bounds() image.Rectangle

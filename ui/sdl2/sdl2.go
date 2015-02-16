@@ -25,9 +25,12 @@ import (
 )
 
 type sdl2UI struct {
-	wins map[C.Uint32]*window
 	done chan chan<- struct{}
 	do   chan func()
+
+	// Wins is the set of currently opened windows.
+	// It is owned by the sdl2UI.run go routine.
+	wins map[C.Uint32]*window
 }
 
 // New returns a new SDL2 implementation of ui.UI.
@@ -156,34 +159,48 @@ func (u *sdl2UI) events() {
 
 func (u *sdl2UI) send(id C.Uint32, e interface{}) {
 	if w, ok := u.wins[id]; ok {
-		w.events <- e
+		// This send must not block waiting for a go routine
+		// that may also be blocked on sdl2UI.do.
+		w.in <- e
 	}
 }
 
 type window struct {
 	id     C.Uint32
-	u      *sdl2UI
-	w      *C.SDL_Window
-	r      *C.SDL_Renderer
 	bounds image.Rectangle
-	events chan interface{}
+
+	// In and Out are the input and output event channels.
+	// The sdl2UI.run go routine sends events on in.
+	// The window.run go routine receives and buffers events from in.
+	// The window.run go routine sends buffered events to out.
+	// Out is returned by window.Events().
+	in, out chan interface{}
+
+	// The following are owned by the sdl2UI.run go routine.
+	u *sdl2UI
+	w *C.SDL_Window
+	r *C.SDL_Renderer
 }
 
 func (u *sdl2UI) NewWindow(title string, w, h int) ui.Window {
 	return u.Do(func() interface{} {
 		win := &window{
-			u:      u,
-			events: make(chan interface{}, 10),
 			bounds: image.Rect(0, 0, w, h),
+			in:     make(chan interface{}, 10),
+			out:    make(chan interface{}, 10),
+			u:      u,
 		}
 		win.w = newWindow(title, w, h)
 		win.id = C.SDL_GetWindowID(win.w)
 		win.r = newRenderer(win.w)
 		u.wins[win.id] = win
+		go win.run()
 		return win
 	}).(ui.Window)
 }
 
+// NewWindow returns a new C.SDL_Window.
+// It must only be called from the sdl2UI.run go routine.
 func newWindow(title string, w, h int) *C.SDL_Window {
 	const (
 		flags C.Uint32 = C.SDL_WINDOW_ALLOW_HIGHDPI |
@@ -202,6 +219,8 @@ func newWindow(title string, w, h int) *C.SDL_Window {
 	return win
 }
 
+// NewRenderer returns a new C.SDL_Renderer.
+// It must only be called from the sdl2UI.run go routine.
 func newRenderer(w *C.SDL_Window) *C.SDL_Renderer {
 	const flags C.Uint32 = 0
 	r := C.SDL_CreateRenderer(w, -1, flags)
@@ -215,22 +234,62 @@ func newRenderer(w *C.SDL_Window) *C.SDL_Renderer {
 	return r
 }
 
+// Run is the window's main event handling loop.
+// It receives and buffers events from win.in,
+// sends buffered events to win.out,
+// and exits when win.in is closed.
+// It must be called in its own go routine.
+//
+// This is necessary because the sdl2UI.run go routine
+// must never block sending an event to a go routine
+// that may also be blocked on sdl2UI.Do.
+// The window.run go routine doesn't block;
+// it is always ready to receive an event.
+func (win *window) run() {
+	var next interface{}
+	var events []interface{}
+	var out chan interface{}
+	for {
+		select {
+		case ev, ok := <-win.in:
+			if !ok {
+				close(win.out)
+				return
+			}
+			events = append(events, ev)
+		case out <- next:
+		}
+		if len(events) == 0 {
+			// Set out to nil, since there is no next to send yet.
+			out = nil
+		} else {
+			out = win.out
+			next = events[0]
+			copy(events, events[1:])
+			events = events[:len(events)-1]
+		}
+	}
+}
+
 func (win *window) Close() {
 	win.u.Do(func() interface{} { win.close(); return nil })
 }
 
+// Close removes the window from the ui's window map,
+// destroys the window's SDL resources,
+// and closes win.in which stops window.run.
+// It must only be called from the sdl2UI.run go routine.
 func (win *window) close() {
 	if _, ok := win.u.wins[win.id]; !ok {
 		panic("already closed")
 	}
+	delete(win.u.wins, win.id)
 	C.SDL_DestroyRenderer(win.r)
 	C.SDL_DestroyWindow(win.w)
-	delete(win.u.wins, win.id)
-	close(win.events)
-	*win = window{}
+	close(win.in)
 }
 
-func (win *window) Events() <-chan interface{} { return win.events }
+func (win *window) Events() <-chan interface{} { return win.out }
 
 func (win *window) Draw(d ui.Drawer) {
 	win.u.Do(func() interface{} {
@@ -242,6 +301,8 @@ func (win *window) Draw(d ui.Drawer) {
 	})
 }
 
+// All of the methods on canvas
+// must be called from the sdl2UI.run go routine.
 type canvas struct {
 	win *window
 }
