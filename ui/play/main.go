@@ -54,9 +54,10 @@ func main() {
 	w1.Draw(d1)
 
 	tick := time.Tick(16 * time.Millisecond)
+	ev0, ev1 := w0.Events(), w1.Events()
 	for {
 		select {
-		case e := <-w0.Events():
+		case e := <-ev0:
 			switch e := e.(type) {
 			case ui.ButtonEvent:
 				d0.down = e.Down
@@ -68,7 +69,7 @@ func main() {
 			case ui.CloseEvent:
 				return
 			}
-		case e := <-w1.Events():
+		case e := <-ev1:
 			switch e := e.(type) {
 			case ui.ButtonEvent:
 				d1.down = e.Down
@@ -78,11 +79,12 @@ func main() {
 			case ui.MotionEvent:
 				d1.Max = e.Point
 			case ui.CloseEvent:
+				ev1 = nil
 				w1.Close()
 			}
 		case <-tick:
 			w0.Draw(d0)
-			if w1.Events() != nil {
+			if ev1 != nil {
 				w1.Draw(d1)
 			}
 		}
