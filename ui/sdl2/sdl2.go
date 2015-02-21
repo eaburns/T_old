@@ -299,14 +299,13 @@ func (win *window) Draw(d ui.Drawer) {
 	})
 }
 
-func (win *window) Texture(b image.Rectangle) ui.Texture {
+func (win *window) Texture(w, h int) ui.Texture {
 	return win.u.Do(func() interface{} {
 		const (
 			acc = C.SDL_TEXTUREACCESS_STREAMING
 			fmt = C.SDL_PIXELFORMAT_ABGR8888
 		)
-		w, h := C.int(b.Dx()), C.int(b.Dy())
-		t := C.SDL_CreateTexture(win.r, fmt, acc, w, h)
+		t := C.SDL_CreateTexture(win.r, fmt, acc, C.int(w), C.int(h))
 		if t == nil {
 			panic(sdlError())
 		}
@@ -317,7 +316,7 @@ func (win *window) Texture(b image.Rectangle) ui.Texture {
 			r:      win.r,
 			t:      t,
 			locked: false,
-			NRGBA:  image.NewNRGBA(b),
+			NRGBA:  image.NewNRGBA(image.Rect(0, 0, w, h)),
 		}
 		return img
 	}).(ui.Texture)

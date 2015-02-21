@@ -34,7 +34,7 @@ type Window interface {
 	// but they may be set using the Set method.
 	// The Texture must be closed when no longer needed
 	// in order to free its resources.
-	Texture(image.Rectangle) Texture
+	Texture(w, h int) Texture
 	// Close closes the Window and its event channel.
 	Close()
 }
