@@ -12,7 +12,6 @@ import "C"
 
 import (
 	"errors"
-	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -301,6 +300,87 @@ func (win *window) Draw(d ui.Drawer) {
 	})
 }
 
+func (win *window) Texture(b image.Rectangle) ui.Texture {
+	return win.u.Do(func() interface{} {
+		const (
+			acc = C.SDL_TEXTUREACCESS_STREAMING
+			fmt = C.SDL_PIXELFORMAT_ABGR8888
+		)
+		w, h := C.int(b.Dx()), C.int(b.Dy())
+		t := C.SDL_CreateTexture(win.r, fmt, acc, w, h)
+		if t == nil {
+			panic(sdlError())
+		}
+		if C.SDL_SetTextureBlendMode(t, C.SDL_BLENDMODE_BLEND) < 0 {
+			panic(sdlError())
+		}
+		img := &texture{r: win.r, t: t, b: b, locked: false}
+		return img
+	}).(ui.Texture)
+}
+
+type texture struct {
+	r      *C.SDL_Renderer
+	t      *C.SDL_Texture
+	pix    *C.Uint8
+	stride int
+	locked bool
+	b      image.Rectangle
+}
+
+func (t *texture) Close() { C.SDL_DestroyTexture(t.t) }
+
+func (t *texture) ColorModel() color.Model { return color.NRGBAModel }
+
+func (t *texture) Bounds() image.Rectangle { return t.b }
+
+func (t *texture) At(x, y int) color.Color {
+	t.lock()
+	i := uintptr(y*t.stride + x*4)
+	return color.NRGBA{
+		R: uint8(*t.at(i)),
+		G: uint8(*t.at(i + 1)),
+		B: uint8(*t.at(i + 2)),
+		A: uint8(*t.at(i + 3)),
+	}
+}
+
+func (t *texture) Set(x, y int, c color.Color) {
+	t.lock()
+	r, g, b, a := rgba(c)
+	i := uintptr(y*t.stride + x*4)
+	*t.at(i) = r
+	*t.at(i + 1) = g
+	*t.at(i + 2) = b
+	*t.at(i + 3) = a
+}
+
+func (t *texture) at(i uintptr) *C.Uint8 {
+	return (*C.Uint8)(unsafe.Pointer(uintptr(unsafe.Pointer(t.pix)) + i))
+}
+
+func (t *texture) lock() {
+	if t.locked {
+		return
+	}
+	var pix unsafe.Pointer
+	var stride C.int
+	if C.SDL_LockTexture(t.t, rect(t.b), &pix, &stride) < 0 {
+		panic(sdlError())
+	}
+	t.pix = (*C.Uint8)(pix)
+	t.stride = int(stride)
+	t.locked = true
+}
+
+func (t *texture) unlock() {
+	if !t.locked {
+		return
+	}
+	C.SDL_UnlockTexture(t.t)
+	t.locked = false
+}
+
 // All of the methods on canvas
 // must be called from the sdl2UI.run go routine.
 type canvas struct {
@@ -333,20 +413,45 @@ func (c *canvas) Stroke(pts ...image.Point) {
 }
 
 func (c *canvas) Draw(pt image.Point, img image.Image) {
-	b := img.Bounds()
-	nrgba, ok := img.(*image.NRGBA)
-	if !ok {
-		fmt.Println("redrawing")
-		nrgba = image.NewNRGBA(b)
-		draw.Draw(nrgba, b, img, image.ZP, draw.Over)
+	switch img := img.(type) {
+	case *texture:
+		if img.r == c.win.r {
+			drawTexture(c.win.r, pt, img)
+		} else {
+			drawNRGBA(c.win.r, pt, makeNRGBA(img))
+		}
+	case *image.NRGBA:
+		drawNRGBA(c.win.r, pt, img)
+	default:
+		drawNRGBA(c.win.r, pt, makeNRGBA(img))
 	}
-	t := tex(c.win.r, nrgba)
-	defer C.SDL_DestroyTexture(t)
-	w, h := b.Dx(), b.Dy()
+}
+
+func drawTexture(r *C.SDL_Renderer, pt image.Point, t *texture) {
+	w, h := t.b.Dx(), t.b.Dy()
 	dst := image.Rect(pt.X, pt.Y, pt.X+w, pt.Y+h)
-	if C.SDL_RenderCopy(c.win.r, t, nil, rect(dst)) < 0 {
+	t.unlock()
+	if C.SDL_RenderCopy(r, t.t, nil, rect(dst)) < 0 {
 		panic(sdlError())
 	}
+}
+
+func drawNRGBA(r *C.SDL_Renderer, pt image.Point, img *image.NRGBA) {
+	t := tex(r, img)
+	defer C.SDL_DestroyTexture(t)
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	dst := image.Rect(pt.X, pt.Y, pt.X+w, pt.Y+h)
+	if C.SDL_RenderCopy(r, t, nil, rect(dst)) < 0 {
+		panic(sdlError())
+	}
+}
+
+func makeNRGBA(img image.Image) *image.NRGBA {
+	b := img.Bounds()
+	nrgba := image.NewNRGBA(b)
+	draw.Draw(nrgba, b, img, image.ZP, draw.Over)
+	return nrgba
 }
 
 func rgba(col color.Color) (C.Uint8, C.Uint8, C.Uint8, C.Uint8) {
@@ -366,11 +471,13 @@ func rect(r image.Rectangle) *C.SDL_Rect {
 }
 
 func tex(r *C.SDL_Renderer, img *image.NRGBA) *C.SDL_Texture {
+	const (
+		acc = C.SDL_TEXTUREACCESS_STATIC
+		fmt = C.SDL_PIXELFORMAT_ABGR8888
+	)
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
-	fmt := C.SDL_PIXELFORMAT_ABGR8888
-	acc := C.SDL_TEXTUREACCESS_STATIC
-	tex := C.SDL_CreateTexture(r, C.Uint32(fmt), C.int(acc), C.int(w), C.int(h))
+	tex := C.SDL_CreateTexture(r, fmt, acc, C.int(w), C.int(h))
 	if tex == nil {
 		panic(sdlError())
 	}

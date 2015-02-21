@@ -6,6 +6,7 @@ package ui
 import (
 	"image"
 	"image/color"
+	"image/draw"
 	"strconv"
 )
 
@@ -27,7 +28,23 @@ type Window interface {
 	// Draw calls the Draw method of a Drawer
 	// with a Canvas on this Window.
 	Draw(Drawer)
+	// Texture returns a new image that may be optimized
+	// for drawing to this Window.
+	// The initial pixels of the returned Texture are undefined,
+	// but they may be set using the Set method.
+	// The Texture must be closed when no longer needed
+	// in order to free its resources.
+	Texture(image.Rectangle) Texture
 	// Close closes the Window and its event channel.
+	Close()
+}
+
+// A Texture is a drawable image with a Close method
+// to free its resources.
+// It may be associated with a Window
+// to provide more efficient drawing.
+type Texture interface {
+	draw.Image
 	Close()
 }
 
@@ -51,6 +68,11 @@ type Canvas interface {
 	// Draw draws an image to the canvas.
 	// The first arguments specifies the point on the canvas
 	// to which the upper left corner of the image will be drawn.
+	//
+	// Draw can draw any image to the Canvas,
+	// but the most efficient way to draw an image
+	// is to use a Texture created by the Canvas's
+	// associated Window.
 	Draw(image.Point, image.Image)
 }
 
