@@ -293,7 +293,6 @@ func (win *window) Events() <-chan interface{} { return win.out }
 func (win *window) Draw(d ui.Drawer) {
 	win.u.Do(func() interface{} {
 		c := canvas{win: win}
-		c.SetColor(color.Black)
 		d.Draw(&c)
 		C.SDL_RenderPresent(win.r)
 		return nil
@@ -389,20 +388,22 @@ type canvas struct {
 
 func (c *canvas) Bounds() image.Rectangle { return c.win.bounds }
 
-func (c *canvas) SetColor(col color.Color) {
+func (c *canvas) setColor(col color.Color) {
 	r, g, b, a := rgba(col)
 	if C.SDL_SetRenderDrawColor(c.win.r, r, g, b, a) < 0 {
 		panic(sdlError())
 	}
 }
 
-func (c *canvas) Fill(r image.Rectangle) {
+func (c *canvas) Fill(col color.Color, r image.Rectangle) {
+	c.setColor(col)
 	if C.SDL_RenderFillRect(c.win.r, rect(r)) < 0 {
 		panic(sdlError())
 	}
 }
 
-func (c *canvas) Stroke(pts ...image.Point) {
+func (c *canvas) Stroke(col color.Color, pts ...image.Point) {
+	c.setColor(col)
 	for i := 1; i < len(pts); i++ {
 		x0, y0 := C.int(pts[i-1].X), C.int(pts[i-1].Y)
 		x1, y1 := C.int(pts[i].X), C.int(pts[i].Y)
@@ -412,7 +413,7 @@ func (c *canvas) Stroke(pts ...image.Point) {
 	}
 }
 
-func (c *canvas) Draw(pt image.Point, img image.Image) {
+func (c *canvas) Draw(img image.Image, pt image.Point) {
 	switch img := img.(type) {
 	case *texture:
 		if img.r == c.win.r {
