@@ -56,24 +56,21 @@ type Texture interface {
 type Canvas interface {
 	// Bounds returns the bounds of the Canvas within its Window.
 	Bounds() image.Rectangle
-	// SetColor sets the current drawing color.
-	// The default draw color is color.Black.
-	SetColor(color.Color)
 	// Fill fills the rectangular portion of the Canvas
-	// with the current drawing color.
-	Fill(image.Rectangle)
-	// Stroke strokes a single-pixel line between the points
-	// in the current drawing color.
-	Stroke(...image.Point)
+	// with the give color.
+	Fill(color.Color, image.Rectangle)
+	// Stroke strokes a single-pixel line between the points.
+	Stroke(color.Color, ...image.Point)
 	// Draw draws an image to the canvas.
-	// The first arguments specifies the point on the canvas
-	// to which the upper left corner of the image will be drawn.
+	// The point specifies the location on the Canvas
+	// to which the upper left corner of the image
+	// will be drawn.
 	//
 	// Draw can draw any image to the Canvas,
 	// but the most efficient way to draw an image
 	// is to use a Texture created by the Canvas's
 	// associated Window.
-	Draw(image.Point, image.Image)
+	Draw(image.Image, image.Point)
 }
 
 // A Drawer can draw itself to a Canvas.

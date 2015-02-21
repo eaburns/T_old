@@ -19,24 +19,21 @@ type drawer struct {
 }
 
 func (d drawer) Draw(c ui.Canvas) {
-	c.SetColor(color.Black)
-	c.Fill(c.Bounds())
-	c.Draw(image.ZP, d.tex)
+	c.Fill(color.Black, c.Bounds())
+	c.Draw(d.tex, image.ZP)
 
 	if !d.down {
 		return
 	}
 	p, q := d.Min, d.Max
-	c.SetColor(color.White)
 	if d.Max.X < d.Min.X {
 		d.Min.X, d.Max.X = d.Max.X, d.Min.X
 	}
 	if d.Max.Y < d.Min.Y {
 		d.Min.Y, d.Max.Y = d.Max.Y, d.Min.Y
 	}
-	c.Fill(d.Rectangle)
-	c.SetColor(color.RGBA{R: 255, A: 255})
-	c.Stroke(p, q)
+	c.Fill(color.White, d.Rectangle)
+	c.Stroke(color.RGBA{R: 255, A: 255}, p, q)
 }
 
 func main() {
