@@ -2,6 +2,9 @@ language: go
 
 go: 1.4
 
+notifications:
+    email: false
+
 env:
     - PATH=$HOME/gopath/bin:$PATH
 
