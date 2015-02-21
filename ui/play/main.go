@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"time"
 
@@ -11,17 +12,16 @@ import (
 	"github.com/eaburns/T/ui/sdl2"
 )
 
-var gopher = decodePng(gopherData[:])
-
 type drawer struct {
 	down bool
 	image.Rectangle
+	tex ui.Texture
 }
 
 func (d drawer) Draw(c ui.Canvas) {
 	c.SetColor(color.Black)
 	c.Fill(c.Bounds())
-	c.Draw(image.ZP, gopher)
+	c.Draw(image.ZP, d.tex)
 
 	if !d.down {
 		return
@@ -46,11 +46,21 @@ func main() {
 	}
 	defer u.Close()
 
+	png := decodePNG(gopherData[:])
+	b := png.Bounds()
+
 	w0 := u.NewWindow("Title", 800, 600)
 	var d0 drawer
+	d0.tex = w0.Texture(b)
+	defer d0.tex.Close()
+	draw.Draw(d0.tex, b, png, image.ZP, draw.Over)
 	w0.Draw(d0)
+
 	w1 := u.NewWindow("Title", 640, 480)
 	var d1 drawer
+	d1.tex = w1.Texture(b)
+	defer d1.tex.Close()
+	draw.Draw(d1.tex, b, png, image.ZP, draw.Over)
 	w1.Draw(d1)
 
 	tick := time.Tick(16 * time.Millisecond)
@@ -91,7 +101,7 @@ func main() {
 	}
 }
 
-func decodePng(data []byte) image.Image {
+func decodePNG(data []byte) image.Image {
 	img, err := png.Decode(bytes.NewBuffer(data))
 	if err != nil {
 		panic(err)
