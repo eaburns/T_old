@@ -48,14 +48,14 @@ func main() {
 
 	w0 := u.NewWindow("Title", 800, 600)
 	var d0 drawer
-	d0.tex = w0.Texture(b)
+	d0.tex = w0.Texture(b.Dx(), b.Dy())
 	defer d0.tex.Close()
 	draw.Draw(d0.tex, b, png, image.ZP, draw.Over)
 	w0.Draw(d0)
 
 	w1 := u.NewWindow("Title", 640, 480)
 	var d1 drawer
-	d1.tex = w1.Texture(b)
+	d1.tex = w1.Texture(b.Dx(), b.Dy())
 	defer d1.tex.Close()
 	draw.Draw(d1.tex, b, png, image.ZP, draw.Over)
 	w1.Draw(d1)

@@ -299,21 +299,25 @@ func (win *window) Draw(d ui.Drawer) {
 	})
 }
 
-func (win *window) Texture(b image.Rectangle) ui.Texture {
+func (win *window) Texture(w, h int) ui.Texture {
 	return win.u.Do(func() interface{} {
 		const (
 			acc = C.SDL_TEXTUREACCESS_STREAMING
 			fmt = C.SDL_PIXELFORMAT_ABGR8888
 		)
-		w, h := C.int(b.Dx()), C.int(b.Dy())
-		t := C.SDL_CreateTexture(win.r, fmt, acc, w, h)
+		t := C.SDL_CreateTexture(win.r, fmt, acc, C.int(w), C.int(h))
 		if t == nil {
 			panic(sdlError())
 		}
 		if C.SDL_SetTextureBlendMode(t, C.SDL_BLENDMODE_BLEND) < 0 {
 			panic(sdlError())
 		}
-		img := &texture{r: win.r, t: t, b: b, locked: false}
+		img := &texture{
+			r:      win.r,
+			t:      t,
+			locked: false,
+			NRGBA:  image.NewNRGBA(image.Rect(0, 0, w, h)),
+		}
 		return img
 	}).(ui.Texture)
 }
@@ -324,25 +328,13 @@ type texture struct {
 	pix    *C.Uint8
 	stride int
 	locked bool
-	b      image.Rectangle
+	// Img is a copy of the texture as an image.
+	// Each time the texture is locked, pix is uninitialized.
+	// This is used to re-initialize it.
+	*image.NRGBA
 }
 
 func (t *texture) Close() { C.SDL_DestroyTexture(t.t) }
-
-func (t *texture) ColorModel() color.Model { return color.NRGBAModel }
-
-func (t *texture) Bounds() image.Rectangle { return t.b }
-
-func (t *texture) At(x, y int) color.Color {
-	t.lock()
-	i := uintptr(y*t.stride + x*4)
-	return color.NRGBA{
-		R: uint8(*t.at(i)),
-		G: uint8(*t.at(i + 1)),
-		B: uint8(*t.at(i + 2)),
-		A: uint8(*t.at(i + 3)),
-	}
-}
 
 func (t *texture) Set(x, y int, c color.Color) {
 	t.lock()
@@ -352,6 +344,7 @@ func (t *texture) Set(x, y int, c color.Color) {
 	*t.at(i + 1) = g
 	*t.at(i + 2) = b
 	*t.at(i + 3) = a
+	t.NRGBA.Set(x, y, c)
 }
 
 func (t *texture) at(i uintptr) *C.Uint8 {
@@ -362,14 +355,17 @@ func (t *texture) lock() {
 	if t.locked {
 		return
 	}
+	b := t.NRGBA.Bounds()
 	var pix unsafe.Pointer
 	var stride C.int
-	if C.SDL_LockTexture(t.t, rect(t.b), &pix, &stride) < 0 {
+	if C.SDL_LockTexture(t.t, rect(b), &pix, &stride) < 0 {
 		panic(sdlError())
 	}
 	t.pix = (*C.Uint8)(pix)
 	t.stride = int(stride)
 	t.locked = true
+	sz := C.size_t(b.Dx() * b.Dy() * 4)
+	C.memcpy(pix, unsafe.Pointer(&t.NRGBA.Pix[0]), sz)
 }
 
 func (t *texture) unlock() {
@@ -419,7 +415,7 @@ func (c *canvas) Draw(img image.Image, pt image.Point) {
 		if img.r == c.win.r {
 			drawTexture(c.win.r, pt, img)
 		} else {
-			drawNRGBA(c.win.r, pt, makeNRGBA(img))
+			drawNRGBA(c.win.r, pt, img.NRGBA)
 		}
 	case *image.NRGBA:
 		drawNRGBA(c.win.r, pt, img)
@@ -429,7 +425,8 @@ func (c *canvas) Draw(img image.Image, pt image.Point) {
 }
 
 func drawTexture(r *C.SDL_Renderer, pt image.Point, t *texture) {
-	w, h := t.b.Dx(), t.b.Dy()
+	b := t.NRGBA.Bounds()
+	w, h := b.Dx(), b.Dy()
 	dst := image.Rect(pt.X, pt.Y, pt.X+w, pt.Y+h)
 	t.unlock()
 	if C.SDL_RenderCopy(r, t.t, nil, rect(dst)) < 0 {
