@@ -58,7 +58,6 @@ func main() {
 	draw.Draw(d1.tex, b, png, image.ZP, draw.Over)
 	w1.Draw(d1)
 
-	tick := time.Tick(16 * time.Millisecond)
 	ev0, ev1 := w0.Events(), w1.Events()
 	for {
 		select {
@@ -69,8 +68,12 @@ func main() {
 				if e.Down {
 					d0.Min = e.Point
 				}
+				w0.Draw(d0)
 			case ui.MotionEvent:
 				d0.Max = e.Point
+				w0.Draw(d0)
+			case ui.RedrawEvent:
+				w0.Draw(d0)
 			case ui.CloseEvent:
 				return
 			}
@@ -81,16 +84,15 @@ func main() {
 				if e.Down {
 					d1.Min = e.Point
 				}
+				w1.Draw(d1)
 			case ui.MotionEvent:
 				d1.Max = e.Point
+				w1.Draw(d1)
+			case ui.RedrawEvent:
+				w1.Draw(d1)
 			case ui.CloseEvent:
 				ev1 = nil
 				w1.Close()
-			}
-		case <-tick:
-			w0.Draw(d0)
-			if ev1 != nil {
-				w1.Draw(d1)
 			}
 		}
 	}
