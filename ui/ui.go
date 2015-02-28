@@ -124,6 +124,10 @@ type MotionEvent struct {
 	Delta image.Point
 }
 
+// A RedrawEvent indicates that the Window
+// has been exposed and should be redrawn.
+type RedrawEvent struct{}
+
 // A ResizeEvent indicates that the Window was resized.
 type ResizeEvent struct {
 	// Size gives the new width and height of the window.

@@ -151,6 +151,9 @@ func (u *sdl2UI) events() {
 				u.send(e.windowID, ui.ResizeEvent{
 					Size: image.Pt(int(e.data1), int(e.data2)),
 				})
+
+			case C.SDL_WINDOWEVENT_EXPOSED:
+				u.send(e.windowID, ui.RedrawEvent{})
 			}
 		}
 	}
