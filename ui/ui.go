@@ -22,6 +22,8 @@ type UI interface {
 
 // A Window represents a graphical window on the user's display.
 type Window interface {
+	// Bounds returns the Window's bounding box.
+	Bounds() image.Rectangle
 	// Events returns a channel of the Window's events.
 	// The channel is closed when the Window is Closed.
 	Events() <-chan interface{}

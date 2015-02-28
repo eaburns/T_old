@@ -149,7 +149,7 @@ func (u *sdl2UI) events() {
 
 			case C.SDL_WINDOWEVENT_SIZE_CHANGED:
 				u.send(e.windowID, ui.ResizeEvent{
-					Size: image.Point{X: int(e.data1), Y: int(e.data2)},
+					Size: image.Pt(int(e.data1), int(e.data2)),
 				})
 			}
 		}
@@ -165,8 +165,7 @@ func (u *sdl2UI) send(id C.Uint32, e interface{}) {
 }
 
 type window struct {
-	id     C.Uint32
-	bounds image.Rectangle
+	id C.Uint32
 
 	// In and Out are the input and output event channels.
 	// The sdl2UI.run go routine sends events on in.
@@ -184,10 +183,9 @@ type window struct {
 func (u *sdl2UI) NewWindow(title string, w, h int) ui.Window {
 	return u.Do(func() interface{} {
 		win := &window{
-			bounds: image.Rect(0, 0, w, h),
-			in:     make(chan interface{}, 10),
-			out:    make(chan interface{}, 10),
-			u:      u,
+			in:  make(chan interface{}, 10),
+			out: make(chan interface{}, 10),
+			u:   u,
 		}
 		win.w = newWindow(title, w, h)
 		win.id = C.SDL_GetWindowID(win.w)
@@ -288,6 +286,12 @@ func (win *window) close() {
 	close(win.in)
 }
 
+func (win *window) Bounds() image.Rectangle {
+	var w, h C.int
+	C.SDL_GetWindowSize(win.w, &w, &h)
+	return image.Rect(0, 0, int(w), int(h))
+}
+
 func (win *window) Events() <-chan interface{} { return win.out }
 
 func (win *window) Draw(d ui.Drawer) {
@@ -382,7 +386,7 @@ type canvas struct {
 	win *window
 }
 
-func (c *canvas) Bounds() image.Rectangle { return c.win.bounds }
+func (c *canvas) Bounds() image.Rectangle { return c.win.Bounds() }
 
 func (c *canvas) setColor(col color.Color) {
 	r, g, b, a := rgba(col)
