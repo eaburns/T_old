@@ -28,6 +28,9 @@ type Fix32 int32
 // Int returns the integer portion of a Fix32.
 func (f Fix32) Int() int { return int(f >> 8) }
 
+// String returns the string representation of the Fix32.
+func (f Fix32) String() string { return geom.Fix32(f).String() }
+
 // Point is a point in 2D space
 // with Fix32 coordinates.
 type Point struct {
