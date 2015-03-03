@@ -160,22 +160,34 @@ func (u *sdl2UI) events() {
 }
 
 func (u *sdl2UI) send(id C.Uint32, e interface{}) {
-	if w, ok := u.wins[id]; ok {
+	if win, ok := u.wins[id]; ok {
 		// This send must not block waiting for a go routine
 		// that may also be blocked on sdl2UI.do.
-		w.in <- e
+		//
+		// This select will not block.
+		// Either we can send an event, because the channel's empty,
+		// or we can receive the events currently in the channel,
+		// append to them, and send them back.
+		select {
+		case evs := <-win.in:
+			win.in <- append(evs, e)
+		case win.in <- []interface{}{e}:
+		}
 	}
 }
 
 type window struct {
 	id C.Uint32
 
-	// In and Out are the input and output event channels.
-	// The sdl2UI.run go routine sends events on in.
-	// The window.run go routine receives and buffers events from in.
-	// The window.run go routine sends buffered events to out.
+	// In simulates an infinite buffer channel,
+	// using a unit buffer and a slice.
+	// The Do go routine sends events to in
+	// by either sending a slice to the empty channel
+	// or appending to the slice already in the channel.
+	// Either way, the sender does not block.
+	in chan []interface{}
 	// Out is returned by window.Events().
-	in, out chan interface{}
+	out chan interface{}
 
 	// The following are owned by the sdl2UI.run go routine.
 	u *sdl2UI
@@ -186,7 +198,7 @@ type window struct {
 func (u *sdl2UI) NewWindow(title string, w, h int) ui.Window {
 	return u.Do(func() interface{} {
 		win := &window{
-			in:  make(chan interface{}, 10),
+			in:  make(chan []interface{}, 1),
 			out: make(chan interface{}, 10),
 			u:   u,
 		}
@@ -235,38 +247,11 @@ func newRenderer(w *C.SDL_Window) *C.SDL_Renderer {
 }
 
 // Run is the window's main event handling loop.
-// It receives and buffers events from win.in,
-// sends buffered events to win.out,
-// and exits when win.in is closed.
-// It must be called in its own go routine.
-//
-// This is necessary because the sdl2UI.run go routine
-// must never block sending an event to a go routine
-// that may also be blocked on sdl2UI.Do.
-// The window.run go routine doesn't block;
-// it is always ready to receive an event.
+// It runs in its own go routine.
 func (win *window) run() {
-	var next interface{}
-	var events []interface{}
-	var out chan interface{}
-	for {
-		select {
-		case ev, ok := <-win.in:
-			if !ok {
-				close(win.out)
-				return
-			}
-			events = append(events, ev)
-		case out <- next:
-		}
-		if len(events) == 0 {
-			// Set out to nil, since there is no next to send yet.
-			out = nil
-		} else {
-			out = win.out
-			next = events[0]
-			copy(events, events[1:])
-			events = events[:len(events)-1]
+	for es := range win.in {
+		for _, e := range es {
+			win.out <- e
 		}
 	}
 }
