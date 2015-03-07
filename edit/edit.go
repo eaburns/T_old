@@ -169,6 +169,33 @@ func (ed *Editor) Mark(a Address, m rune) error {
 	return nil
 }
 
+// Print returns the runes identified by the address.
+// Dot is set to the address.
+func (ed *Editor) Print(a Address) ([]rune, error) {
+	r, err := a.addr(ed)
+	if err != nil {
+		return nil, err
+	}
+	rs := make([]rune, r.size())
+	if _, err := ed.buf.runes.Read(rs, r.from); err != nil {
+		return nil, err
+	}
+	ed.marks['.'] = r
+	return rs, nil
+}
+
+// Where returns the rune offsets of an address.
+// The from offset is inclusive and to is exclusive.
+// Dot is set to the address.
+func (ed *Editor) Where(a Address) (from, to int64, err error) {
+	r, err := a.addr(ed)
+	if err != nil {
+		return 0, 0, err
+	}
+	ed.marks['.'] = r
+	return r.from, r.to, nil
+}
+
 // Substitute substitutes text for the first match
 // of the regular expression in the addressed range.
 // When substituting, a backslash followed by a digit d
