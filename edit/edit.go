@@ -307,16 +307,20 @@ func (ed *Editor) subMatch(r addr, re *re1.Regexp) ([][2]int64, error) {
 //	lines of text
 //	.	Appends after the addressed text.
 //		If an address is not supplied, dot is used.
+//		Dot is set to the address.
 //	c
 //	i	Just like a, but c changes the addressed text
 //		and i inserts before the addressed text.
+//		Dot is set to the address.
 //	{addr} d
 //		Deletes the addressed text.
 //		If an address is not supplied, dot is used.
+//		Dot is set to the address.
 //	{addr} m {[a-zA-Z]}
 //		Sets the named mark to the address.
 //		If an address is not supplied, dot is used.
 //		If a mark name is not given, dot is set.
+//		Dot is set to the address.
 //	{addr} s/regexp/text/
 //		Substitute substitutes text for the first match
 // 		of the regular expression in the addressed range.
@@ -326,6 +330,7 @@ func (ed *Editor) subMatch(r addr, re *re1.Regexp) ([][2]int64, error) {
 // 		If the delimiter after the text is followed by the letter g
 //		then all matches in the address range are substituted.
 //		If an address is not supplied, dot is used.
+//		Dot is set to the modified address.
 func (ed *Editor) Edit(cmd []rune) error {
 	addr, n, err := Addr(cmd)
 	switch {
