@@ -4,6 +4,7 @@ package edit
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"unicode"
 
@@ -348,6 +349,14 @@ func (ed *Editor) subMatch(r addr, re *re1.Regexp) ([][2]int64, error) {
 //		If an address is not supplied, dot is used.
 //		If a mark name is not given, dot is set.
 //		Dot is set to the address.
+//	{addr} p
+//		Returns the runes identified by the address.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the address.
+//	{addr} =#
+//		Returns the runes offsets of the address.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the address.
 //	{addr} s/regexp/text/
 //		Substitute substitutes text for the first match
 // 		of the regular expression in the addressed range.
@@ -358,41 +367,52 @@ func (ed *Editor) subMatch(r addr, re *re1.Regexp) ([][2]int64, error) {
 //		then all matches in the address range are substituted.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the modified address.
-func (ed *Editor) Edit(cmd []rune) error {
+func (ed *Editor) Edit(cmd []rune) ([]rune, error) {
 	addr, n, err := Addr(cmd)
 	switch {
 	case err != nil:
-		return err
+		return nil, err
 	case addr == nil:
 		addr = Dot
 	case len(cmd) == n:
-		return errors.New("missing command")
+		return nil, errors.New("missing command")
 	default:
 		cmd = cmd[n:]
 	}
 	switch c := cmd[0]; c {
 	case 'a':
-		return ed.Append(addr, parseText(cmd[1:]))
+		return nil, ed.Append(addr, parseText(cmd[1:]))
 	case 'c':
-		return ed.Change(addr, parseText(cmd[1:]))
+		return nil, ed.Change(addr, parseText(cmd[1:]))
 	case 'i':
-		return ed.Insert(addr, parseText(cmd[1:]))
+		return nil, ed.Insert(addr, parseText(cmd[1:]))
 	case 'd':
-		return ed.Delete(addr)
+		return nil, ed.Delete(addr)
 	case 'm':
-		return ed.Mark(addr, parseMarkRune(cmd[1:]))
+		return nil, ed.Mark(addr, parseMarkRune(cmd[1:]))
+	case 'p':
+		return ed.Print(addr)
+	case '=':
+		if cmd[1] != '#' {
+			return nil, errors.New("unknown command: " + string(c))
+		}
+		from, to, err := ed.Where(addr)
+		if err != nil {
+			return nil, err
+		}
+		return []rune(fmt.Sprintf("#%d,#%d", from, to)), nil
 	case 's':
 		re, err := re1.Compile(cmd[1:], re1.Options{Delimited: true})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		exp := re.Expression()
 		cmd = cmd[1+len(exp):]
 		sub := parseDelimited(exp[0], true, cmd)
 		g := len(sub) < len(cmd)-1 && cmd[len(sub)+1] == 'g'
-		return ed.Substitute(addr, re, sub, g)
+		return nil, ed.Substitute(addr, re, sub, g)
 	default:
-		return errors.New("unknown command: " + string(c))
+		return nil, errors.New("unknown command: " + string(c))
 	}
 }
 
