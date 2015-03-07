@@ -4,6 +4,7 @@ package edit
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"unicode"
 
@@ -169,6 +170,33 @@ func (ed *Editor) Mark(a Address, m rune) error {
 	return nil
 }
 
+// Print returns the runes identified by the address.
+// Dot is set to the address.
+func (ed *Editor) Print(a Address) ([]rune, error) {
+	r, err := a.addr(ed)
+	if err != nil {
+		return nil, err
+	}
+	rs := make([]rune, r.size())
+	if _, err := ed.buf.runes.Read(rs, r.from); err != nil {
+		return nil, err
+	}
+	ed.marks['.'] = r
+	return rs, nil
+}
+
+// Where returns the rune offsets of an address.
+// The from offset is inclusive and to is exclusive.
+// Dot is set to the address.
+func (ed *Editor) Where(a Address) (from, to int64, err error) {
+	r, err := a.addr(ed)
+	if err != nil {
+		return 0, 0, err
+	}
+	ed.marks['.'] = r
+	return r.from, r.to, nil
+}
+
 // Substitute substitutes text for the first match
 // of the regular expression in the addressed range.
 // When substituting, a backslash followed by a digit d
@@ -307,16 +335,28 @@ func (ed *Editor) subMatch(r addr, re *re1.Regexp) ([][2]int64, error) {
 //	lines of text
 //	.	Appends after the addressed text.
 //		If an address is not supplied, dot is used.
+//		Dot is set to the address.
 //	c
 //	i	Just like a, but c changes the addressed text
 //		and i inserts before the addressed text.
+//		Dot is set to the address.
 //	{addr} d
 //		Deletes the addressed text.
 //		If an address is not supplied, dot is used.
+//		Dot is set to the address.
 //	{addr} m {[a-zA-Z]}
 //		Sets the named mark to the address.
 //		If an address is not supplied, dot is used.
 //		If a mark name is not given, dot is set.
+//		Dot is set to the address.
+//	{addr} p
+//		Returns the runes identified by the address.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the address.
+//	{addr} =#
+//		Returns the runes offsets of the address.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the address.
 //	{addr} s/regexp/text/
 //		Substitute substitutes text for the first match
 // 		of the regular expression in the addressed range.
@@ -326,41 +366,53 @@ func (ed *Editor) subMatch(r addr, re *re1.Regexp) ([][2]int64, error) {
 // 		If the delimiter after the text is followed by the letter g
 //		then all matches in the address range are substituted.
 //		If an address is not supplied, dot is used.
-func (ed *Editor) Edit(cmd []rune) error {
+//		Dot is set to the modified address.
+func (ed *Editor) Edit(cmd []rune) ([]rune, error) {
 	addr, n, err := Addr(cmd)
 	switch {
 	case err != nil:
-		return err
+		return nil, err
 	case addr == nil:
 		addr = Dot
 	case len(cmd) == n:
-		return errors.New("missing command")
+		return nil, errors.New("missing command")
 	default:
 		cmd = cmd[n:]
 	}
 	switch c := cmd[0]; c {
 	case 'a':
-		return ed.Append(addr, parseText(cmd[1:]))
+		return nil, ed.Append(addr, parseText(cmd[1:]))
 	case 'c':
-		return ed.Change(addr, parseText(cmd[1:]))
+		return nil, ed.Change(addr, parseText(cmd[1:]))
 	case 'i':
-		return ed.Insert(addr, parseText(cmd[1:]))
+		return nil, ed.Insert(addr, parseText(cmd[1:]))
 	case 'd':
-		return ed.Delete(addr)
+		return nil, ed.Delete(addr)
 	case 'm':
-		return ed.Mark(addr, parseMarkRune(cmd[1:]))
+		return nil, ed.Mark(addr, parseMarkRune(cmd[1:]))
+	case 'p':
+		return ed.Print(addr)
+	case '=':
+		if cmd[1] != '#' {
+			return nil, errors.New("unknown command: " + string(c))
+		}
+		from, to, err := ed.Where(addr)
+		if err != nil {
+			return nil, err
+		}
+		return []rune(fmt.Sprintf("#%d,#%d", from, to)), nil
 	case 's':
 		re, err := re1.Compile(cmd[1:], re1.Options{Delimited: true})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		exp := re.Expression()
 		cmd = cmd[1+len(exp):]
 		sub := parseDelimited(exp[0], true, cmd)
 		g := len(sub) < len(cmd)-1 && cmd[len(sub)+1] == 'g'
-		return ed.Substitute(addr, re, sub, g)
+		return nil, ed.Substitute(addr, re, sub, g)
 	default:
-		return errors.New("unknown command: " + string(c))
+		return nil, errors.New("unknown command: " + string(c))
 	}
 }
 

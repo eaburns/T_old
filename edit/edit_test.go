@@ -282,6 +282,39 @@ func TestEditorMark(t *testing.T) {
 	}
 }
 
+func TestEditorPrint(t *testing.T) {
+	tests := []multiEditTest{
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "p", print: "Hello, World!", want: "Hello, World!"},
+			{edit: "#1p", print: "", want: "Hello, World!"},
+			{edit: "#0,#1p", print: "H", want: "Hello, World!"},
+			{edit: "1p", print: "Hello, World!", want: "Hello, World!"},
+			{edit: "/e.*/p", print: "ello, World!", want: "Hello, World!"},
+			{edit: "0p", print: "", want: "Hello, World!"},
+			{edit: "$p", print: "", want: "Hello, World!"},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestEditorWhere(t *testing.T) {
+	tests := []multiEditTest{
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "=#", print: "#0,#13", want: "Hello, World!"},
+			{edit: "/e.*/=#", print: "#1,#13", want: "Hello, World!"},
+			{edit: "0=#", print: "#0,#0", want: "Hello, World!"},
+			{edit: "$=#", print: "#13,#13", want: "Hello, World!"},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 func TestEditorSubstitute(t *testing.T) {
 	tests := []multiEditTest{
 		{
@@ -426,8 +459,8 @@ func TestEditorEdit(t *testing.T) {
 // A MultiEditTest tests mutiple edits performed on a buffer.
 // It checks that the buffer has the desired text after each edit.
 type multiEditTest []struct {
-	who        int
-	edit, want string
+	who               int
+	edit, print, want string
 }
 
 func (test multiEditTest) nEditors() int {
@@ -449,9 +482,10 @@ func (test multiEditTest) run(t *testing.T) {
 		defer eds[i].Close()
 	}
 	for i, c := range test {
-		if err := eds[c.who].Edit([]rune(c.edit)); err != nil {
-			t.Errorf("%v, %d, Edit(%v)=%v, want nil", test, i,
-				strconv.Quote(c.edit), err)
+		pr, err := eds[c.who].Edit([]rune(c.edit))
+		if pr := string(pr); pr != c.print || err != nil {
+			t.Errorf("%v, %d, Edit(%v)=%q,%v, want %q,nil", test, i,
+				strconv.Quote(c.edit), pr, err, c.print)
 			continue
 		}
 		rs := make([]rune, b.runes.Size())
