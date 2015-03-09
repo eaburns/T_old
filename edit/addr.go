@@ -53,28 +53,21 @@ type addr struct{ from, to int64 }
 func (a addr) size() int64 { return a.to - a.from }
 
 // Update returns a, updated to account for b changing to size n.
-func (a addr) update(b addr, n int64) addr { return a.clip(b).move(b, n) }
+func (a addr) update(b addr, n int64) addr {
+	// Clip, unless b is entirely within a.
+	if a.from >= b.from || b.to >= a.to {
+		if b.contains(a.from) {
+			a.from = b.to
+		}
+		if b.contains(a.to - 1) {
+			a.to = b.from
+		}
+		if a.from > a.to {
+			a.to = a.from
+		}
+	}
 
-func (a addr) clip(b addr) addr {
-	if a.from < b.from && b.to < a.to {
-		// Don't clip a if b is entirely within a.
-		return a
-	}
-	if b.contains(a.from) {
-		a.from = b.to
-	}
-	if b.contains(a.to - 1) {
-		a.to = b.from
-	}
-	if a.from > a.to {
-		a.to = a.from
-	}
-	return a
-}
-
-func (a addr) contains(p int64) bool { return a.from <= p && p < a.to }
-
-func (a addr) move(b addr, n int64) addr {
+	// Move.
 	d := n - b.size()
 	if a.to >= b.to {
 		a.to += d
@@ -84,6 +77,8 @@ func (a addr) move(b addr, n int64) addr {
 	}
 	return a
 }
+
+func (a addr) contains(p int64) bool { return a.from <= p && p < a.to }
 
 type compoundAddr struct {
 	op     rune
