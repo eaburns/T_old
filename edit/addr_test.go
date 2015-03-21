@@ -267,9 +267,9 @@ type addressTest struct {
 }
 
 func (test addressTest) run(t *testing.T) {
-	ed := NewBuffer().NewEditor()
+	ed := NewEditor(NewBuffer())
 	defer ed.buf.Close()
-	if err := ed.Append(All, []rune(test.text)); err != nil {
+	if _, err := ed.buf.runes.Insert([]rune(test.text), 0); err != nil {
 		t.Fatalf(`Put("%s")=%v, want nil`, test.text, err)
 	}
 	if test.marks != nil {
@@ -543,16 +543,16 @@ func TestIOErrors(t *testing.T) {
 		}
 		f := &errReaderAt{nil}
 		r := runes.NewBufferReaderWriterAt(1, f)
-		e := newBufferRunes(r).NewEditor()
-		defer e.Close()
+		ed := NewEditor(newBuffer(r))
+		defer ed.Close()
 
-		if err := e.Append(Rune(0), rs); err != nil {
-			t.Fatalf("e.Append(#0, %v)=%v, want nil", strconv.Quote(string(rs)), err)
+		if _, err := ed.buf.runes.Insert(rs, 0); err != nil {
+			t.Fatalf("ed.buf.runes.Insert(%v, 0)=%v, want nil", strconv.Quote(string(rs)), err)
 		}
 
 		// All subsequent reads will be errors.
 		f.error = errors.New("read error")
-		if a, err := addr.addr(e); err != f.error {
+		if a, err := addr.addr(ed); err != f.error {
 			t.Errorf("Addr(%v).addr()=%v,%v, want addr{},%v",
 				strconv.Quote(test), a, err, f.error)
 		}

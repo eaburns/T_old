@@ -26,8 +26,8 @@ func makeEditor(n int) (*Editor, int) {
 			rs[i] = rune(rand.Intn(0x7E+1-0x20) + 0x20)
 		}
 	}
-	ed := NewBuffer().NewEditor()
-	if err := ed.Insert(All, rs); err != nil {
+	ed := NewEditor(NewBuffer())
+	if _, err := ed.buf.runes.Insert(rs, 0); err != nil {
 		panic(err)
 	}
 	return ed, lines
