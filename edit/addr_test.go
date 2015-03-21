@@ -436,13 +436,16 @@ func TestUpdate(t *testing.T) {
 		{a: addr{0, 3}, b: addr{0, 1}, n: 7, want: addr{7, 9}},
 
 		// b over the end of a
-		{a: addr{10, 20}, b: addr{15, 20}, n: 0, want: addr{10, 15}},
-		{a: addr{10, 20}, b: addr{15, 20}, n: 10, want: addr{10, 15}},
+		{a: addr{10, 20}, b: addr{15, 21}, n: 0, want: addr{10, 15}},
+		{a: addr{10, 20}, b: addr{15, 21}, n: 10, want: addr{10, 15}},
 
 		// b within a
 		{a: addr{10, 20}, b: addr{12, 18}, n: 0, want: addr{10, 14}},
 		{a: addr{10, 20}, b: addr{12, 18}, n: 1, want: addr{10, 15}},
 		{a: addr{10, 20}, b: addr{12, 18}, n: 100, want: addr{10, 114}},
+		{a: addr{10, 20}, b: addr{15, 20}, n: 0, want: addr{10, 15}},
+		{a: addr{10, 20}, b: addr{15, 20}, n: 10, want: addr{10, 25}},
+		{a: addr{0, 19}, b: addr{18, 19}, n: 2, want: addr{0, 20}},
 
 		// b over all of a
 		{a: addr{10, 20}, b: addr{10, 20}, n: 0, want: addr{10, 10}},

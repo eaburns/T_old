@@ -55,7 +55,7 @@ func (a addr) size() int64 { return a.to - a.from }
 // Update returns a, updated to account for b changing to size n.
 func (a addr) update(b addr, n int64) addr {
 	// Clip, unless b is entirely within a.
-	if a.from >= b.from || b.to >= a.to {
+	if a.from >= b.from || b.to > a.to {
 		if b.contains(a.from) {
 			a.from = b.to
 		}
