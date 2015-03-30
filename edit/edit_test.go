@@ -3,10 +3,95 @@ package edit
 import (
 	"strconv"
 	"testing"
+
+	"github.com/eaburns/T/re1"
 )
 
+func TestRetry(t *testing.T) {
+	ed := NewEditor(NewBuffer())
+	defer ed.Close()
+
+	const str = "Hello, 世界!"
+	ch := func() (addr, error) {
+		if ed.buf.seq < 10 {
+			// Simulate concurrent changes, necessitating retries.
+			ed.buf.seq++
+		}
+		return change(ed, All, []rune(str))
+	}
+	if err := ed.do(ch); err != nil {
+		t.Fatalf("ed.do(ch)=%v, want nil", err)
+	}
+	rs, err := ed.Print(All)
+	if s := string(rs); s != str || err != nil {
+		t.Errorf("ed.Print(All)=%q,%v, want %q,nil\n", s, err, str)
+	}
+}
+
+func TestMark(t *testing.T) {
+	tests := []struct {
+		init string
+		addr Address
+		mark rune
+		want addr
+	}{
+		{init: "Hello, 世界!", addr: All, mark: 'a', want: addr{0, 10}},
+		{init: "Hello, 世界!", addr: Regexp("/Hello"), mark: 'a', want: addr{0, 5}},
+		{init: "Hello, 世界!", addr: Line(0), mark: 'z', want: addr{0, 0}},
+		{init: "Hello, 世界!", addr: End, mark: 'm', want: addr{10, 10}},
+	}
+
+	for _, test := range tests {
+		ed := NewEditor(NewBuffer())
+		defer ed.Close()
+		if err := ed.Append(Line(0), []rune(test.init)); err != nil {
+			t.Fatalf("ed.Append(0, %q)=%v, want nil", test.init, err)
+		}
+		if err := ed.Mark(test.addr, test.mark); err != nil {
+			t.Errorf("ed.Mark(%q, %q)=%v, want nil", test.addr, test.mark, err)
+		}
+		if r := ed.marks[test.mark]; r != test.want {
+			t.Errorf("ed.marks[%q]=%v, want %v", test.mark, r, test.want)
+		}
+	}
+}
+
+func TestWhere(t *testing.T) {
+	tests := []whereTest{
+		{init: "Hello, 世界!", addr: All, from: 0, to: 10},
+		{init: "Hello, 世界!", addr: End, from: 10, to: 10},
+		{init: "Hello, 世界!", addr: Line(0), from: 0, to: 0},
+		{init: "Hello, 世界!", addr: Line(1), from: 0, to: 10},
+		{init: "Hello, 世界!", addr: Regexp("/Hello"), from: 0, to: 5},
+		{init: "Hello, 世界!", addr: Regexp("/世界"), from: 7, to: 9},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+type whereTest struct {
+	init     string
+	addr     Address
+	from, to int64
+}
+
+func (test *whereTest) run(t *testing.T) {
+	ed := NewEditor(NewBuffer())
+	defer ed.Close()
+
+	if err := ed.Append(All, []rune(test.init)); err != nil {
+		t.Fatalf("ed.Append(All, %q)=%v, want nil", test.init, err)
+	}
+	from, to, err := ed.Where(test.addr)
+	if from != test.from || to != test.to || err != nil {
+		t.Errorf("ed.Where(%q)=%d,%d,%v, want %d,%d,nil",
+			test.addr, from, to, err, test.from, test.to)
+	}
+}
+
 func TestAppend(t *testing.T) {
-	str := "Hello, 世界!"
+	const str = "Hello, 世界!"
 	tests := []changeTest{
 		{init: str, addr: "#0", add: "XYZ", want: "XYZHello, 世界!", dot: addr{0, 3}},
 		{init: str, addr: "$", add: "XYZ", want: "Hello, 世界!XYZ", dot: addr{10, 13}},
@@ -19,7 +104,7 @@ func TestAppend(t *testing.T) {
 }
 
 func TestInsert(t *testing.T) {
-	str := "Hello, 世界!"
+	const str = "Hello, 世界!"
 	tests := []changeTest{
 		{init: str, addr: "#0", add: "XYZ", want: "XYZHello, 世界!", dot: addr{0, 3}},
 		{init: str, addr: "$", add: "XYZ", want: "Hello, 世界!XYZ", dot: addr{10, 13}},
@@ -32,7 +117,7 @@ func TestInsert(t *testing.T) {
 }
 
 func TestChange(t *testing.T) {
-	str := "Hello, 世界!"
+	const str = "Hello, 世界!"
 	tests := []changeTest{
 		{init: str, addr: "#0", add: "XYZ", want: "XYZHello, 世界!", dot: addr{0, 3}},
 		{init: str, addr: "$", add: "XYZ", want: "Hello, 世界!XYZ", dot: addr{10, 13}},
@@ -51,7 +136,7 @@ type changeTest struct {
 }
 
 func (test changeTest) run(f func(*Editor, Address, []rune) error, name string, t *testing.T) {
-	ed := NewBuffer().NewEditor()
+	ed := NewEditor(NewBuffer())
 	defer ed.Close()
 	defer ed.buf.Close()
 	if err := ed.Append(Rune(0), []rune(test.init)); err != nil {
@@ -59,69 +144,206 @@ func (test changeTest) run(f func(*Editor, Address, []rune) error, name string, 
 	}
 	addr, _, err := Addr([]rune(test.addr))
 	if err != nil {
-		t.Errorf("%v: bad address: %s", test, test.addr)
+		t.Fatalf("%#v: bad address: %s", test, test.addr)
 		return
 	}
 	if err := f(ed, addr, []rune(test.add)); err != nil {
-		t.Errorf("%v: %s(%v, %v)=%v, want nil", test, name, test.addr, test.add, err)
-		return
+		t.Fatalf("%#v: %s(%v, %v)=%v, want nil", test, name, test.addr, test.add, err)
 	}
 	if ed.marks['.'] != test.dot {
-		t.Errorf("%v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
-		return
+		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
 	}
-	rs, err := ed.Read(All)
+	rs, err := ed.Print(All)
 	if s := string(rs); s != test.want || err != nil {
-		t.Errorf("%v: string=%v, want %v\n",
-			test, strconv.Quote(s), strconv.Quote(test.want))
-		return
+		t.Errorf("%#v: string=%q, want %q\n", test, s, test.want)
 	}
 }
 
-func TestEditorDelete(t *testing.T) {
-	str := "Hello, 世界!"
-	tests := []struct {
-		init, want, addr string
-		dot              addr
-	}{
-		{init: str, addr: "#0", want: str, dot: addr{0, 0}},
-		{init: str, addr: "#5", want: str, dot: addr{5, 5}},
-		{init: str, addr: "0,$", want: "", dot: addr{0, 0}},
-		{init: str, addr: "#0,#8", want: "界!", dot: addr{0, 0}},
-		{init: str, addr: "#2,$", want: "He", dot: addr{2, 2}},
-		{init: str, addr: "#2,$-#2", want: "He界!", dot: addr{2, 2}},
+func TestSubstitute(t *testing.T) {
+	tests := []subTest{
+		{
+			init: "Hello, 世界!",
+			addr: ",", re: ".*", sub: ``, g: true,
+			want: "", dot: addr{0, 0},
+		},
+		{
+			init: "Hello, 世界!",
+			addr: ",", re: "世界", sub: `World`,
+			want: "Hello, World!", dot: addr{0, 13},
+		},
+		{
+			init: "Hello, 世界!",
+			addr: ",", re: "(.)", sub: `\1-`, g: true,
+			want: "H-e-l-l-o-,- -世-界-!-", dot: addr{0, 20},
+		},
+		{
+			init: "abcabc",
+			addr: ",", re: "abc", sub: "defg",
+			want: "defgabc", dot: addr{0, 7},
+		},
+		{
+			init: "abcabcabc",
+			addr: ",", re: "abc", sub: "defg", g: true,
+			want: "defgdefgdefg", dot: addr{0, 12},
+		},
+		{
+			init: "abcabcabc",
+			addr: "/abcabc/", re: "abc", sub: "defg", g: true,
+			want: "defgdefgabc", dot: addr{0, 8},
+		},
+		{
+			init: "abc abc",
+			addr: ",", re: "abc", sub: "defg",
+			want: "defg abc", dot: addr{0, 8},
+		},
+		{
+			init: "abc abc",
+			addr: ",", re: "abc", sub: "defg", g: true,
+			want: "defg defg", dot: addr{0, 9},
+		},
+		{
+			init: "abc abc abc",
+			addr: "/abc abc/", re: "abc", sub: "defg", g: true,
+			want: "defg defg abc", dot: addr{0, 9},
+		},
+		{
+			init: "abcabc",
+			addr: ",", re: "abc", sub: "de",
+			want: "deabc", dot: addr{0, 5},
+		},
+		{
+			init: "abcabcabc",
+			addr: ",", re: "abc", sub: "de", g: true,
+			want: "dedede", dot: addr{0, 6},
+		},
+		{
+			init: "abcabcabc",
+			addr: "/abcabc/", re: "abc", sub: "de", g: true,
+			want: "dedeabc", dot: addr{0, 4},
+		},
+		{
+			init: "func f()",
+			addr: ",", re: `func (.*)\(\)`, sub: `func (T) \1()`, g: true,
+			want: "func (T) f()", dot: addr{0, 12},
+		},
+		{
+			init: "abcdefghi",
+			addr: ",", re: "(abc)(def)(ghi)", sub: `\0 \3 \2 \1`,
+			want: "abcdefghi ghi def abc", dot: addr{0, 21},
+		},
+		{
+			init: "abc",
+			addr: ",", re: "abc", sub: `\1`,
+			want: "", dot: addr{0, 0},
+		},
 	}
 	for _, test := range tests {
-		ed := NewBuffer().NewEditor()
-		defer ed.Close()
-		defer ed.buf.Close()
-		if err := ed.Append(Rune(0), []rune(test.init)); err != nil {
-			t.Fatalf("%v, init failed", test)
-		}
-		addr, _, err := Addr([]rune(test.addr))
-		if err != nil {
-			t.Errorf("%v: bad address: %s", test, test.addr)
-			return
-		}
-		if err := ed.Delete(addr); err != nil {
-			t.Errorf("%v: Delete(%v)=%v, want nil", test, test.addr, err)
-			continue
-		}
-		if ed.marks['.'] != test.dot {
-			t.Errorf("%v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
-			continue
-		}
-		rs, err := ed.Read(All)
-		if s := string(rs); s != test.want || err != nil {
-			t.Errorf("%v: string=%v, want %v\n",
-				test, strconv.Quote(s), strconv.Quote(test.want))
-			continue
-		}
+		test.run(t)
 	}
 }
 
-func TestEditorMark(t *testing.T) {
-	tests := []multiEditTest{
+type subTest struct {
+	init, addr, re, sub, want string
+	g                         bool
+	dot                       addr
+}
+
+func (test subTest) run(t *testing.T) {
+	ed := NewEditor(NewBuffer())
+	defer ed.Close()
+	defer ed.buf.Close()
+	if err := ed.Append(Rune(0), []rune(test.init)); err != nil {
+		t.Fatalf("%#v, init failed", test)
+	}
+	addr, _, err := Addr([]rune(test.addr))
+	if err != nil {
+		t.Fatalf("%#v: bad address: %q", test, test.addr)
+	}
+	re, err := re1.Compile([]rune(test.re), re1.Options{})
+	if err != nil {
+		t.Fatalf("%#v: bad re: %q %v", test, test.re, err)
+	}
+	if err := ed.Substitute(addr, re, []rune(test.sub), test.g); err != nil {
+		t.Fatalf("%#v: ed.Substitute(%q, %q, %q, %v)=%v, want nil",
+			test, test.addr, test.re, test.sub, test.g, err)
+	}
+	if ed.marks['.'] != test.dot {
+		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
+	}
+	rs, err := ed.Print(All)
+	if s := string(rs); s != test.want || err != nil {
+		t.Errorf("%#v: string=%q, want %q\n", test, s, test.want)
+	}
+}
+
+func TestEditorEdit(t *testing.T) {
+	tests := []editTest{
+		{{edit: "$a/Hello, World!/", want: "Hello, World!"}},
+		{{edit: "$a\nHello, World!\n.", want: "Hello, World!\n"}},
+		{{edit: `$a/Hello, World!\/`, want: "Hello, World!/"}},
+		{{edit: `$a/Hello, World!\n`, want: "Hello, World!\n"}},
+		{{edit: "$i/Hello, World!/", want: "Hello, World!"}},
+		{{edit: "$i/Hello, World!", want: "Hello, World!"}},
+		{{edit: "$i\nHello, World!\n.", want: "Hello, World!\n"}},
+		{{edit: `$i/Hello, World!\/`, want: "Hello, World!/"}},
+		{{edit: `$i/Hello, World!\n`, want: "Hello, World!\n"}},
+		{
+			{edit: "0a/Hello, World!", want: "Hello, World!"},
+			{edit: ",c/Bye", want: "Bye"},
+		},
+		{
+			{edit: "0a/Hello", want: "Hello"},
+			{edit: "/ello/c/i", want: "Hi"},
+		},
+		{
+			{edit: "0a/Hello, World!", want: "Hello, World!"},
+			{edit: "?World?c/世界", want: "Hello, 世界!"},
+		},
+		{
+			{edit: "0a/Hello, World!", want: "Hello, World!"},
+			{edit: "/, World/d", want: "Hello!"},
+		},
+		{
+			{edit: "0a/Hello, World!", want: "Hello, World!"},
+			{edit: ",d", want: ""},
+		},
+		{
+			{edit: "0a/Hello, World!", want: "Hello, World!"},
+			{edit: "d", want: ""}, // Address defaults to dot.
+		},
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/World/c/Test", want: "Hello, Test!"},
+			{edit: "c/World", want: "Hello, World!"},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestConcurrentSimpleChanges(t *testing.T) {
+	tests := []editTest{
+		{
+			{who: 0, edit: "0c/世界!", want: "世界!"},
+			{who: 1, edit: "0c/Hello, ", want: "Hello, 世界!"},
+			{who: 0, edit: ".d", want: "Hello, "},
+			{who: 1, edit: ".d", want: ""},
+		},
+		{
+			{who: 0, edit: "0c/世界!", want: "世界!"},
+			{who: 1, edit: "0,#1c/Hello, ", want: "Hello, 界!"},
+			{who: 0, edit: ".d", want: "Hello, "},
+			{who: 1, edit: ".d", want: ""},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestEditorEditMark(t *testing.T) {
+	tests := []editTest{
 		{
 			{edit: "a/Hello, World!", want: "Hello, World!"},
 			{edit: "/, World/m a", want: "Hello, World!"},
@@ -268,7 +490,7 @@ func TestEditorMark(t *testing.T) {
 			{edit: "a/Hello, World!", want: "Hello, World!"},
 			{edit: "/World/m a", want: "Hello, World!"},
 			{edit: "/d/c/D", want: "Hello, WorlD!"},
-			{edit: "'a d", want: "Hello, D!"},
+			{edit: "'a d", want: "Hello, !"},
 		},
 		{
 			{edit: "a/abc123xyz", want: "abc123xyz"},
@@ -282,8 +504,8 @@ func TestEditorMark(t *testing.T) {
 	}
 }
 
-func TestEditorPrint(t *testing.T) {
-	tests := []multiEditTest{
+func TestEditorEditPrint(t *testing.T) {
+	tests := []editTest{
 		{
 			{edit: "a/Hello, World!", want: "Hello, World!"},
 			{edit: "p", print: "Hello, World!", want: "Hello, World!"},
@@ -300,8 +522,8 @@ func TestEditorPrint(t *testing.T) {
 	}
 }
 
-func TestEditorWhere(t *testing.T) {
-	tests := []multiEditTest{
+func TestEditorEditWhere(t *testing.T) {
+	tests := []editTest{
 		{
 			{edit: "a/Hello, World!", want: "Hello, World!"},
 			{edit: "=#", print: "#0,#13", want: "Hello, World!"},
@@ -315,8 +537,8 @@ func TestEditorWhere(t *testing.T) {
 	}
 }
 
-func TestEditorSubstitute(t *testing.T) {
-	tests := []multiEditTest{
+func TestEditorEditSubstitute(t *testing.T) {
+	tests := []editTest{
 		{
 			{edit: "a/Hello, World!", want: "Hello, World!"},
 			{edit: ",s/World/世界", want: "Hello, 世界!"},
@@ -390,80 +612,15 @@ func TestEditorSubstitute(t *testing.T) {
 	}
 }
 
-func TestConcurrentSimpleChanges(t *testing.T) {
-	tests := []multiEditTest{
-		{
-			{who: 0, edit: "0c/世界!", want: "世界!"},
-			{who: 1, edit: "0c/Hello, ", want: "Hello, 世界!"},
-			{who: 0, edit: ".d", want: "Hello, "},
-			{who: 1, edit: ".d", want: ""},
-		},
-		{
-			{who: 0, edit: "0c/世界!", want: "世界!"},
-			{who: 1, edit: "0,#1c/Hello, ", want: "Hello, 界!"},
-			{who: 0, edit: ".d", want: "Hello, "},
-			{who: 1, edit: ".d", want: ""},
-		},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestEditorEdit(t *testing.T) {
-	tests := []multiEditTest{
-		{{edit: "$a/Hello, World!/", want: "Hello, World!"}},
-		{{edit: "$a\nHello, World!\n.", want: "Hello, World!\n"}},
-		{{edit: `$a/Hello, World!\/`, want: "Hello, World!/"}},
-		{{edit: `$a/Hello, World!\n`, want: "Hello, World!\n"}},
-		{{edit: "$i/Hello, World!/", want: "Hello, World!"}},
-		{{edit: "$i/Hello, World!", want: "Hello, World!"}},
-		{{edit: "$i\nHello, World!\n.", want: "Hello, World!\n"}},
-		{{edit: `$i/Hello, World!\/`, want: "Hello, World!/"}},
-		{{edit: `$i/Hello, World!\n`, want: "Hello, World!\n"}},
-		{
-			{edit: "0a/Hello, World!", want: "Hello, World!"},
-			{edit: ",c/Bye", want: "Bye"},
-		},
-		{
-			{edit: "0a/Hello", want: "Hello"},
-			{edit: "/ello/c/i", want: "Hi"},
-		},
-		{
-			{edit: "0a/Hello, World!", want: "Hello, World!"},
-			{edit: "?World?c/世界", want: "Hello, 世界!"},
-		},
-		{
-			{edit: "0a/Hello, World!", want: "Hello, World!"},
-			{edit: "/, World/d", want: "Hello!"},
-		},
-		{
-			{edit: "0a/Hello, World!", want: "Hello, World!"},
-			{edit: ",d", want: ""},
-		},
-		{
-			{edit: "0a/Hello, World!", want: "Hello, World!"},
-			{edit: "d", want: ""}, // Address defaults to dot.
-		},
-		{
-			{edit: "a/Hello, World!", want: "Hello, World!"},
-			{edit: "/World/c/Test", want: "Hello, Test!"},
-			{edit: "c/World", want: "Hello, World!"},
-		},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-// A MultiEditTest tests mutiple edits performed on a buffer.
+// An editTest tests edits performed on a buffer,
+// possibly by multiple editors.
 // It checks that the buffer has the desired text after each edit.
-type multiEditTest []struct {
+type editTest []struct {
 	who               int
 	edit, print, want string
 }
 
-func (test multiEditTest) nEditors() int {
+func (test editTest) nEditors() int {
 	var n int
 	for _, c := range test {
 		if c.who > n {
@@ -473,12 +630,12 @@ func (test multiEditTest) nEditors() int {
 	return n + 1
 }
 
-func (test multiEditTest) run(t *testing.T) {
+func (test editTest) run(t *testing.T) {
 	b := NewBuffer()
 	defer b.Close()
 	eds := make([]*Editor, test.nEditors())
 	for i := range eds {
-		eds[i] = b.NewEditor()
+		eds[i] = NewEditor(b)
 		defer eds[i].Close()
 	}
 	for i, c := range test {

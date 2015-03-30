@@ -12,75 +12,78 @@ import (
 	"github.com/eaburns/T/runes"
 )
 
-// TODO(eaburns): Find a good size.
-const blockSize = 1 << 20
-
 // A Buffer is an editable rune buffer.
 type Buffer struct {
-	runes *runes.Buffer
-	lock  sync.Mutex
-	eds   []*Editor
+	lock     sync.RWMutex
+	runes    *runes.Buffer
+	eds      []*Editor
+	seq, who int32
 }
 
-// NewBuffer returns a new, empty buffer.
+// NewBuffer returns a new, empty Buffer.
 func NewBuffer() *Buffer {
-	return newBufferRunes(runes.NewBuffer(blockSize))
+	return newBuffer(runes.NewBuffer(1 << 12))
 }
 
-// NewBufferRunes is like NewBuffer, but the buffer uses the given runes.
-func newBufferRunes(r *runes.Buffer) *Buffer {
-	return &Buffer{runes: r}
+func newBuffer(rs *runes.Buffer) *Buffer { return &Buffer{runes: rs} }
+
+// Close closes the Buffer.
+// After Close is called, the Buffer is no longer editable.
+func (buf *Buffer) Close() error {
+	buf.lock.Lock()
+	defer buf.lock.Unlock()
+	return buf.runes.Close()
 }
 
-// Close closes the buffer and all of its editors.
-// After Close is called, the buffer is no longer editable.
-func (b *Buffer) Close() error {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-	return b.runes.Close()
-}
-
-// Size returns the number of runes in the buffer.
-// If the rune is out of range it panics.
-// If there is an error reading, it panics a RuneReadError containing the error.
+// Size returns the number of runes in the Buffer.
 //
-// The caller must hold b.lock.
-func (b *Buffer) size() int64 { return b.runes.Size() }
+// This method must be called with the RLock held.
+func (buf *Buffer) size() int64 { return buf.runes.Size() }
 
-// Returns the ith rune in the buffer.
+// Rune returns the ith rune in the Buffer.
 //
-// The caller must hold b.lock.
-func (b *Buffer) rune(i int64) (rune, error) { return b.runes.Rune(i) }
+// This method must be called with the RLock held.
+func (buf *Buffer) rune(i int64) (rune, error) { return buf.runes.Rune(i) }
 
-// Change changes the runes in the range.
+// Change changes the string identified by at
+// to contain the runes from the source.
 //
-// The caller must hold b.lock.
-func (b *Buffer) change(r addr, rs []rune) error {
-	if _, err := b.runes.Delete(r.size(), r.from); err != nil {
+// This method must be called with the Lock held.
+func (buf *Buffer) change(at addr, rs source) error {
+	if _, err := buf.runes.Delete(at.size(), at.from); err != nil {
 		return err
 	}
-	if _, err := b.runes.Insert(rs, r.from); err != nil {
+	if err := rs.insert(buf.runes, at.from); err != nil {
 		return err
 	}
-	for _, e := range b.eds {
-		e.update(r, int64(len(rs)))
+	for _, ed := range buf.eds {
+		for m := range ed.marks {
+			ed.marks[m] = ed.marks[m].update(at, rs.size())
+		}
 	}
 	return nil
 }
 
-// An Editor provides sam-like editing functionality on a buffer of runes.
+// An Editor edits a Buffer of runes.
 type Editor struct {
-	buf   *Buffer
-	marks map[rune]addr
+	buf     *Buffer
+	who     int32
+	marks   map[rune]addr
+	pending *log
 }
 
-// NewEditor returns a new editor that edits the buffer.
-func (b *Buffer) NewEditor() *Editor {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
-	ed := &Editor{buf: b, marks: make(map[rune]addr, 2)}
-	b.eds = append(b.eds, ed)
+// NewEditor returns an Editor that edits the given buffer.
+func NewEditor(buf *Buffer) *Editor {
+	buf.lock.Lock()
+	defer buf.lock.Unlock()
+	ed := &Editor{
+		buf:     buf,
+		who:     buf.who,
+		marks:   make(map[rune]addr),
+		pending: newLog(),
+	}
+	buf.who++
+	buf.eds = append(buf.eds, ed)
 	return ed
 }
 
@@ -93,45 +96,123 @@ func (ed *Editor) Close() error {
 	for i := range eds {
 		if eds[i] == ed {
 			ed.buf.eds = append(eds[:i], eds[:i+1]...)
-			return nil
+			return ed.pending.close()
 		}
 	}
 	return errors.New("already closed")
 }
 
-// Read returns the runes at an address in the buffer
-// and sets dot to the address.
-func (ed *Editor) Read(a Address) ([]rune, error) {
-	ed.buf.lock.Lock()
-	defer ed.buf.lock.Unlock()
-
-	r, err := a.addr(ed)
-	if err != nil {
-		return nil, err
+// Do applies changes to an Editor's Buffer.
+//
+// Changes are applied in two phases:
+// Phase one logs the changes without modifying the Buffer.
+// Phase two applies the changes to the Buffer.
+// If the Buffer is modified between phases one and two,
+// no changes are applied, and the proceedure restarts
+// from phase one.
+//
+// The f function performs phase one.
+// It is called with the Buffer's RLock held
+// and the Editor's pending log cleared.
+// f appends the desired changes to the Editor's pending log
+// and returns the address over which they were computed.
+// The returned address is used to compute and set dot
+// after the change is applied.
+// In the face of retries, f is called multiple times,
+// so it must be idempotent.
+func (ed *Editor) do(f func() (addr, error)) error {
+retry:
+	marks := make(map[rune]addr, len(ed.marks))
+	for r, a := range ed.marks {
+		marks[r] = a
 	}
-	ed.marks['.'] = r
-	rs := make([]rune, r.size())
-	if _, err := ed.buf.runes.Read(rs, r.from); err != nil {
-		return nil, err
+	seq, at, err := pend(ed, f)
+	if at, err = fixAddrs(at, ed.pending); err != nil {
+		return err
 	}
-	return rs, nil
+	switch retry, err := apply(ed, seq); {
+	case err != nil:
+		return err
+	case retry:
+		ed.marks = marks
+		goto retry
+	}
+	ed.marks['.'] = at
+	return err
 }
 
-// Change changes the range to the given runes
-// and sets dot to the address of the changed runes.
-func (ed *Editor) Change(a Address, rs []rune) error {
+func pend(ed *Editor, f func() (addr, error)) (int32, addr, error) {
+	if err := ed.pending.clear(); err != nil {
+		return 0, addr{}, err
+	}
+
+	ed.buf.lock.RLock()
+	defer ed.buf.lock.RUnlock()
+	seq := ed.buf.seq
+	at, err := f()
+	return seq, at, err
+}
+
+func apply(ed *Editor, seq int32) (bool, error) {
 	ed.buf.lock.Lock()
 	defer ed.buf.lock.Unlock()
+	if ed.buf.seq != seq {
+		return true, nil
+	}
+	for e := logFirst(ed.pending); !e.end(); e = e.next() {
+		if err := ed.buf.change(e.at, e.data()); err != nil {
+			// TODO(eaburns): Very bad; what should we do?
+			return false, err
+		}
+	}
+	ed.buf.seq++
+	return false, nil
+}
 
-	r, err := a.addr(ed)
+func fixAddrs(at addr, l *log) (addr, error) {
+	if !inSequence(l) {
+		return addr{}, errors.New("changes not in sequence")
+	}
+	for e := logFirst(l); !e.end(); e = e.next() {
+		if e.at.from < at.from || e.at.to > at.to {
+			panic("change not contained in address")
+		}
+		at.to = at.update(e.at, e.data().size()).to
+		for f := e.next(); !f.end(); f = f.next() {
+			f.at = f.at.update(e.at, e.data().size())
+			if err := f.store(); err != nil {
+				return addr{}, err
+			}
+		}
+	}
+	return at, nil
+}
+
+func inSequence(l *log) bool {
+	e := logFirst(l)
+	for !e.end() {
+		f := e.next()
+		if f.at != e.at && f.at.from < e.at.to {
+			return false
+		}
+		e = f
+	}
+	return true
+}
+
+// Change changes the Address to the given runes
+// and sets dot to the Address of the changed runes.
+func (ed *Editor) Change(a Address, rs []rune) error {
+	return ed.do(func() (addr, error) { return change(ed, a, rs) })
+}
+
+func change(ed *Editor, a Address, rs []rune) (addr, error) {
+	at, err := a.addr(ed)
 	if err != nil {
-		return err
+		return addr{}, err
 	}
-	if err := ed.buf.change(r, rs); err != nil {
-		return err
-	}
-	ed.marks['.'] = addr{from: r.from, to: r.from + int64(len(rs))}
-	return nil
+	err = ed.pending.append(ed.buf.seq, ed.who, at, sliceSource(rs))
+	return at, err
 }
 
 // Append inserts the runes after the address
@@ -159,42 +240,63 @@ func (ed *Editor) Insert(ad Address, rs []rune) error {
 // If the mark is . then dot is set to the address.
 // Otherwise the named mark is set to the address.
 func (ed *Editor) Mark(a Address, m rune) error {
+	ed.buf.lock.RLock()
+	defer ed.buf.lock.RUnlock()
+	_, err := mark(ed, a, m)
+	return err
+}
+
+func mark(ed *Editor, a Address, m rune) (addr, error) {
 	if !isMarkRune(m) && m != '.' {
-		return errors.New("bad mark: " + string(m))
+		return addr{}, errors.New("bad mark: " + string(m))
 	}
-	r, err := a.addr(ed)
+	at, err := a.addr(ed)
 	if err != nil {
-		return err
+		return addr{}, err
 	}
-	ed.marks[m] = r
-	return nil
+	ed.marks[m] = at
+	return at, nil
 }
 
 // Print returns the runes identified by the address.
 // Dot is set to the address.
 func (ed *Editor) Print(a Address) ([]rune, error) {
-	r, err := a.addr(ed)
+	ed.buf.lock.RLock()
+	defer ed.buf.lock.RUnlock()
+	pr, _, err := print(ed, a)
+	return pr, err
+}
+
+func print(ed *Editor, a Address) ([]rune, addr, error) {
+	at, err := a.addr(ed)
 	if err != nil {
-		return nil, err
+		return nil, addr{}, err
 	}
-	rs := make([]rune, r.size())
-	if _, err := ed.buf.runes.Read(rs, r.from); err != nil {
-		return nil, err
+	rs := make([]rune, at.size())
+	if _, err := ed.buf.runes.Read(rs, at.from); err != nil {
+		return nil, addr{}, err
 	}
-	ed.marks['.'] = r
-	return rs, nil
+	ed.marks['.'] = at
+	return rs, at, nil
 }
 
 // Where returns the rune offsets of an address.
 // The from offset is inclusive and to is exclusive.
 // Dot is set to the address.
 func (ed *Editor) Where(a Address) (from, to int64, err error) {
-	r, err := a.addr(ed)
+	ed.buf.lock.RLock()
+	defer ed.buf.lock.RUnlock()
+	at, err := where(ed, a)
+	return at.from, at.to, err
+}
+
+func where(ed *Editor, a Address) (addr, error) {
+	at, err := a.addr(ed)
 	if err != nil {
-		return 0, 0, err
+		return addr{}, err
 	}
-	ed.marks['.'] = r
-	return r.from, r.to, nil
+	ed.marks['.'] = at
+	return at, nil
 }
 
 // Substitute substitutes text for the first match
@@ -204,59 +306,55 @@ func (ed *Editor) Where(a Address) (from, to int64, err error) {
 // \n is a literal newline.
 // If g is true then all matches in the address range are substituted.
 // Dot is set to the modified address.
-func (ed *Editor) Substitute(a Address, re *re1.Regexp, sub []rune, g bool) error {
-	ed.buf.lock.Lock()
-	defer ed.buf.lock.Unlock()
+func (ed *Editor) Substitute(a Address, re *re1.Regexp, repl []rune, g bool) error {
+	return ed.do(func() (addr, error) { return sub(ed, a, re, repl, g) })
+}
 
-	r, err := a.addr(ed)
+func sub(ed *Editor, a Address, re *re1.Regexp, repl []rune, g bool) (addr, error) {
+	at, err := a.addr(ed)
 	if err != nil {
-		return err
+		return addr{}, err
 	}
-	r0 := r
-
+	from := at.from
 	for {
-		d, m, err := ed.sub1(r, re, sub)
+		m, err := sub1(ed, addr{from, at.to}, re, repl)
 		if err != nil {
-			return err
+			return addr{}, err
 		}
-		if m == nil {
+		if !g || m == nil || m[0][1] == at.to {
 			break
 		}
-		r0.to += d
-		r.to += d
-		r.from = m[0][1] + d
-		if !g {
-			break
-		}
+		from = m[0][1]
 	}
-	ed.marks['.'] = r0
-	return nil
+	return at, nil
 }
 
-func (ed *Editor) sub1(r addr, re *re1.Regexp, sub []rune) (int64, [][2]int64, error) {
-	m, err := ed.subMatch(r, re)
+// Sub1 substitutes the first match of the regular expression
+// with the replacement specifier.
+func sub1(ed *Editor, at addr, re *re1.Regexp, repl []rune) ([][2]int64, error) {
+	m, err := match(ed, at, re)
 	if err != nil || m == nil {
-		return 0, m, err
+		return m, err
 	}
-	repl, err := ed.subText(m, sub)
+	rs, err := replRunes(ed, m, repl)
 	if err != nil {
-		return 0, nil, err
+		return nil, err
 	}
-	if err := ed.buf.change(addr{m[0][0], m[0][1]}, repl); err != nil {
-		return 0, nil, err
-	}
-	return int64(len(repl)) - (m[0][1] - m[0][0]), m, err
+	at = addr{m[0][0], m[0][1]}
+	err = ed.pending.append(ed.buf.seq, ed.who, at, sliceSource(rs))
+	return m, err
 }
 
-func (ed *Editor) subText(m [][2]int64, sub []rune) ([]rune, error) {
+// ReplRunes returns the runes that replace a matched regexp.
+func replRunes(ed *Editor, m [][2]int64, repl []rune) ([]rune, error) {
 	var rs []rune
-	for i := 0; i < len(sub); i++ {
-		d := escDigit(sub[i:])
+	for i := 0; i < len(repl); i++ {
+		d := escDigit(repl[i:])
 		if d < 0 {
-			rs = append(rs, sub[i])
+			rs = append(rs, repl[i])
 			continue
 		}
-		sub, err := ed.subExpr(m, d)
+		sub, err := subExprMatch(ed, m, d)
 		if err != nil {
 			return nil, err
 		}
@@ -275,12 +373,13 @@ func escDigit(sub []rune) int {
 	return -1
 }
 
-func (ed *Editor) subExpr(m [][2]int64, n int) ([]rune, error) {
-	if n >= len(m) {
-		return nil, nil
+// SubExprMatch returns the runes of a matched subexpression.
+func subExprMatch(ed *Editor, m [][2]int64, i int) ([]rune, error) {
+	if i < 0 || i >= len(m) {
+		return []rune{}, nil
 	}
-	rs := make([]rune, m[n][1]-m[n][0])
-	if _, err := ed.buf.runes.Read(rs, m[n][0]); err != nil {
+	rs := make([]rune, m[i][1]-m[i][0])
+	if _, err := ed.buf.runes.Read(rs, m[i][0]); err != nil {
 		return nil, err
 	}
 	return rs, nil
@@ -309,12 +408,14 @@ func (rs *runeSlice) Rune(i int64) rune {
 	return r
 }
 
-func (ed *Editor) subMatch(r addr, re *re1.Regexp) ([][2]int64, error) {
-	rs := &runeSlice{buf: ed.buf.runes, addr: r}
+// Match returns the results of matching a regular experssion
+// within an address range in an Editor.
+func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
+	rs := &runeSlice{buf: ed.buf.runes, addr: at}
 	m := re.Match(rs, 0)
 	for i := range m {
-		m[i][0] += r.from
-		m[i][1] += r.from
+		m[i][0] += at.from
+		m[i][1] += at.from
 	}
 	return m, rs.err
 }
@@ -368,51 +469,66 @@ func (ed *Editor) subMatch(r addr, re *re1.Regexp) ([][2]int64, error) {
 //		If an address is not supplied, dot is used.
 //		Dot is set to the modified address.
 func (ed *Editor) Edit(cmd []rune) ([]rune, error) {
-	addr, n, err := Addr(cmd)
+	var pr []rune
+	err := ed.do(func() (at addr, err error) {
+		pr, at, err = edit(ed, cmd)
+		return at, err
+	})
+	return pr, err
+}
+
+func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
+	a, n, err := Addr(cmd)
 	switch {
 	case err != nil:
-		return nil, err
-	case addr == nil:
-		addr = Dot
+		return nil, addr{}, err
+	case a == nil:
+		a = Dot
 	case len(cmd) == n:
-		return nil, errors.New("missing command")
+		return nil, addr{}, errors.New("missing command")
 	default:
 		cmd = cmd[n:]
 	}
 	switch c := cmd[0]; c {
 	case 'a':
-		return nil, ed.Append(addr, parseText(cmd[1:]))
+		at, err := change(ed, a.Plus(Rune(0)), parseText(cmd[1:]))
+		return nil, at, err
 	case 'c':
-		return nil, ed.Change(addr, parseText(cmd[1:]))
+		at, err := change(ed, a, parseText(cmd[1:]))
+		return nil, at, err
 	case 'i':
-		return nil, ed.Insert(addr, parseText(cmd[1:]))
+		at, err := change(ed, a.Minus(Rune(0)), parseText(cmd[1:]))
+		return nil, at, err
 	case 'd':
-		return nil, ed.Delete(addr)
+		at, err := change(ed, a, []rune{})
+		return nil, at, err
 	case 'm':
-		return nil, ed.Mark(addr, parseMarkRune(cmd[1:]))
+		at, err := mark(ed, a, parseMarkRune(cmd[1:]))
+		return nil, at, err
 	case 'p':
-		return ed.Print(addr)
+		return print(ed, a)
 	case '=':
 		if cmd[1] != '#' {
-			return nil, errors.New("unknown command: " + string(c))
+			return nil, addr{}, errors.New("unknown command: " + string(c))
 		}
-		from, to, err := ed.Where(addr)
+		at, err := where(ed, a)
 		if err != nil {
-			return nil, err
+			return nil, addr{}, err
 		}
-		return []rune(fmt.Sprintf("#%d,#%d", from, to)), nil
+		return []rune(fmt.Sprintf("#%d,#%d", at.from, at.to)), at, nil
 	case 's':
 		re, err := re1.Compile(cmd[1:], re1.Options{Delimited: true})
 		if err != nil {
-			return nil, err
+			return nil, addr{}, err
 		}
 		exp := re.Expression()
 		cmd = cmd[1+len(exp):]
-		sub := parseDelimited(exp[0], true, cmd)
-		g := len(sub) < len(cmd)-1 && cmd[len(sub)+1] == 'g'
-		return nil, ed.Substitute(addr, re, sub, g)
+		repl := parseDelimited(exp[0], true, cmd)
+		g := len(repl) < len(cmd)-1 && cmd[len(repl)+1] == 'g'
+		at, err := sub(ed, a, re, repl, g)
+		return nil, at, err
 	default:
-		return nil, errors.New("unknown command: " + string(c))
+		return nil, addr{}, errors.New("unknown command: " + string(c))
 	}
 }
 
@@ -463,12 +579,4 @@ func parseMarkRune(cmd []rune) rune {
 		return cmd[i]
 	}
 	return '.'
-}
-
-// Update updates the Editor's addresses
-// given an addr that changed and its new size.
-func (ed *Editor) update(r addr, n int64) {
-	for m := range ed.marks {
-		ed.marks[m] = ed.marks[m].update(r, n)
-	}
 }

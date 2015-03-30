@@ -182,8 +182,7 @@ func TestRegexpString(t *testing.T) {
 	for _, test := range tests {
 		re := Regexp(test.re)
 		if s := re.String(); s != test.want {
-			t.Errorf("Regexp(%s).String()=%s, want %s", strconv.Quote(test.re),
-				strconv.Quote(s), strconv.Quote(test.want))
+			t.Errorf("Regexp(%q).String()=%q, want %q", test.re, s, test.want)
 		}
 	}
 }
@@ -267,9 +266,9 @@ type addressTest struct {
 }
 
 func (test addressTest) run(t *testing.T) {
-	ed := NewBuffer().NewEditor()
+	ed := NewEditor(NewBuffer())
 	defer ed.buf.Close()
-	if err := ed.Append(All, []rune(test.text)); err != nil {
+	if _, err := ed.buf.runes.Insert([]rune(test.text), 0); err != nil {
 		t.Fatalf(`Put("%s")=%v, want nil`, test.text, err)
 	}
 	if test.marks != nil {
@@ -284,8 +283,8 @@ func (test addressTest) run(t *testing.T) {
 	if a != test.want ||
 		(test.err == "" && errStr != "") ||
 		(test.err != "" && !regexp.MustCompile(test.err).MatchString(errStr)) {
-		t.Errorf(`Address("%s").range(%d, %v)=%v, %v, want %v, %v`,
-			test.addr.String(), test.dot, strconv.Quote(test.text), a, err,
+		t.Errorf(`Address("%q").range(%d, %q)=%v, %v, want %v, %v`,
+			test.addr.String(), test.dot, test.text, a, err,
 			test.want, test.err)
 	}
 }
@@ -408,9 +407,8 @@ func TestAddr(t *testing.T) {
 			(test.err == "" && test.n != n) ||
 			(test.err == "" && errStr != "") ||
 			(test.err != "" && !regexp.MustCompile(test.err).MatchString(errStr)) {
-			t.Errorf(`Addr(%s)=%v,%d,%v, want %v,%d,%v`,
-				strconv.Quote(test.addr), got, n, err, test.want, test.n,
-				strconv.Quote(test.err))
+			t.Errorf(`Addr(%q)=%v,%d,%v, want %v,%d,%v`,
+				test.addr, got, n, err, test.want, test.n, test.err)
 		}
 	}
 }
@@ -438,13 +436,16 @@ func TestUpdate(t *testing.T) {
 		{a: addr{0, 3}, b: addr{0, 1}, n: 7, want: addr{7, 9}},
 
 		// b over the end of a
-		{a: addr{10, 20}, b: addr{15, 20}, n: 0, want: addr{10, 15}},
-		{a: addr{10, 20}, b: addr{15, 20}, n: 10, want: addr{10, 15}},
+		{a: addr{10, 20}, b: addr{15, 21}, n: 0, want: addr{10, 15}},
+		{a: addr{10, 20}, b: addr{15, 21}, n: 10, want: addr{10, 15}},
 
 		// b within a
 		{a: addr{10, 20}, b: addr{12, 18}, n: 0, want: addr{10, 14}},
 		{a: addr{10, 20}, b: addr{12, 18}, n: 1, want: addr{10, 15}},
 		{a: addr{10, 20}, b: addr{12, 18}, n: 100, want: addr{10, 114}},
+		{a: addr{10, 20}, b: addr{15, 20}, n: 0, want: addr{10, 15}},
+		{a: addr{10, 20}, b: addr{15, 20}, n: 10, want: addr{10, 25}},
+		{a: addr{0, 19}, b: addr{18, 19}, n: 2, want: addr{0, 20}},
 
 		// b over all of a
 		{a: addr{10, 20}, b: addr{10, 20}, n: 0, want: addr{10, 10}},
@@ -497,10 +498,7 @@ func TestAddressString(t *testing.T) {
 		str := test.addr.String()
 		got, _, err := Addr([]rune(str))
 		if err != nil || got != test.want {
-			t.Errorf("Addr(%v)=%v,%v want %v,nil",
-				strconv.Quote(str),
-				strconv.Quote(got.String()), err,
-				strconv.Quote(test.want.String()))
+			t.Errorf("Addr(%q)=%v,%v want %q,nil", str, got.String(), err, test.want.String())
 		}
 	}
 }
@@ -538,23 +536,22 @@ func TestIOErrors(t *testing.T) {
 	for _, test := range tests {
 		addr, n, err := Addr([]rune(test))
 		if err != nil || n != len([]rune(test)) {
-			t.Fatalf("Addr(%v)=%v,%v%v want _,%d,nil",
-				strconv.Quote(test), addr, n, err, len([]rune(test)))
+			t.Fatalf("Addr(%q)=%q,%q%q want _,%d,nil",
+				test, addr, n, err, len([]rune(test)))
 		}
 		f := &errReaderAt{nil}
 		r := runes.NewBufferReaderWriterAt(1, f)
-		e := newBufferRunes(r).NewEditor()
-		defer e.Close()
+		ed := NewEditor(newBuffer(r))
+		defer ed.Close()
 
-		if err := e.Append(Rune(0), rs); err != nil {
-			t.Fatalf("e.Append(#0, %v)=%v, want nil", strconv.Quote(string(rs)), err)
+		if _, err := ed.buf.runes.Insert(rs, 0); err != nil {
+			t.Fatalf("ed.buf.runes.Insert(%v, 0)=%v, want nil", strconv.Quote(string(rs)), err)
 		}
 
 		// All subsequent reads will be errors.
 		f.error = errors.New("read error")
-		if a, err := addr.addr(e); err != f.error {
-			t.Errorf("Addr(%v).addr()=%v,%v, want addr{},%v",
-				strconv.Quote(test), a, err, f.error)
+		if a, err := addr.addr(ed); err != f.error {
+			t.Errorf("Addr(%q).addr()=%v,%v, want addr{},%q", test, a, err, f.error)
 		}
 	}
 }
