@@ -2,7 +2,7 @@
 // which requires the following notice:
 // Copyright 2013 The Go Authors. All rights reserved.
 
-package runes
+package edit
 
 import (
 	"math/rand"
@@ -21,14 +21,14 @@ func randomRunes(n int) []rune {
 }
 
 func writeBench(b *testing.B, n int) {
-	r := NewBuffer(benchBlockSize)
-	defer r.Close()
+	r := newRunes(benchBlockSize)
+	defer r.close()
 	rs := randomRunes(n)
 	b.SetBytes(int64(n * runeBytes))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.Insert(rs, 0)
-		r.Delete(int64(n), 0)
+		r.insert(rs, 0)
+		r.delete(int64(n), 0)
 	}
 }
 
@@ -38,14 +38,14 @@ func BenchmarkWrite4k(b *testing.B)  { writeBench(b, 4096) }
 func BenchmarkWrite10k(b *testing.B) { writeBench(b, 1048576) }
 
 func readBench(b *testing.B, n int) {
-	r := NewBuffer(benchBlockSize)
-	defer r.Close()
-	r.Insert(randomRunes(n), 0)
+	r := newRunes(benchBlockSize)
+	defer r.close()
+	r.insert(randomRunes(n), 0)
 	rs := make([]rune, n)
 	b.SetBytes(int64(n * runeBytes))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.Read(rs, 0)
+		r.read(rs, 0)
 	}
 }
 
@@ -55,9 +55,9 @@ func BenchmarkRead4k(b *testing.B)  { readBench(b, 4096) }
 func BenchmarkRead10k(b *testing.B) { readBench(b, 1048576) }
 
 func benchmarkRune(b *testing.B, n int, rnd bool) {
-	r := NewBuffer(benchBlockSize)
-	defer r.Close()
-	r.Insert(randomRunes(n), 0)
+	r := newRunes(benchBlockSize)
+	defer r.close()
+	r.insert(randomRunes(n), 0)
 
 	inds := make([]int64, 4096)
 	for i := range inds {

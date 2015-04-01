@@ -9,30 +9,29 @@ import (
 	"unicode"
 
 	"github.com/eaburns/T/re1"
-	"github.com/eaburns/T/runes"
 )
 
 // A Buffer is an editable rune buffer.
 type Buffer struct {
 	lock     sync.RWMutex
-	runes    *runes.Buffer
+	runes    *runes
 	eds      []*Editor
 	seq, who int32
 }
 
 // NewBuffer returns a new, empty Buffer.
 func NewBuffer() *Buffer {
-	return newBuffer(runes.NewBuffer(1 << 12))
+	return newBuffer(newRunes(1 << 12))
 }
 
-func newBuffer(rs *runes.Buffer) *Buffer { return &Buffer{runes: rs} }
+func newBuffer(rs *runes) *Buffer { return &Buffer{runes: rs} }
 
 // Close closes the Buffer.
 // After Close is called, the Buffer is no longer editable.
 func (buf *Buffer) Close() error {
 	buf.lock.Lock()
 	defer buf.lock.Unlock()
-	return buf.runes.Close()
+	return buf.runes.close()
 }
 
 // Size returns the number of runes in the Buffer.
@@ -50,7 +49,7 @@ func (buf *Buffer) rune(i int64) (rune, error) { return buf.runes.Rune(i) }
 //
 // This method must be called with the Lock held.
 func (buf *Buffer) change(at addr, rs source) error {
-	if _, err := buf.runes.Delete(at.size(), at.from); err != nil {
+	if err := buf.runes.delete(at.size(), at.from); err != nil {
 		return err
 	}
 	if err := rs.insert(buf.runes, at.from); err != nil {
@@ -273,7 +272,7 @@ func print(ed *Editor, a Address) ([]rune, addr, error) {
 		return nil, addr{}, err
 	}
 	rs := make([]rune, at.size())
-	if _, err := ed.buf.runes.Read(rs, at.from); err != nil {
+	if err := ed.buf.runes.read(rs, at.from); err != nil {
 		return nil, addr{}, err
 	}
 	ed.marks['.'] = at
@@ -379,14 +378,14 @@ func subExprMatch(ed *Editor, m [][2]int64, i int) ([]rune, error) {
 		return []rune{}, nil
 	}
 	rs := make([]rune, m[i][1]-m[i][0])
-	if _, err := ed.buf.runes.Read(rs, m[i][0]); err != nil {
+	if err := ed.buf.runes.read(rs, m[i][0]); err != nil {
 		return nil, err
 	}
 	return rs, nil
 }
 
 type runeSlice struct {
-	buf *runes.Buffer
+	buf *runes
 	addr
 	err error
 }

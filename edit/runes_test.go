@@ -1,4 +1,4 @@
-package runes
+package edit
 
 import (
 	"errors"
@@ -11,10 +11,10 @@ const testBlockSize = 8
 
 func TestRunesRune(t *testing.T) {
 	rs := []rune("Hello, 世界!")
-	b := NewBuffer(testBlockSize)
-	defer b.Close()
-	if _, err := b.Insert(rs, 0); err != nil {
-		t.Fatalf(`b.Insert("%s", 0)=%v, want nil`, string(rs), err)
+	b := newRunes(testBlockSize)
+	defer b.close()
+	if err := b.insert(rs, 0); err != nil {
+		t.Fatalf(`b.insert("%s", 0)=%v, want nil`, string(rs), err)
 	}
 	for i, want := range rs {
 		if got, err := b.Rune(int64(i)); err != nil || got != want {
@@ -23,9 +23,9 @@ func TestRunesRune(t *testing.T) {
 	}
 }
 
-func TestRead(t *testing.T) {
+func TestRunesRead(t *testing.T) {
 	b := makeTestBytes(t)
-	defer b.Close()
+	defer b.close()
 	tests := []struct {
 		n    int
 		offs int64
@@ -37,72 +37,70 @@ func TestRead(t *testing.T) {
 		{n: 1, offs: -1, err: "invalid offset"},
 		{n: 1, offs: -2, err: "invalid offset"},
 
-		{n: 0, offs: 0, want: ""},
+		{n: 0, offs: 0},
 		{n: 1, offs: 0, want: "0"},
 		{n: 1, offs: 26, want: "Z"},
 		{n: 8, offs: 19, want: "STUVWXYZ"},
-		{n: 8, offs: 20, want: "TUVWXYZ", err: "EOF"},
-		{n: 8, offs: 21, want: "UVWXYZ", err: "EOF"},
-		{n: 8, offs: 22, want: "VWXYZ", err: "EOF"},
-		{n: 8, offs: 23, want: "WXYZ", err: "EOF"},
-		{n: 8, offs: 24, want: "XYZ", err: "EOF"},
-		{n: 8, offs: 25, want: "YZ", err: "EOF"},
-		{n: 8, offs: 26, want: "Z", err: "EOF"},
-		{n: 8, offs: 27, want: "", err: "EOF"},
+		{n: 8, offs: 20, err: "EOF"},
+		{n: 8, offs: 21, err: "EOF"},
+		{n: 8, offs: 22, err: "EOF"},
+		{n: 8, offs: 23, err: "EOF"},
+		{n: 8, offs: 24, err: "EOF"},
+		{n: 8, offs: 25, err: "EOF"},
+		{n: 8, offs: 26, err: "EOF"},
+		{n: 8, offs: 27, err: "EOF"},
 		{n: 11, offs: 8, want: "abcd!@#efgh"},
 		{n: 7, offs: 12, want: "!@#efgh"},
 		{n: 6, offs: 13, want: "@#efgh"},
 		{n: 5, offs: 13, want: "@#efg"},
 		{n: 4, offs: 15, want: "efgh"},
 		{n: 27, offs: 0, want: "01234567abcd!@#efghSTUVWXYZ"},
-		{n: 28, offs: 0, want: "01234567abcd!@#efghSTUVWXYZ", err: "EOF"},
+		{n: 28, offs: 0, err: "EOF"},
 	}
 	for _, test := range tests {
 		rs := make([]rune, test.n)
-		n, err := b.Read(rs, test.offs)
-		if n != len(test.want) || !errMatch(test.err, err) {
-			t.Errorf("ReadAt(len=%v, %v)=%v,%v, want %v,%v",
-				test.n, test.offs, n, err, len(test.want), test.err)
+		err := b.read(rs, test.offs)
+		if !errMatch(test.err, err) {
+			t.Errorf("ReadAt(len=%v, %v)=%v, want %v", test.n, test.offs, err, test.err)
 		}
-		if str := string(rs[:n]); str != test.want {
-			t.Errorf("ReadAt(len=%v, %v) read %q, want %q",
-				test.n, test.offs, str, test.want)
+		if str := string(rs); err == nil && str != test.want {
+			t.Errorf("ReadAt(len=%v, %v) read %q, want %q", test.n, test.offs, str, test.want)
 		}
 	}
 }
 
-func TestEmptyReadAtEOF(t *testing.T) {
-	b := NewBuffer(testBlockSize)
-	defer b.Close()
+func TestRunesEmptyReadAtEOF(t *testing.T) {
+	b := newRunes(testBlockSize)
+	defer b.close()
 
-	if n, err := b.Read([]rune{}, 0); n != 0 || err != nil {
-		t.Errorf("empty buffer Read([]rune{}, 0)=%v,%v, want 0,nil", n, err)
+	if err := b.read([]rune{}, 0); err != nil {
+		t.Errorf("empty buffer Read([]rune{}, 0)=%v, want nil", err)
 	}
 
 	str := "Hello, World!"
+	if err := b.insert([]rune(str), 0); err != nil {
+		t.Fatalf("insert(%v, 0)=%v, want nil", str, err)
+	}
+
+	if err := b.read([]rune{}, 1); err != nil {
+		t.Errorf("Read([]rune{}, 1)=%v, want nil", err)
+	}
+
 	l := len(str)
-	if n, err := b.Insert([]rune(str), 0); n != l || err != nil {
-		t.Fatalf("insert(%v, 0)=%v,%v, want %v,nil", str, n, err, l)
-	}
-
-	if n, err := b.Read([]rune{}, 1); n != 0 || err != nil {
-		t.Errorf("Read([]rune{}, 1)=%v,%v, want 0,nil", n, err)
-	}
-
-	if n, err := b.Delete(int64(l), 0); n != int64(l) || err != nil {
-		t.Fatalf("delete(%v, 0)=%v,%v, want %v, nil", l, n, err, l)
+	if err := b.delete(int64(l), 0); err != nil {
+		t.Fatalf("delete(%v, 0)=%v, want nil", l, err)
 	}
 	if s := b.Size(); s != 0 {
 		t.Fatalf("b.Size()=%d, want 0", s)
 	}
 
 	// The buffer should be empty, but we still don't want EOF when reading 0 bytes.
-	if n, err := b.Read([]rune{}, 0); n != 0 || err != nil {
-		t.Errorf("deleted buffer Read([]rune{}, 0)=%v,%v, want 0,nil", n, err)
+	if err := b.read([]rune{}, 0); err != nil {
+		t.Errorf("deleted buffer Read([]rune{}, 0)=%v, want nil", err)
 	}
 }
 
-func TestInsert(t *testing.T) {
+func TestRunesInsert(t *testing.T) {
 	tests := []struct {
 		init, add string
 		at        int64
@@ -141,24 +139,20 @@ func TestInsert(t *testing.T) {
 		{init: "0123456701234567", add: "abcdefgh", at: 8, want: "01234567abcdefgh01234567"},
 	}
 	for _, test := range tests {
-		b := NewBuffer(testBlockSize)
-		defer b.Close()
+		b := newRunes(testBlockSize)
+		defer b.close()
 		if len(test.init) > 0 {
-			n, err := b.Insert([]rune(test.init), 0)
-			if n != len(test.init) || err != nil {
-				t.Errorf("%+v init failed: insert(%v, 0)=%v,%v, want %v,nil",
-					test, test.init, n, err, len(test.init))
+
+			if err := b.insert([]rune(test.init), 0); err != nil {
+				t.Errorf("%+v init failed: insert(%v, 0)=%v, want nil", test, test.init, err)
 				continue
 			}
 		}
-		n, err := b.Insert([]rune(test.add), test.at)
-		m := len(test.add)
-		if test.err != "" {
-			m = 0
-		}
-		if n != m || !errMatch(test.err, err) {
-			t.Errorf("%+v add failed: insert(%v, %v)=%v,%v, want %v,%v",
-				test, test.add, test.at, n, err, m, test.err)
+
+		err := b.insert([]rune(test.add), test.at)
+		if !errMatch(test.err, err) {
+			t.Errorf("%+v add failed: insert(%v, %v)=%v, want %v",
+				test, test.add, test.at, err, test.err)
 			continue
 		}
 		if test.err != "" {
@@ -172,7 +166,7 @@ func TestInsert(t *testing.T) {
 	}
 }
 
-func TestDelete(t *testing.T) {
+func TestRunesDelete(t *testing.T) {
 	tests := []struct {
 		n, at int64
 		want  string
@@ -210,48 +204,41 @@ func TestDelete(t *testing.T) {
 	}
 	for _, test := range tests {
 		b := makeTestBytes(t)
-		defer b.Close()
+		defer b.close()
 
-		m := b.Size() - int64(len(test.want))
-		if test.err != "" {
-			m = 0
-		}
-		n, err := b.Delete(test.n, test.at)
-		if n != m || !errMatch(test.err, err) {
-			t.Errorf("delete(%v, %v)=%v,%v, want %v,%v",
-				test.n, test.at, n, err, m, test.err)
+		err := b.delete(test.n, test.at)
+		if !errMatch(test.err, err) {
+			t.Errorf("delete(%v, %v)=%v, want %v", test.n, test.at, err, test.err)
 			continue
 		}
 		if test.err != "" {
 			continue
 		}
 		if s := readAll(b); s != test.want || err != nil {
-			t.Errorf("%+v read failed: ReadAll(·)=%v,%v want %v,nil",
-				test, s, err, test.want)
+			t.Errorf("%+v read failed: ReadAll(·)=%v,%v want %v,nil", test, s, err, test.want)
 		}
 	}
 }
 
-func TestBlockAlloc(t *testing.T) {
+func TestRunesBlockAlloc(t *testing.T) {
 	rs := []rune("αβξδφγθιζ")
 	l := len(rs)
 	if l <= testBlockSize {
 		t.Fatalf("len(rs)=%d, want >%d", l, testBlockSize)
 	}
 
-	b := NewBuffer(testBlockSize)
-	defer b.Close()
-	n, err := b.Insert(rs, 0)
-	if n != l || err != nil {
-		t.Fatalf(`Initial insert(%v, 0)=%v,%v, want %v,nil`, rs, n, err, l)
+	b := newRunes(testBlockSize)
+	defer b.close()
+
+	if err := b.insert(rs, 0); err != nil {
+		t.Fatalf(`Initial insert(%v, 0)=%v, want nil`, rs, err)
 	}
 	if len(b.blocks) != 2 {
 		t.Fatalf("After initial insert: len(b.blocks)=%v, want 2", len(b.blocks))
 	}
 
-	m, err := b.Delete(int64(l), 0)
-	if m != int64(l) || err != nil {
-		t.Fatalf(`delete(%v, 0)=%v,%v, want 5,nil`, l, m, err)
+	if err := b.delete(int64(l), 0); err != nil {
+		t.Fatalf(`delete(%v, 0)=%v, want nil`, l, err)
 	}
 	if len(b.blocks) != 0 {
 		t.Fatalf("After delete: len(b.blocks)=%v, want 0", len(b.blocks))
@@ -263,9 +250,8 @@ func TestBlockAlloc(t *testing.T) {
 	rs = rs[:testBlockSize/2]
 	l = len(rs)
 
-	n, err = b.Insert(rs, 0)
-	if n != l || err != nil {
-		t.Fatalf(`Second insert(%v, 7)=%v,%v, want %v,nil`, rs, n, err, l)
+	if err := b.insert(rs, 0); err != nil {
+		t.Fatalf(`Second insert(%v, 7)=%v, want nil`, rs, err)
 	}
 	if len(b.blocks) != 1 {
 		t.Fatalf("After second insert: len(b.blocks)=%d, want 1", len(b.blocks))
@@ -276,31 +262,30 @@ func TestBlockAlloc(t *testing.T) {
 }
 
 // TestInsertDeleteAndRead tests performing a few operations in sequence.
-func TestInsertDeleteAndRead(t *testing.T) {
-	b := NewBuffer(testBlockSize)
-	defer b.Close()
+func TestRunesInsertDeleteAndRead(t *testing.T) {
+	b := newRunes(testBlockSize)
+	defer b.close()
 
 	const hiWorld = "Hello, World!"
-	n, err := b.Insert([]rune(hiWorld), 0)
-	if l := len(hiWorld); n != l || err != nil {
-		t.Fatalf(`insert(%s, 0)=%v,%v, want %v,nil`, hiWorld, n, err, l)
+	err := b.insert([]rune(hiWorld), 0)
+	if err != nil {
+		t.Fatalf(`insert(%s, 0)=%v, want nil`, hiWorld, err)
 	}
 	if s := readAll(b); s != hiWorld || err != nil {
 		t.Fatalf(`readAll(·)=%v,%v, want %s,nil`, s, err, hiWorld)
 	}
 
-	m, err := b.Delete(5, 7)
-	if m != 5 || err != nil {
-		t.Fatalf(`delete(5, 7)=%v,%v, want 5,nil`, m, err)
+	if err := b.delete(5, 7); err != nil {
+		t.Fatalf(`delete(5, 7)=%v, want nil`, err)
 	}
 	if s := readAll(b); s != "Hello, !" || err != nil {
 		t.Fatalf(`readAll(·)=%v,%v, want "Hello, !",nil`, s, err)
 	}
 
 	const gophers = "Gophers"
-	n, err = b.Insert([]rune(gophers), 7)
-	if l := len(gophers); n != l || err != nil {
-		t.Fatalf(`insert(%s, 7)=%v,%v, want %v,nil`, gophers, n, err, l)
+	err = b.insert([]rune(gophers), 7)
+	if err != nil {
+		t.Fatalf(`insert(%s, 7)=%v, want nil`, gophers, err)
 	}
 	if s := readAll(b); s != "Hello, Gophers!" || err != nil {
 		t.Fatalf(`readAll(·)=%v,%v, want "Hello, Gophers!",nil`, s, err)
@@ -314,9 +299,9 @@ func errMatch(re string, err error) bool {
 	return regexp.MustCompile(re).Match([]byte(err.Error()))
 }
 
-func readAll(b *Buffer) string {
+func readAll(b *runes) string {
 	rs := make([]rune, b.Size())
-	if _, err := b.Read(rs, 0); err != nil {
+	if err := b.read(rs, 0); err != nil {
 		panic(err)
 	}
 	return string(rs)
@@ -324,26 +309,25 @@ func readAll(b *Buffer) string {
 
 // Initializes a buffer with the text "01234567abcd!@#efghSTUVWXYZ"
 // split across blocks of sizes: 8, 4, 3, 4, 8.
-func makeTestBytes(t *testing.T) *Buffer {
-	b := NewBuffer(testBlockSize)
+func makeTestBytes(t *testing.T) *runes {
+	b := newRunes(testBlockSize)
 	// Add 3 full blocks.
-	n, err := b.Insert([]rune("01234567abcdefghSTUVWXYZ"), 0)
-	if n != 24 || err != nil {
-		b.Close()
-		t.Fatalf(`insert("01234567abcdefghSTUVWXYZ", 0)=%v,%v, want 24,nil`, n, err)
+
+	if err := b.insert([]rune("01234567abcdefghSTUVWXYZ"), 0); err != nil {
+		b.close()
+		t.Fatalf(`insert("01234567abcdefghSTUVWXYZ", 0)=%v, want nil`, err)
 	}
 	// Split block 1 in the middle.
-	n, err = b.Insert([]rune("!@#"), 12)
-	if n != 3 || err != nil {
-		b.Close()
-		t.Fatalf(`insert("!@#", 12)=%v,%v, want 3,nil`, n, err)
+	if err := b.insert([]rune("!@#"), 12); err != nil {
+		b.close()
+		t.Fatalf(`insert("!@#", 12)=%v, want nil`, err)
 	}
 	ns := make([]int, len(b.blocks))
 	for i, blk := range b.blocks {
 		ns[i] = blk.n
 	}
 	if !reflect.DeepEqual(ns, []int{8, 4, 3, 4, 8}) {
-		b.Close()
+		b.close()
 		t.Fatalf("blocks have sizes %v, want 8, 4, 3, 4, 8", ns)
 	}
 	return b
@@ -356,13 +340,13 @@ func (e *errReadWriterAt) WriteAt([]byte, int64) (int, error) { return 0, e.erro
 func (e *errReadWriterAt) Close() error                       { return e.error }
 
 // TestErrors tests some error cases. It's not exhaustive.
-func TestErrors(t *testing.T) {
+func TestRunesErrors(t *testing.T) {
 	str := []rune("Hello, World")
 	f := &errReadWriterAt{nil}
-	b := NewBufferReaderWriterAt(len(str)/2, f)
+	b := newRunesReaderWriterAt(len(str)/2, f)
 
-	if _, err := b.Insert(str, 0); err != nil {
-		t.Fatalf("b.Insert(…)=%v, want nil", err)
+	if err := b.insert(str, 0); err != nil {
+		t.Fatalf("b.insert(…)=%v, want nil", err)
 	}
 
 	// From here on, all IO causes an error.
@@ -371,20 +355,20 @@ func TestErrors(t *testing.T) {
 	if _, err := b.Rune(0); err != f.error {
 		t.Errorf("b.Rune(0)=%v, want %v", err, f.error)
 	}
-	if _, err := b.Insert(str, 3); err != f.error {
-		t.Errorf("b.Insert(…)=%v, want %v", err, f.error)
+	if err := b.insert(str, 3); err != f.error {
+		t.Errorf("b.insert(…)=%v, want %v", err, f.error)
 	}
-	if _, err := b.Delete(1, 0); err != f.error {
-		t.Errorf("b.Delete(…)=%v, want %v", err, f.error)
+	if err := b.delete(1, 0); err != f.error {
+		t.Errorf("b.delete(…)=%v, want %v", err, f.error)
 	}
 	// The delete failed, so nothing should have been deleted.
 	if sz := b.Size(); sz != int64(len(str)) {
 		t.Errorf("b.Size()=%v, want %v", sz, len(str))
 	}
-	if _, err := b.Read(make([]rune, b.Size()), 0); err != f.error {
-		t.Errorf("b.Read(…)=%v, want %v", err, f.error)
+	if err := b.read(make([]rune, b.Size()), 0); err != f.error {
+		t.Errorf("b.read(…)=%v, want %v", err, f.error)
 	}
-	if err := b.Close(); err != f.error {
-		t.Errorf("b.Close()=%v, want %v", err, f.error)
+	if err := b.close(); err != f.error {
+		t.Errorf("b.close()=%v, want %v", err, f.error)
 	}
 }

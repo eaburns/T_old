@@ -1,7 +1,5 @@
 package edit
 
-import "github.com/eaburns/T/runes"
-
 // A log holds a record of changes made to a buffer.
 // It consists of an unbounded number of entries.
 // Each entry has a header and zero or more runes of data.
@@ -13,19 +11,18 @@ import "github.com/eaburns/T/runes"
 // which the change uses to replace the runes
 // in the string addressed in the header.
 type log struct {
-	buf *runes.Buffer
+	buf *runes
 	// Last is the offset of the last header in the log.
 	last int64
 }
 
-func newLog() *log { return &log{buf: runes.NewBuffer(1 << 12)} }
+func newLog() *log { return &log{buf: newRunes(1 << 12)} }
 
-func (l *log) close() error { return l.buf.Close() }
+func (l *log) close() error { return l.buf.close() }
 
 func (l *log) clear() error {
 	l.last = 0
-	_, err := l.buf.Delete(l.buf.Size(), 0)
-	return err
+	return l.buf.delete(l.buf.Size(), 0)
 }
 
 type header struct {
@@ -85,7 +82,7 @@ func (l *log) append(seq, who int32, at addr, src source) error {
 		who:  who,
 	}
 	l.last = l.buf.Size()
-	if _, err := l.buf.Insert(h.marshal(), l.last); err != nil {
+	if err := l.buf.insert(h.marshal(), l.last); err != nil {
 		return err
 	}
 	return src.insert(l.buf, l.buf.Size())
@@ -170,7 +167,7 @@ func (e *entry) load() {
 		return
 	}
 	var data [headerRunes]rune
-	if _, e.err = e.l.buf.Read(data[:], e.offs); e.err != nil {
+	if e.err = e.l.buf.read(data[:], e.offs); e.err != nil {
 		e.offs = -1
 	} else {
 		e.header.unmarshal(data[:])
@@ -184,11 +181,10 @@ func (e *entry) store() error {
 	if e.err != nil || e.offs < 0 {
 		return nil
 	}
-	if _, err := e.l.buf.Delete(headerRunes, e.offs); err != nil {
+	if err := e.l.buf.delete(headerRunes, e.offs); err != nil {
 		return err
 	}
-	_, err := e.l.buf.Insert(e.header.marshal(), e.offs)
-	return err
+	return e.l.buf.insert(e.header.marshal(), e.offs)
 }
 
 // Data returns a source for the entry's data.

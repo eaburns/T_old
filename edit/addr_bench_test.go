@@ -27,7 +27,7 @@ func makeEditor(n int) (*Editor, int) {
 		}
 	}
 	ed := NewEditor(NewBuffer())
-	if _, err := ed.buf.runes.Insert(rs, 0); err != nil {
+	if err := ed.buf.runes.insert(rs, 0); err != nil {
 		panic(err)
 	}
 	return ed, lines
