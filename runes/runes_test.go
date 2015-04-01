@@ -23,7 +23,7 @@ func TestRunesRune(t *testing.T) {
 	}
 }
 
-func TestReadAt(t *testing.T) {
+func TestRead(t *testing.T) {
 	b := makeTestBytes(t)
 	defer b.Close()
 	tests := []struct {
@@ -40,19 +40,19 @@ func TestReadAt(t *testing.T) {
 		{n: 0, offs: 0, want: ""},
 		{n: 1, offs: 0, want: "0"},
 		{n: 1, offs: 26, want: "Z"},
-		{n: 8, offs: 19, want: "01234567"},
-		{n: 8, offs: 20, want: "1234567", err: "EOF"},
-		{n: 8, offs: 21, want: "234567", err: "EOF"},
-		{n: 8, offs: 22, want: "34567", err: "EOF"},
-		{n: 8, offs: 23, want: "4567", err: "EOF"},
-		{n: 8, offs: 24, want: "567", err: "EOF"},
-		{n: 8, offs: 25, want: "67", err: "EOF"},
-		{n: 8, offs: 26, want: "7", err: "EOF"},
+		{n: 8, offs: 19, want: "STUVWXYZ"},
+		{n: 8, offs: 20, want: "TUVWXYZ", err: "EOF"},
+		{n: 8, offs: 21, want: "UVWXYZ", err: "EOF"},
+		{n: 8, offs: 22, want: "VWXYZ", err: "EOF"},
+		{n: 8, offs: 23, want: "WXYZ", err: "EOF"},
+		{n: 8, offs: 24, want: "XYZ", err: "EOF"},
+		{n: 8, offs: 25, want: "YZ", err: "EOF"},
+		{n: 8, offs: 26, want: "Z", err: "EOF"},
 		{n: 8, offs: 27, want: "", err: "EOF"},
 		{n: 11, offs: 8, want: "abcd!@#efgh"},
 		{n: 7, offs: 12, want: "!@#efgh"},
 		{n: 6, offs: 13, want: "@#efgh"},
-		{n: 5, offs: 13, want: "#efgh"},
+		{n: 5, offs: 13, want: "@#efg"},
 		{n: 4, offs: 15, want: "efgh"},
 		{n: 27, offs: 0, want: "01234567abcd!@#efghSTUVWXYZ"},
 		{n: 28, offs: 0, want: "01234567abcd!@#efghSTUVWXYZ", err: "EOF"},
@@ -63,6 +63,10 @@ func TestReadAt(t *testing.T) {
 		if n != len(test.want) || !errMatch(test.err, err) {
 			t.Errorf("ReadAt(len=%v, %v)=%v,%v, want %v,%v",
 				test.n, test.offs, n, err, len(test.want), test.err)
+		}
+		if str := string(rs[:n]); str != test.want {
+			t.Errorf("ReadAt(len=%v, %v) read %q, want %q",
+				test.n, test.offs, str, test.want)
 		}
 	}
 }
