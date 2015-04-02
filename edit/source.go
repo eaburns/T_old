@@ -12,10 +12,7 @@ type sliceSource []rune
 
 func (s sliceSource) size() int64 { return int64(len(s)) }
 
-func (s sliceSource) insert(b *runes.Buffer, at int64) error {
-	_, err := b.Insert(s, at)
-	return err
-}
+func (s sliceSource) insert(b *runes.Buffer, at int64) error { return b.Insert(s, at) }
 
 type bufferSource struct {
 	at  addr
@@ -37,6 +34,5 @@ func (s bufferSource) insert(b *runes.Buffer, at int64) error {
 	if err != nil {
 		return err
 	}
-	_, err = b.Insert(rs, at)
-	return err
+	return b.Insert(rs, at)
 }

@@ -142,26 +142,24 @@ func (b *Buffer) Read(rs []rune, offs int64) (int, error) {
 }
 
 // Insert inserts runes into the buffer at the given offset..
-// The return value is the number of runes added and any error that was encountered.
 // It is an error to add at a negative offset or an offset beyond the buffer size.
-func (b *Buffer) Insert(rs []rune, offs int64) (int, error) {
+func (b *Buffer) Insert(rs []rune, offs int64) error {
 	if offs < 0 || offs > b.Size() {
-		return 0, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
+		return errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
 	}
-	var tot int
 	for len(rs) > 0 {
 		i, q0 := b.blockAt(offs)
 		blk, err := b.get(i)
 		if err != nil {
-			return tot, err
+			return err
 		}
 		m := b.blockSize - blk.n
 		if m == 0 {
 			if i, err = b.insertAt(offs); err != nil {
-				return tot, err
+				return err
 			}
 			if blk, err = b.get(i); err != nil {
-				return tot, err
+				return err
 			}
 			q0 = offs
 			m = b.blockSize
@@ -177,9 +175,8 @@ func (b *Buffer) Insert(rs []rune, offs int64) (int, error) {
 		blk.n += m
 		b.size += int64(m)
 		offs += int64(m)
-		tot += m
 	}
-	return tot, nil
+	return nil
 }
 
 // Delete deletes runes from the buffer starting at the given offset.

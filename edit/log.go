@@ -84,7 +84,7 @@ func (l *log) append(seq, who int32, at addr, src source) error {
 		who:  who,
 	}
 	l.last = l.buf.Size()
-	if _, err := l.buf.Insert(h.marshal(), l.last); err != nil {
+	if err := l.buf.Insert(h.marshal(), l.last); err != nil {
 		return err
 	}
 	return src.insert(l.buf, l.buf.Size())
@@ -186,8 +186,7 @@ func (e *entry) store() error {
 	if err := e.l.buf.Delete(headerRunes, e.offs); err != nil {
 		return err
 	}
-	_, err := e.l.buf.Insert(e.header.marshal(), e.offs)
-	return err
+	return e.l.buf.Insert(e.header.marshal(), e.offs)
 }
 
 // Data returns a source for the entry's data.

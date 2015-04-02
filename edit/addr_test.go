@@ -266,7 +266,7 @@ type addressTest struct {
 func (test addressTest) run(t *testing.T) {
 	ed := NewEditor(NewBuffer())
 	defer ed.buf.Close()
-	if _, err := ed.buf.runes.Insert([]rune(test.text), 0); err != nil {
+	if err := ed.buf.runes.Insert([]rune(test.text), 0); err != nil {
 		t.Fatalf(`Put("%s")=%v, want nil`, test.text, err)
 	}
 	if test.marks != nil {
@@ -542,7 +542,7 @@ func TestIOErrors(t *testing.T) {
 		ed := NewEditor(newBuffer(r))
 		defer ed.Close()
 
-		if _, err := ed.buf.runes.Insert(rs, 0); err != nil {
+		if err := ed.buf.runes.Insert(rs, 0); err != nil {
 			t.Fatalf("ed.buf.runes.Insert(%v, 0)=%v, want nil", strconv.Quote(string(rs)), err)
 		}
 

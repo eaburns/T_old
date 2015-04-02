@@ -13,7 +13,7 @@ func TestRunesRune(t *testing.T) {
 	rs := []rune("Hello, 世界!")
 	b := NewBuffer(testBlockSize)
 	defer b.Close()
-	if _, err := b.Insert(rs, 0); err != nil {
+	if err := b.Insert(rs, 0); err != nil {
 		t.Fatalf(`b.Insert("%s", 0)=%v, want nil`, string(rs), err)
 	}
 	for i, want := range rs {
@@ -80,15 +80,15 @@ func TestEmptyReadAtEOF(t *testing.T) {
 	}
 
 	str := "Hello, World!"
-	l := len(str)
-	if n, err := b.Insert([]rune(str), 0); n != l || err != nil {
-		t.Fatalf("insert(%v, 0)=%v,%v, want %v,nil", str, n, err, l)
+	if err := b.Insert([]rune(str), 0); err != nil {
+		t.Fatalf("insert(%v, 0)=%v, want nil", str, err)
 	}
 
 	if n, err := b.Read([]rune{}, 1); n != 0 || err != nil {
 		t.Errorf("Read([]rune{}, 1)=%v,%v, want 0,nil", n, err)
 	}
 
+	l := len(str)
 	if err := b.Delete(int64(l), 0); err != nil {
 		t.Fatalf("delete(%v, 0)=%v, want nil", l, err)
 	}
@@ -144,29 +144,21 @@ func TestInsert(t *testing.T) {
 		b := NewBuffer(testBlockSize)
 		defer b.Close()
 		if len(test.init) > 0 {
-			n, err := b.Insert([]rune(test.init), 0)
-			if n != len(test.init) || err != nil {
-				t.Errorf("%+v init failed: insert(%v, 0)=%v,%v, want %v,nil",
-					test, test.init, n, err, len(test.init))
+			if err := b.Insert([]rune(test.init), 0); err != nil {
+				t.Errorf("%+v init failed: insert(%v, 0)=%v, want nil", test, test.init, err)
 				continue
 			}
 		}
-		n, err := b.Insert([]rune(test.add), test.at)
-		m := len(test.add)
-		if test.err != "" {
-			m = 0
-		}
-		if n != m || !errMatch(test.err, err) {
-			t.Errorf("%+v add failed: insert(%v, %v)=%v,%v, want %v,%v",
-				test, test.add, test.at, n, err, m, test.err)
+		err := b.Insert([]rune(test.add), test.at)
+		if !errMatch(test.err, err) {
+			t.Errorf("%+v add failed: insert(%v, %v)=%v, want %v", test, test.add, test.at, err, test.err)
 			continue
 		}
 		if test.err != "" {
 			continue
 		}
 		if s := readAll(b); s != test.want || err != nil {
-			t.Errorf("%+v read failed: readAll(·)=%v,%v, want %v,nil",
-				test, s, err, test.want)
+			t.Errorf("%+v read failed: readAll(·)=%v,%v, want %v,nil", test, s, err, test.want)
 			continue
 		}
 	}
@@ -235,9 +227,9 @@ func TestBlockAlloc(t *testing.T) {
 
 	b := NewBuffer(testBlockSize)
 	defer b.Close()
-	n, err := b.Insert(rs, 0)
-	if n != l || err != nil {
-		t.Fatalf(`Initial insert(%v, 0)=%v,%v, want %v,nil`, rs, n, err, l)
+
+	if err := b.Insert(rs, 0); err != nil {
+		t.Fatalf(`Initial insert(%v, 0)%v, wantnil`, rs, err)
 	}
 	if len(b.blocks) != 2 {
 		t.Fatalf("After initial insert: len(b.blocks)=%v, want 2", len(b.blocks))
@@ -256,9 +248,8 @@ func TestBlockAlloc(t *testing.T) {
 	rs = rs[:testBlockSize/2]
 	l = len(rs)
 
-	n, err = b.Insert(rs, 0)
-	if n != l || err != nil {
-		t.Fatalf(`Second insert(%v, 7)=%v,%v, want %v,nil`, rs, n, err, l)
+	if err := b.Insert(rs, 0); err != nil {
+		t.Fatalf(`Second insert(%v, 7)=%v, want nil`, rs, err)
 	}
 	if len(b.blocks) != 1 {
 		t.Fatalf("After second insert: len(b.blocks)=%d, want 1", len(b.blocks))
@@ -274,28 +265,26 @@ func TestInsertDeleteAndRead(t *testing.T) {
 	defer b.Close()
 
 	const hiWorld = "Hello, World!"
-	n, err := b.Insert([]rune(hiWorld), 0)
-	if l := len(hiWorld); n != l || err != nil {
-		t.Fatalf(`insert(%s, 0)=%v,%v, want %v,nil`, hiWorld, n, err, l)
+	if err := b.Insert([]rune(hiWorld), 0); err != nil {
+		t.Fatalf(`insert(%s, 0)=%v, want nil`, hiWorld, err)
 	}
-	if s := readAll(b); s != hiWorld || err != nil {
-		t.Fatalf(`readAll(·)=%v,%v, want %s,nil`, s, err, hiWorld)
+	if s := readAll(b); s != hiWorld {
+		t.Fatalf(`readAll(·)=%v, want %s`, s, hiWorld)
 	}
 
 	if err := b.Delete(5, 7); err != nil {
 		t.Fatalf(`delete(5, 7)=%v, want nil`, err)
 	}
-	if s := readAll(b); s != "Hello, !" || err != nil {
-		t.Fatalf(`readAll(·)=%v,%v, want "Hello, !",nil`, s, err)
+	if s := readAll(b); s != "Hello, !" {
+		t.Fatalf(`readAll(·)=%v, want "Hello, !"`, s)
 	}
 
 	const gophers = "Gophers"
-	n, err = b.Insert([]rune(gophers), 7)
-	if l := len(gophers); n != l || err != nil {
-		t.Fatalf(`insert(%s, 7)=%v,%v, want %v,nil`, gophers, n, err, l)
+	if err := b.Insert([]rune(gophers), 7); err != nil {
+		t.Fatalf(`insert(%s, 7)=%v, want nil`, gophers, err)
 	}
-	if s := readAll(b); s != "Hello, Gophers!" || err != nil {
-		t.Fatalf(`readAll(·)=%v,%v, want "Hello, Gophers!",nil`, s, err)
+	if s := readAll(b); s != "Hello, Gophers!" {
+		t.Fatalf(`readAll(·)=%v, want "Hello, Gophers!"`, s)
 	}
 }
 
@@ -319,16 +308,14 @@ func readAll(b *Buffer) string {
 func makeTestBytes(t *testing.T) *Buffer {
 	b := NewBuffer(testBlockSize)
 	// Add 3 full blocks.
-	n, err := b.Insert([]rune("01234567abcdefghSTUVWXYZ"), 0)
-	if n != 24 || err != nil {
+	if err := b.Insert([]rune("01234567abcdefghSTUVWXYZ"), 0); err != nil {
 		b.Close()
-		t.Fatalf(`insert("01234567abcdefghSTUVWXYZ", 0)=%v,%v, want 24,nil`, n, err)
+		t.Fatalf(`insert("01234567abcdefghSTUVWXYZ", 0)=%v, want nil`, err)
 	}
 	// Split block 1 in the middle.
-	n, err = b.Insert([]rune("!@#"), 12)
-	if n != 3 || err != nil {
+	if err := b.Insert([]rune("!@#"), 12); err != nil {
 		b.Close()
-		t.Fatalf(`insert("!@#", 12)=%v,%v, want 3,nil`, n, err)
+		t.Fatalf(`insert("!@#", 12)=%v, want nil`, err)
 	}
 	ns := make([]int, len(b.blocks))
 	for i, blk := range b.blocks {
@@ -353,7 +340,7 @@ func TestErrors(t *testing.T) {
 	f := &errReadWriterAt{nil}
 	b := NewBufferReaderWriterAt(len(str)/2, f)
 
-	if _, err := b.Insert(str, 0); err != nil {
+	if err := b.Insert(str, 0); err != nil {
 		t.Fatalf("b.Insert(…)=%v, want nil", err)
 	}
 
@@ -363,7 +350,7 @@ func TestErrors(t *testing.T) {
 	if _, err := b.Rune(0); err != f.error {
 		t.Errorf("b.Rune(0)=%v, want %v", err, f.error)
 	}
-	if _, err := b.Insert(str, 3); err != f.error {
+	if err := b.Insert(str, 3); err != f.error {
 		t.Errorf("b.Insert(…)=%v, want %v", err, f.error)
 	}
 	if err := b.Delete(1, 0); err != f.error {
