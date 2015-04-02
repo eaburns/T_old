@@ -1,6 +1,6 @@
 package edit
 
-import "github.com/eaburns/T/runes"
+import "github.com/eaburns/T/edit/runes"
 
 // A log holds a record of changes made to a buffer.
 // It consists of an unbounded number of entries.
@@ -24,8 +24,7 @@ func (l *log) close() error { return l.buf.Close() }
 
 func (l *log) clear() error {
 	l.last = 0
-	_, err := l.buf.Delete(l.buf.Size(), 0)
-	return err
+	return l.buf.Delete(l.buf.Size(), 0)
 }
 
 type header struct {
@@ -85,7 +84,7 @@ func (l *log) append(seq, who int32, at addr, src source) error {
 		who:  who,
 	}
 	l.last = l.buf.Size()
-	if _, err := l.buf.Insert(h.marshal(), l.last); err != nil {
+	if err := l.buf.Insert(h.marshal(), l.last); err != nil {
 		return err
 	}
 	return src.insert(l.buf, l.buf.Size())
@@ -169,11 +168,12 @@ func (e *entry) load() {
 	if e.err != nil || e.offs < 0 {
 		return
 	}
-	var data [headerRunes]rune
-	if _, e.err = e.l.buf.Read(data[:], e.offs); e.err != nil {
+	var data []rune
+	data, e.err = e.l.buf.Read(headerRunes, e.offs)
+	if e.err != nil {
 		e.offs = -1
 	} else {
-		e.header.unmarshal(data[:])
+		e.header.unmarshal(data)
 	}
 }
 
@@ -184,11 +184,10 @@ func (e *entry) store() error {
 	if e.err != nil || e.offs < 0 {
 		return nil
 	}
-	if _, err := e.l.buf.Delete(headerRunes, e.offs); err != nil {
+	if err := e.l.buf.Delete(headerRunes, e.offs); err != nil {
 		return err
 	}
-	_, err := e.l.buf.Insert(e.header.marshal(), e.offs)
-	return err
+	return e.l.buf.Insert(e.header.marshal(), e.offs)
 }
 
 // Data returns a source for the entry's data.

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/eaburns/T/runes"
+	"github.com/eaburns/T/edit/runes"
 )
 
 func TestEntryEmpty(t *testing.T) {
@@ -188,8 +188,8 @@ func readSource(src source) string {
 	if err := src.insert(b, b.Size()); err != nil {
 		panic(err)
 	}
-	rs := make([]rune, src.size())
-	if _, err := b.Read(rs, 0); err != nil {
+	rs, err := b.Read(int(src.size()), 0)
+	if err != nil {
 		panic(err)
 	}
 	return string(rs)

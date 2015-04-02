@@ -110,58 +110,54 @@ func (b *Buffer) Rune(offs int64) (rune, error) {
 }
 
 // Read reads runes from the buffer beginning at a given offset.
-// The return value is the number of runes read.
-// If fewer than len(rs) runes are read then the error states why.
-// If the offset is beyond the end of the buffer, 0 and io.EOF are returned.
-func (b *Buffer) Read(rs []rune, offs int64) (int, error) {
-	switch {
-	case offs < 0:
-		return 0, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
-	case offs == b.Size() && len(rs) == 0:
-		return 0, nil
-	case offs >= b.Size():
-		return 0, io.EOF
+// It is an error to read out of the range of the buffer.
+func (b *Buffer) Read(n int, offs int64) ([]rune, error) {
+	if n < 0 {
+		panic("bad count: " + strconv.Itoa(n))
 	}
-	var tot int
-	for len(rs) > 0 {
+	if offs < 0 || offs+int64(n) > b.Size() {
+		return nil, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
+	}
+	rs := make([]rune, n)
+	for n > 0 {
 		if offs == b.Size() {
-			return tot, io.EOF
+			panic("impossible read")
 		}
 		i, q0 := b.blockAt(offs)
 		blk, err := b.get(i)
 		if err != nil {
-			return tot, err
+			if err == io.EOF {
+				err = io.ErrUnexpectedEOF
+			}
+			return nil, err
 		}
 		o := int(offs - q0)
-		m := copy(rs, b.cache[o:blk.n])
-		rs = rs[m:]
+		m := copy(rs[len(rs)-n:], b.cache[o:blk.n])
+		n -= m
 		offs += int64(m)
-		tot += m
 	}
-	return tot, nil
+	return rs, nil
 }
 
-// Insert inserts runes into the buffer at the given offset..
-// The return value is the number of runes added and any error that was encountered.
-// It is an error to add at a negative offset or an offset beyond the buffer size.
-func (b *Buffer) Insert(rs []rune, offs int64) (int, error) {
+// Insert inserts runes into the buffer at the given offset.
+// It is an error to insert at a point than is out of the range of the buffer.
+func (b *Buffer) Insert(rs []rune, offs int64) error {
 	if offs < 0 || offs > b.Size() {
-		return 0, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
+		return errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
 	}
-	var tot int
 	for len(rs) > 0 {
 		i, q0 := b.blockAt(offs)
 		blk, err := b.get(i)
 		if err != nil {
-			return tot, err
+			return err
 		}
 		m := b.blockSize - blk.n
 		if m == 0 {
 			if i, err = b.insertAt(offs); err != nil {
-				return tot, err
+				return err
 			}
 			if blk, err = b.get(i); err != nil {
-				return tot, err
+				return err
 			}
 			q0 = offs
 			m = b.blockSize
@@ -177,27 +173,24 @@ func (b *Buffer) Insert(rs []rune, offs int64) (int, error) {
 		blk.n += m
 		b.size += int64(m)
 		offs += int64(m)
-		tot += m
 	}
-	return tot, nil
+	return nil
 }
 
 // Delete deletes runes from the buffer starting at the given offset.
-// The return value is the number of runes deleted.
-// If fewer than n runes are deleted, the error states why.
-func (b *Buffer) Delete(n, offs int64) (int64, error) {
+// It is an error to delete out of the range of the buffer.
+func (b *Buffer) Delete(n, offs int64) error {
 	if n < 0 {
 		panic("bad count: " + strconv.FormatInt(n, 10))
 	}
 	if offs < 0 || offs+n > b.Size() {
-		return 0, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
+		return errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
 	}
-	var tot int64
 	for n > 0 {
 		i, q0 := b.blockAt(offs)
 		blk, err := b.get(i)
 		if err != nil {
-			return tot, err
+			return err
 		}
 		o := int(offs - q0)
 		m := blk.n - o
@@ -216,10 +209,9 @@ func (b *Buffer) Delete(n, offs int64) (int64, error) {
 			blk.n -= m
 		}
 		n -= int64(m)
-		tot += int64(m)
 		b.size -= int64(m)
 	}
-	return tot, nil
+	return nil
 }
 
 func (b *Buffer) allocBlock() block {

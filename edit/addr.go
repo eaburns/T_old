@@ -7,8 +7,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/eaburns/T/edit/runes"
 	"github.com/eaburns/T/re1"
-	"github.com/eaburns/T/runes"
 )
 
 var (
