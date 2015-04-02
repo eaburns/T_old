@@ -646,7 +646,7 @@ func (test editTest) run(t *testing.T) {
 			continue
 		}
 		rs := make([]rune, b.runes.Size())
-		if _, err := b.runes.Read(rs, 0); err != nil {
+		if err := b.runes.read(rs, 0); err != nil {
 			t.Errorf("%v, %d, read failed=%v\n", test, i, err)
 			continue
 		}

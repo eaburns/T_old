@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/eaburns/T/re1"
-	"github.com/eaburns/T/runes"
 )
 
 var (
@@ -439,7 +438,7 @@ func withTrailingDelim(re string) string {
 func (r reAddr) String() string { return r.re }
 
 type forward struct {
-	*runes.Buffer
+	*runes
 	err error
 }
 
@@ -447,7 +446,7 @@ func (rs *forward) Rune(i int64) rune {
 	if rs.err != nil {
 		return -1
 	}
-	r, err := rs.Buffer.Rune(i)
+	r, err := rs.runes.Rune(i)
 	if err != nil {
 		rs.err = err
 		return -1
@@ -466,7 +465,7 @@ func (r reAddr) addrFrom(from int64, ed *Editor) (a addr, err error) {
 	if err != nil {
 		return a, err
 	}
-	fwd := &forward{Buffer: ed.buf.runes}
+	fwd := &forward{runes: ed.buf.runes}
 	rs := re1.Runes(fwd)
 	if r.rev {
 		rs = &reverse{fwd}

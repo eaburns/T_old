@@ -3,8 +3,6 @@ package edit
 import (
 	"errors"
 	"testing"
-
-	"github.com/eaburns/T/runes"
 )
 
 func TestEntryEmpty(t *testing.T) {
@@ -183,13 +181,13 @@ func initTestLog(t *testing.T, entries []testEntry) *log {
 }
 
 func readSource(src source) string {
-	b := runes.NewBuffer(int(src.size()))
-	defer b.Close()
+	b := newRunes(int(src.size()))
+	defer b.close()
 	if err := src.insert(b, b.Size()); err != nil {
 		panic(err)
 	}
 	rs := make([]rune, src.size())
-	if _, err := b.Read(rs, 0); err != nil {
+	if err := b.read(rs, 0); err != nil {
 		panic(err)
 	}
 	return string(rs)
