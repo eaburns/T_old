@@ -1,6 +1,6 @@
 package edit
 
-import "github.com/eaburns/T/runes"
+import "github.com/eaburns/T/edit/runes"
 
 // A source is a source of runes that can be inserted into a buffer.
 type source interface {

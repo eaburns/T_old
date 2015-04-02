@@ -8,10 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/eaburns/T/runes"
+	"github.com/eaburns/T/edit/runes"
 )
-
-const testBlockSize = 12
 
 func TestDotAddress(t *testing.T) {
 	str := "Hello, 世界!"

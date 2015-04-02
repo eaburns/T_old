@@ -1,6 +1,6 @@
 package edit
 
-import "github.com/eaburns/T/runes"
+import "github.com/eaburns/T/edit/runes"
 
 // A log holds a record of changes made to a buffer.
 // It consists of an unbounded number of entries.

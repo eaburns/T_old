@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/eaburns/T/runes"
+	"github.com/eaburns/T/edit/runes"
 )
 
 func TestEntryEmpty(t *testing.T) {
