@@ -41,11 +41,10 @@ func readBench(b *testing.B, n int) {
 	r := NewBuffer(benchBlockSize)
 	defer r.Close()
 	r.Insert(randomRunes(n), 0)
-	rs := make([]rune, n)
 	b.SetBytes(int64(n * runeBytes))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.Read(rs, 0)
+		r.Read(n, 0)
 	}
 }
 

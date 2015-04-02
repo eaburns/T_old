@@ -1,6 +1,10 @@
 package edit
 
-import "github.com/eaburns/T/edit/runes"
+import (
+	"errors"
+
+	"github.com/eaburns/T/edit/runes"
+)
 
 // A source is a source of runes that can be inserted into a buffer.
 type source interface {
@@ -29,8 +33,11 @@ func (s bufferSource) insert(b *runes.Buffer, at int64) error {
 	if s.buf == nil {
 		return nil
 	}
-	rs := make([]rune, s.at.size())
-	_, err := s.buf.Read(rs, s.at.from)
+	if s.at.size() > MaxRead {
+		// This goes away when the TODO above is fixed.
+		return errors.New("bufferSource insert too big")
+	}
+	rs, err := s.buf.Read(int(s.at.size()), s.at.from)
 	if err != nil {
 		return err
 	}

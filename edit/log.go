@@ -168,11 +168,12 @@ func (e *entry) load() {
 	if e.err != nil || e.offs < 0 {
 		return
 	}
-	var data [headerRunes]rune
-	if _, e.err = e.l.buf.Read(data[:], e.offs); e.err != nil {
+	var data []rune
+	data, e.err = e.l.buf.Read(headerRunes, e.offs)
+	if e.err != nil {
 		e.offs = -1
 	} else {
-		e.header.unmarshal(data[:])
+		e.header.unmarshal(data)
 	}
 }
 

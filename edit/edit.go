@@ -12,6 +12,10 @@ import (
 	"github.com/eaburns/T/re1"
 )
 
+// MaxRead is the maximum number of runes to read
+// into memory for operations like Print.
+const MaxRead = 4096
+
 // A Buffer is an editable rune buffer.
 type Buffer struct {
 	lock     sync.RWMutex
@@ -272,8 +276,11 @@ func print(ed *Editor, a Address) ([]rune, addr, error) {
 	if err != nil {
 		return nil, addr{}, err
 	}
-	rs := make([]rune, at.size())
-	if _, err := ed.buf.runes.Read(rs, at.from); err != nil {
+	if at.size() > MaxRead {
+		return nil, addr{}, errors.New("print too big")
+	}
+	rs, err := ed.buf.runes.Read(int(at.size()), at.from)
+	if err != nil {
 		return nil, addr{}, err
 	}
 	ed.marks['.'] = at
@@ -378,8 +385,12 @@ func subExprMatch(ed *Editor, m [][2]int64, i int) ([]rune, error) {
 	if i < 0 || i >= len(m) {
 		return []rune{}, nil
 	}
-	rs := make([]rune, m[i][1]-m[i][0])
-	if _, err := ed.buf.runes.Read(rs, m[i][0]); err != nil {
+	n := m[i][1] - m[i][0]
+	if n > MaxRead {
+		return nil, errors.New("subexpression too big")
+	}
+	rs, err := ed.buf.runes.Read(int(n), m[i][0])
+	if err != nil {
 		return nil, err
 	}
 	return rs, nil

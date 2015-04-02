@@ -32,8 +32,8 @@ func TestRead(t *testing.T) {
 		want string
 		err  string
 	}{
-		{n: 1, offs: 27, err: "EOF"},
-		{n: 1, offs: 28, err: "EOF"},
+		{n: 1, offs: 27, err: "invalid offset"},
+		{n: 1, offs: 28, err: "invalid offset"},
 		{n: 1, offs: -1, err: "invalid offset"},
 		{n: 1, offs: -2, err: "invalid offset"},
 
@@ -41,32 +41,17 @@ func TestRead(t *testing.T) {
 		{n: 1, offs: 0, want: "0"},
 		{n: 1, offs: 26, want: "Z"},
 		{n: 8, offs: 19, want: "STUVWXYZ"},
-		{n: 8, offs: 20, want: "TUVWXYZ", err: "EOF"},
-		{n: 8, offs: 21, want: "UVWXYZ", err: "EOF"},
-		{n: 8, offs: 22, want: "VWXYZ", err: "EOF"},
-		{n: 8, offs: 23, want: "WXYZ", err: "EOF"},
-		{n: 8, offs: 24, want: "XYZ", err: "EOF"},
-		{n: 8, offs: 25, want: "YZ", err: "EOF"},
-		{n: 8, offs: 26, want: "Z", err: "EOF"},
-		{n: 8, offs: 27, want: "", err: "EOF"},
 		{n: 11, offs: 8, want: "abcd!@#efgh"},
 		{n: 7, offs: 12, want: "!@#efgh"},
 		{n: 6, offs: 13, want: "@#efgh"},
 		{n: 5, offs: 13, want: "@#efg"},
 		{n: 4, offs: 15, want: "efgh"},
 		{n: 27, offs: 0, want: "01234567abcd!@#efghSTUVWXYZ"},
-		{n: 28, offs: 0, want: "01234567abcd!@#efghSTUVWXYZ", err: "EOF"},
 	}
 	for _, test := range tests {
-		rs := make([]rune, test.n)
-		n, err := b.Read(rs, test.offs)
-		if n != len(test.want) || !errMatch(test.err, err) {
-			t.Errorf("ReadAt(len=%v, %v)=%v,%v, want %v,%v",
-				test.n, test.offs, n, err, len(test.want), test.err)
-		}
-		if str := string(rs[:n]); str != test.want {
-			t.Errorf("ReadAt(len=%v, %v) read %q, want %q",
-				test.n, test.offs, str, test.want)
+		rs, err := b.Read(test.n, test.offs)
+		if str := string(rs); !errMatch(test.err, err) || str != test.want {
+			t.Errorf("ReadAt(%v, %v)=%q,%v, want %q,%v", test.n, test.offs, str, err, test.want, test.err)
 		}
 	}
 }
@@ -75,8 +60,8 @@ func TestEmptyReadAtEOF(t *testing.T) {
 	b := NewBuffer(testBlockSize)
 	defer b.Close()
 
-	if n, err := b.Read([]rune{}, 0); n != 0 || err != nil {
-		t.Errorf("empty buffer Read([]rune{}, 0)=%v,%v, want 0,nil", n, err)
+	if rs, err := b.Read(0, 0); len(rs) != 0 || err != nil {
+		t.Errorf("empty buffer Read(0, 0)=%q,%v, want {},nil", rs, err)
 	}
 
 	str := "Hello, World!"
@@ -84,8 +69,8 @@ func TestEmptyReadAtEOF(t *testing.T) {
 		t.Fatalf("insert(%v, 0)=%v, want nil", str, err)
 	}
 
-	if n, err := b.Read([]rune{}, 1); n != 0 || err != nil {
-		t.Errorf("Read([]rune{}, 1)=%v,%v, want 0,nil", n, err)
+	if rs, err := b.Read(0, 1); len(rs) != 0 || err != nil {
+		t.Errorf("Read(0, 1)=%q,%v, want {},nil", rs, err)
 	}
 
 	l := len(str)
@@ -97,8 +82,8 @@ func TestEmptyReadAtEOF(t *testing.T) {
 	}
 
 	// The buffer should be empty, but we still don't want EOF when reading 0 bytes.
-	if n, err := b.Read([]rune{}, 0); n != 0 || err != nil {
-		t.Errorf("deleted buffer Read([]rune{}, 0)=%v,%v, want 0,nil", n, err)
+	if rs, err := b.Read(0, 0); len(rs) != 0 || err != nil {
+		t.Errorf("deleted buffer Read(0, 0)=%q,%v, want {},nil", rs, err)
 	}
 }
 
@@ -296,8 +281,8 @@ func errMatch(re string, err error) bool {
 }
 
 func readAll(b *Buffer) string {
-	rs := make([]rune, b.Size())
-	if _, err := b.Read(rs, 0); err != nil {
+	rs, err := b.Read(int(b.Size()), 0)
+	if err != nil {
 		panic(err)
 	}
 	return string(rs)
@@ -360,7 +345,7 @@ func TestErrors(t *testing.T) {
 	if sz := b.Size(); sz != int64(len(str)) {
 		t.Errorf("b.Size()=%v, want %v", sz, len(str))
 	}
-	if _, err := b.Read(make([]rune, b.Size()), 0); err != f.error {
+	if _, err := b.Read(int(b.Size()), 0); err != f.error {
 		t.Errorf("b.Read(…)=%v, want %v", err, f.error)
 	}
 	if err := b.Close(); err != f.error {
