@@ -183,21 +183,19 @@ func (b *Buffer) Insert(rs []rune, offs int64) (int, error) {
 }
 
 // Delete deletes runes from the buffer starting at the given offset.
-// The return value is the number of runes deleted.
 // If fewer than n runes are deleted, the error states why.
-func (b *Buffer) Delete(n, offs int64) (int64, error) {
+func (b *Buffer) Delete(n, offs int64) error {
 	if n < 0 {
 		panic("bad count: " + strconv.FormatInt(n, 10))
 	}
 	if offs < 0 || offs+n > b.Size() {
-		return 0, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
+		return errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
 	}
-	var tot int64
 	for n > 0 {
 		i, q0 := b.blockAt(offs)
 		blk, err := b.get(i)
 		if err != nil {
-			return tot, err
+			return err
 		}
 		o := int(offs - q0)
 		m := blk.n - o
@@ -216,10 +214,9 @@ func (b *Buffer) Delete(n, offs int64) (int64, error) {
 			blk.n -= m
 		}
 		n -= int64(m)
-		tot += int64(m)
 		b.size -= int64(m)
 	}
-	return tot, nil
+	return nil
 }
 
 func (b *Buffer) allocBlock() block {

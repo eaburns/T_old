@@ -50,7 +50,7 @@ func (buf *Buffer) rune(i int64) (rune, error) { return buf.runes.Rune(i) }
 //
 // This method must be called with the Lock held.
 func (buf *Buffer) change(at addr, rs source) error {
-	if _, err := buf.runes.Delete(at.size(), at.from); err != nil {
+	if err := buf.runes.Delete(at.size(), at.from); err != nil {
 		return err
 	}
 	if err := rs.insert(buf.runes, at.from); err != nil {

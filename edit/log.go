@@ -24,8 +24,7 @@ func (l *log) close() error { return l.buf.Close() }
 
 func (l *log) clear() error {
 	l.last = 0
-	_, err := l.buf.Delete(l.buf.Size(), 0)
-	return err
+	return l.buf.Delete(l.buf.Size(), 0)
 }
 
 type header struct {
@@ -184,7 +183,7 @@ func (e *entry) store() error {
 	if e.err != nil || e.offs < 0 {
 		return nil
 	}
-	if _, err := e.l.buf.Delete(headerRunes, e.offs); err != nil {
+	if err := e.l.buf.Delete(headerRunes, e.offs); err != nil {
 		return err
 	}
 	_, err := e.l.buf.Insert(e.header.marshal(), e.offs)

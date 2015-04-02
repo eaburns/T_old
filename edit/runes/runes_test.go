@@ -89,8 +89,8 @@ func TestEmptyReadAtEOF(t *testing.T) {
 		t.Errorf("Read([]rune{}, 1)=%v,%v, want 0,nil", n, err)
 	}
 
-	if n, err := b.Delete(int64(l), 0); n != int64(l) || err != nil {
-		t.Fatalf("delete(%v, 0)=%v,%v, want %v, nil", l, n, err, l)
+	if err := b.Delete(int64(l), 0); err != nil {
+		t.Fatalf("delete(%v, 0)=%v, want nil", l, err)
 	}
 	if s := b.Size(); s != 0 {
 		t.Fatalf("b.Size()=%d, want 0", s)
@@ -212,22 +212,16 @@ func TestDelete(t *testing.T) {
 		b := makeTestBytes(t)
 		defer b.Close()
 
-		m := b.Size() - int64(len(test.want))
-		if test.err != "" {
-			m = 0
-		}
-		n, err := b.Delete(test.n, test.at)
-		if n != m || !errMatch(test.err, err) {
-			t.Errorf("delete(%v, %v)=%v,%v, want %v,%v",
-				test.n, test.at, n, err, m, test.err)
+		err := b.Delete(test.n, test.at)
+		if !errMatch(test.err, err) {
+			t.Errorf("delete(%v, %v)=%v, want %v", test.n, test.at, err, test.err)
 			continue
 		}
 		if test.err != "" {
 			continue
 		}
 		if s := readAll(b); s != test.want || err != nil {
-			t.Errorf("%+v read failed: ReadAll(·)=%v,%v want %v,nil",
-				test, s, err, test.want)
+			t.Errorf("%+v read failed: ReadAll(·)=%v,%v want %v,nil", test, s, err, test.want)
 		}
 	}
 }
@@ -249,9 +243,8 @@ func TestBlockAlloc(t *testing.T) {
 		t.Fatalf("After initial insert: len(b.blocks)=%v, want 2", len(b.blocks))
 	}
 
-	m, err := b.Delete(int64(l), 0)
-	if m != int64(l) || err != nil {
-		t.Fatalf(`delete(%v, 0)=%v,%v, want 5,nil`, l, m, err)
+	if err := b.Delete(int64(l), 0); err != nil {
+		t.Fatalf(`Delete(%v, 0)=%v, want nil`, l, err)
 	}
 	if len(b.blocks) != 0 {
 		t.Fatalf("After delete: len(b.blocks)=%v, want 0", len(b.blocks))
@@ -289,9 +282,8 @@ func TestInsertDeleteAndRead(t *testing.T) {
 		t.Fatalf(`readAll(·)=%v,%v, want %s,nil`, s, err, hiWorld)
 	}
 
-	m, err := b.Delete(5, 7)
-	if m != 5 || err != nil {
-		t.Fatalf(`delete(5, 7)=%v,%v, want 5,nil`, m, err)
+	if err := b.Delete(5, 7); err != nil {
+		t.Fatalf(`delete(5, 7)=%v, want nil`, err)
 	}
 	if s := readAll(b); s != "Hello, !" || err != nil {
 		t.Fatalf(`readAll(·)=%v,%v, want "Hello, !",nil`, s, err)
@@ -374,7 +366,7 @@ func TestErrors(t *testing.T) {
 	if _, err := b.Insert(str, 3); err != f.error {
 		t.Errorf("b.Insert(…)=%v, want %v", err, f.error)
 	}
-	if _, err := b.Delete(1, 0); err != f.error {
+	if err := b.Delete(1, 0); err != f.error {
 		t.Errorf("b.Delete(…)=%v, want %v", err, f.error)
 	}
 	// The delete failed, so nothing should have been deleted.
