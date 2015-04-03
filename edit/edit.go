@@ -503,6 +503,9 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //		then all matches in the address range are substituted.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the modified address.
+//	{addr} t {addr}
+//		Copies the runes from the first address to after the second.
+//		Dot is set to the address of the newly inserted runes.
 func (ed *Editor) Edit(cmd []rune) ([]rune, error) {
 	var pr []rune
 	err := ed.do(func() (at addr, err error) {
@@ -561,6 +564,13 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 		repl := parseDelimited(exp[0], true, cmd)
 		g := len(repl) < len(cmd)-1 && cmd[len(repl)+1] == 'g'
 		at, err := sub(ed, a, re, repl, g)
+		return nil, at, err
+	case 't':
+		a1, _, err := Addr(cmd[1:])
+		if err != nil {
+			return nil, addr{}, err
+		}
+		at, err := cpy(ed, a, a1)
 		return nil, at, err
 	default:
 		return nil, addr{}, errors.New("unknown command: " + string(c))

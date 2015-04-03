@@ -159,11 +159,12 @@ func (test changeTest) run(f func(*Editor, Address, []rune) error, name string, 
 	}
 }
 
-func TestEditorCopy(t *testing.T) {
+func TestCopy(t *testing.T) {
 	tests := []copyTest{
 		{init: "abc", src: "/abc/", dst: "$", want: "abcabc", dot: addr{3, 6}},
 		{init: "abc", src: "/abc/", dst: "0", want: "abcabc", dot: addr{0, 3}},
 		{init: "abc", src: "/abc/", dst: "#1", want: "aabcbc", dot: addr{1, 4}},
+		{init: "abcdef", src: "/abc/", dst: "#4", want: "abcdabcef", dot: addr{4, 7}},
 		{
 			init: "abc\ndef\nghi",
 			src:  "/def/", dst: "1",
@@ -656,6 +657,29 @@ func TestEditorEditSubstitute(t *testing.T) {
 		{
 			{edit: "a/abc", want: "abc"},
 			{edit: `s/abc/\1`, want: ""},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestEditorEditCopy(t *testing.T) {
+	tests := []editTest{
+		{
+			{edit: "a/abcdef", want: "abcdef"},
+			{edit: "/abc/t$", want: "abcdefabc"},
+			{edit: "d", want: "abcdef"},
+		},
+		{
+			{edit: "a/abcdef", want: "abcdef"},
+			{edit: "/def/t0", want: "defabcdef"},
+			{edit: "d", want: "abcdef"},
+		},
+		{
+			{edit: "a/abcdef", want: "abcdef"},
+			{edit: "/abc/t#4", want: "abcdabcef"},
+			{edit: "d", want: "abcdef"},
 		},
 	}
 	for _, test := range tests {
