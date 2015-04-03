@@ -204,40 +204,6 @@ func inSequence(l *log) bool {
 	return true
 }
 
-// Change changes the Address to the given runes
-// and sets dot to the Address of the changed runes.
-func (ed *Editor) Change(a Address, rs []rune) error {
-	return ed.do(func() (addr, error) { return change(ed, a, rs) })
-}
-
-func change(ed *Editor, a Address, rs []rune) (addr, error) {
-	at, err := a.addr(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	err = ed.pending.append(ed.buf.seq, ed.who, at, sliceSource(rs))
-	return at, err
-}
-
-// Append inserts the runes after the address
-// and sets dot to the address of the appended runes.
-func (ed *Editor) Append(ad Address, rs []rune) error {
-	return ed.Change(ad.Plus(Rune(0)), rs)
-}
-
-// Delete deletes the runes at the address
-// and sets dot to the address of the empty string
-// where the runes were deleted.
-func (ed *Editor) Delete(a Address) error {
-	return ed.Change(a, []rune{})
-}
-
-// Insert inserts the runes before the address
-// and sets dot to the address of the inserted runes.
-func (ed *Editor) Insert(ad Address, rs []rune) error {
-	return ed.Change(ad.Minus(Rune(0)), rs)
-}
-
 // Mark sets a mark to an address.
 // The mark must be either a lower-case or upper-case letter or dot: [a-zA-Z.].
 // Any other mark is an error.
@@ -304,6 +270,40 @@ func where(ed *Editor, a Address) (addr, error) {
 	}
 	ed.marks['.'] = at
 	return at, nil
+}
+
+// Change changes the Address to the given runes
+// and sets dot to the Address of the changed runes.
+func (ed *Editor) Change(a Address, rs []rune) error {
+	return ed.do(func() (addr, error) { return change(ed, a, rs) })
+}
+
+func change(ed *Editor, a Address, rs []rune) (addr, error) {
+	at, err := a.addr(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	err = ed.pending.append(ed.buf.seq, ed.who, at, sliceSource(rs))
+	return at, err
+}
+
+// Append inserts the runes after the address
+// and sets dot to the address of the appended runes.
+func (ed *Editor) Append(ad Address, rs []rune) error {
+	return ed.Change(ad.Plus(Rune(0)), rs)
+}
+
+// Delete deletes the runes at the address
+// and sets dot to the address of the empty string
+// where the runes were deleted.
+func (ed *Editor) Delete(a Address) error {
+	return ed.Change(a, []rune{})
+}
+
+// Insert inserts the runes before the address
+// and sets dot to the address of the inserted runes.
+func (ed *Editor) Insert(ad Address, rs []rune) error {
+	return ed.Change(ad.Minus(Rune(0)), rs)
 }
 
 // Substitute substitutes text for the first match
