@@ -306,6 +306,30 @@ func (ed *Editor) Insert(ad Address, rs []rune) error {
 	return ed.Change(ad.Minus(Rune(0)), rs)
 }
 
+// Copy copies the runes from the source address
+// after the destination address.
+// Dot is set to the copied runes.
+func (ed *Editor) Copy(src, dst Address) error {
+	return ed.do(func() (addr, error) { return cpy(ed, src, dst) })
+}
+
+func cpy(ed *Editor, src, dst Address) (addr, error) {
+	s, err := src.addr(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	d, err := dst.addr(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	d.from = d.to
+	rs := bufferSource{at: s, buf: ed.buf.runes}
+	if err := ed.pending.append(ed.buf.seq, ed.who, d, rs); err != nil {
+		return addr{}, err
+	}
+	return d, nil
+}
+
 // Substitute substitutes text for the first match
 // of the regular expression in the addressed range.
 // When substituting, a backslash followed by a digit d
