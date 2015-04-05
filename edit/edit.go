@@ -188,7 +188,7 @@ func fixAddrs(at addr, l *log) (addr, error) {
 			// This grows at, even if it's a point address,
 			// to include the change made by e.
 			// Otherwise, update would simply leave it
-			// as a point address and simply move it.
+			// as a point address and move it.
 			at.to = at.update(e.at, e.data().size()).to
 		} else {
 			at = at.update(e.at, e.data().size())
