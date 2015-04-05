@@ -520,11 +520,13 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //	or
 //	{addr} a
 //	lines of text
-//	.	Appends after the addressed text.
+//	.
+//		Appends after the addressed text.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-//	c
-//	i	Just like a, but c changes the addressed text
+//	{addr} c
+//	{addr} i
+//		Just like a, but c changes the addressed text
 //		and i inserts before the addressed text.
 //		Dot is set to the address.
 //	{addr} d
