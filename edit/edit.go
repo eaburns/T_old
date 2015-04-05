@@ -507,6 +507,8 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 }
 
 // Edit parses a command and performs its edit on the buffer.
+// The returned rune slice is the result of commands that output,
+// such as p and =#.
 //
 // In the following, text surrounded by / represents delimited text.
 // The delimiter can be any character, it need not be /.
