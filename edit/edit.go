@@ -130,11 +130,11 @@ retry:
 	for r, a := range ed.marks {
 		marks[r] = a
 	}
-	seq, at, err := pend(ed, f)
+	seq, at, err := pendChanges(ed, f)
 	if at, err = fixAddrs(at, ed.pending); err != nil {
 		return err
 	}
-	switch retry, err := apply(ed, seq); {
+	switch retry, err := applyChanges(ed, seq); {
 	case err != nil:
 		return err
 	case retry:
@@ -145,7 +145,7 @@ retry:
 	return err
 }
 
-func pend(ed *Editor, f func() (addr, error)) (int32, addr, error) {
+func pendChanges(ed *Editor, f func() (addr, error)) (int32, addr, error) {
 	if err := ed.pending.clear(); err != nil {
 		return 0, addr{}, err
 	}
@@ -157,7 +157,7 @@ func pend(ed *Editor, f func() (addr, error)) (int32, addr, error) {
 	return seq, at, err
 }
 
-func apply(ed *Editor, seq int32) (bool, error) {
+func applyChanges(ed *Editor, seq int32) (bool, error) {
 	ed.buf.lock.Lock()
 	defer ed.buf.lock.Unlock()
 	if ed.buf.seq != seq {
@@ -202,6 +202,10 @@ func inSequence(l *log) bool {
 		e = f
 	}
 	return true
+}
+
+func pend(ed *Editor, at addr, src source) error {
+	return ed.pending.append(ed.buf.seq, ed.who, at, src)
 }
 
 // Mark sets a mark to an address.
@@ -283,8 +287,7 @@ func change(ed *Editor, a Address, rs []rune) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	err = ed.pending.append(ed.buf.seq, ed.who, at, sliceSource(rs))
-	return at, err
+	return at, pend(ed, at, sliceSource(rs))
 }
 
 // Append inserts the runes after the address
@@ -323,11 +326,7 @@ func cpy(ed *Editor, src, dst Address) (addr, error) {
 		return addr{}, err
 	}
 	d.from = d.to
-	rs := bufferSource{at: s, buf: ed.buf.runes}
-	if err := ed.pending.append(ed.buf.seq, ed.who, d, rs); err != nil {
-		return addr{}, err
-	}
-	return d, nil
+	return d, pend(ed, d, bufferSource{at: s, buf: ed.buf.runes})
 }
 
 // Substitute substitutes text for the first match
@@ -372,8 +371,7 @@ func sub1(ed *Editor, at addr, re *re1.Regexp, repl []rune) ([][2]int64, error) 
 		return nil, err
 	}
 	at = addr{m[0][0], m[0][1]}
-	err = ed.pending.append(ed.buf.seq, ed.who, at, sliceSource(rs))
-	return m, err
+	return m, pend(ed, at, sliceSource(rs))
 }
 
 // ReplRunes returns the runes that replace a matched regexp.
