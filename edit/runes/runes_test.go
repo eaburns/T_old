@@ -277,6 +277,9 @@ func errMatch(re string, err error) bool {
 	if err == nil {
 		return re == ""
 	}
+	if re == "" {
+		return err == nil
+	}
 	return regexp.MustCompile(re).Match([]byte(err.Error()))
 }
 

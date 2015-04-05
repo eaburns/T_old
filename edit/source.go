@@ -12,6 +12,12 @@ type source interface {
 	insert(b *runes.Buffer, at int64) error
 }
 
+type emptySource struct{}
+
+func (s emptySource) size() int64 { return 0 }
+
+func (s emptySource) insert(*runes.Buffer, int64) error { return nil }
+
 type sliceSource []rune
 
 func (s sliceSource) size() int64 { return int64(len(s)) }
@@ -33,7 +39,7 @@ func (s bufferSource) insert(b *runes.Buffer, at int64) error {
 	if s.buf == nil {
 		return nil
 	}
-	if s.at.size() > MaxRead {
+	if s.at.size() > MaxRunes {
 		// This goes away when the TODO above is fixed.
 		return errors.New("bufferSource insert too big")
 	}

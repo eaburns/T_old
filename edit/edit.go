@@ -12,9 +12,9 @@ import (
 	"github.com/eaburns/T/re1"
 )
 
-// MaxRead is the maximum number of runes to read
+// MaxRunes is the maximum number of runes to read
 // into memory for operations like Print.
-const MaxRead = 4096
+const MaxRunes = 4096
 
 // A Buffer is an editable rune buffer.
 type Buffer struct {
@@ -125,27 +125,32 @@ func (ed *Editor) Close() error {
 // In the face of retries, f is called multiple times,
 // so it must be idempotent.
 func (ed *Editor) do(f func() (addr, error)) error {
+	var marks map[rune]addr
+	defer func() { ed.marks = marks }()
 retry:
-	marks := make(map[rune]addr, len(ed.marks))
+	marks = make(map[rune]addr, len(ed.marks))
 	for r, a := range ed.marks {
 		marks[r] = a
 	}
-	seq, at, err := pend(ed, f)
+	seq, at, err := pendChanges(ed, f)
+	if err != nil {
+		return err
+	}
 	if at, err = fixAddrs(at, ed.pending); err != nil {
 		return err
 	}
-	switch retry, err := apply(ed, seq); {
+	switch retry, err := applyChanges(ed, seq); {
 	case err != nil:
 		return err
 	case retry:
-		ed.marks = marks
 		goto retry
 	}
 	ed.marks['.'] = at
+	marks = ed.marks
 	return err
 }
 
-func pend(ed *Editor, f func() (addr, error)) (int32, addr, error) {
+func pendChanges(ed *Editor, f func() (addr, error)) (int32, addr, error) {
 	if err := ed.pending.clear(); err != nil {
 		return 0, addr{}, err
 	}
@@ -157,7 +162,7 @@ func pend(ed *Editor, f func() (addr, error)) (int32, addr, error) {
 	return seq, at, err
 }
 
-func apply(ed *Editor, seq int32) (bool, error) {
+func applyChanges(ed *Editor, seq int32) (bool, error) {
 	ed.buf.lock.Lock()
 	defer ed.buf.lock.Unlock()
 	if ed.buf.seq != seq {
@@ -178,10 +183,16 @@ func fixAddrs(at addr, l *log) (addr, error) {
 		return addr{}, errors.New("changes not in sequence")
 	}
 	for e := logFirst(l); !e.end(); e = e.next() {
-		if e.at.from < at.from || e.at.to > at.to {
-			panic("change not contained in address")
+		if e.at.from == at.from {
+			// If they have the same from, grow at.
+			// This grows at, even if it's a point address,
+			// to include the change made by e.
+			// Otherwise, update would simply leave it
+			// as a point address and move it.
+			at.to = at.update(e.at, e.data().size()).to
+		} else {
+			at = at.update(e.at, e.data().size())
 		}
-		at.to = at.update(e.at, e.data().size()).to
 		for f := e.next(); !f.end(); f = f.next() {
 			f.at = f.at.update(e.at, e.data().size())
 			if err := f.store(); err != nil {
@@ -202,6 +213,10 @@ func inSequence(l *log) bool {
 		e = f
 	}
 	return true
+}
+
+func pend(ed *Editor, at addr, src source) error {
+	return ed.pending.append(ed.buf.seq, ed.who, at, src)
 }
 
 // Mark sets a mark to an address.
@@ -229,6 +244,7 @@ func mark(ed *Editor, a Address, m rune) (addr, error) {
 }
 
 // Print returns the runes identified by the address.
+// It is an error to print more than MaxRunes runes.
 // Dot is set to the address.
 func (ed *Editor) Print(a Address) ([]rune, error) {
 	ed.buf.lock.RLock()
@@ -242,7 +258,7 @@ func print(ed *Editor, a Address) ([]rune, addr, error) {
 	if err != nil {
 		return nil, addr{}, err
 	}
-	if at.size() > MaxRead {
+	if at.size() > MaxRunes {
 		return nil, addr{}, errors.New("print too big")
 	}
 	rs, err := ed.buf.runes.Read(int(at.size()), at.from)
@@ -283,8 +299,7 @@ func change(ed *Editor, a Address, rs []rune) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	err = ed.pending.append(ed.buf.seq, ed.who, at, sliceSource(rs))
-	return at, err
+	return at, pend(ed, at, sliceSource(rs))
 }
 
 // Append inserts the runes after the address
@@ -323,9 +338,47 @@ func cpy(ed *Editor, src, dst Address) (addr, error) {
 		return addr{}, err
 	}
 	d.from = d.to
-	rs := bufferSource{at: s, buf: ed.buf.runes}
-	if err := ed.pending.append(ed.buf.seq, ed.who, d, rs); err != nil {
+	return d, pend(ed, d, bufferSource{at: s, buf: ed.buf.runes})
+}
+
+// Move moves the runes from the source address
+// to after the destination address.
+// Dot is set to the copied runes.
+// It is an error the end of the destination
+// to be within the source.
+func (ed *Editor) Move(src, dst Address) error {
+	return ed.do(func() (addr, error) { return move(ed, src, dst) })
+}
+
+func move(ed *Editor, src, dst Address) (addr, error) {
+	s, err := src.addr(ed)
+	if err != nil {
 		return addr{}, err
+	}
+	d, err := dst.addr(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	d.from = d.to
+
+	if d.from > s.from && d.from < s.to {
+		return addr{}, errors.New("addresses overlap")
+	}
+
+	if d.from >= s.to {
+		// Moving to after the source. Delete the source first.
+		if err := pend(ed, s, emptySource{}); err != nil {
+			return addr{}, err
+		}
+	}
+	if err := pend(ed, d, bufferSource{at: s, buf: ed.buf.runes}); err != nil {
+		return addr{}, err
+	}
+	if d.from <= s.from {
+		// Moving to before the source. Delete the source second.
+		if err := pend(ed, s, emptySource{}); err != nil {
+			return addr{}, err
+		}
 	}
 	return d, nil
 }
@@ -334,6 +387,7 @@ func cpy(ed *Editor, src, dst Address) (addr, error) {
 // of the regular expression in the addressed range.
 // When substituting, a backslash followed by a digit d
 // stands for the string that matched the d-th subexpression.
+// It is an error if such a subexpression has more than MaxRunes.
 // \n is a literal newline.
 // If g is true then all matches in the address range are substituted.
 // Dot is set to the modified address.
@@ -372,8 +426,7 @@ func sub1(ed *Editor, at addr, re *re1.Regexp, repl []rune) ([][2]int64, error) 
 		return nil, err
 	}
 	at = addr{m[0][0], m[0][1]}
-	err = ed.pending.append(ed.buf.seq, ed.who, at, sliceSource(rs))
-	return m, err
+	return m, pend(ed, at, sliceSource(rs))
 }
 
 // ReplRunes returns the runes that replace a matched regexp.
@@ -410,7 +463,7 @@ func subExprMatch(ed *Editor, m [][2]int64, i int) ([]rune, error) {
 		return []rune{}, nil
 	}
 	n := m[i][1] - m[i][0]
-	if n > MaxRead {
+	if n > MaxRunes {
 		return nil, errors.New("subexpression too big")
 	}
 	rs, err := ed.buf.runes.Read(int(n), m[i][0])
@@ -456,6 +509,8 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 }
 
 // Edit parses a command and performs its edit on the buffer.
+// The returned rune slice is the result of commands that output,
+// such as p and =#.
 //
 // In the following, text surrounded by / represents delimited text.
 // The delimiter can be any character, it need not be /.
@@ -469,18 +524,35 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //	or
 //	{addr} a
 //	lines of text
-//	.	Appends after the addressed text.
+//	.
+//		Appends after the addressed text.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-//	c
-//	i	Just like a, but c changes the addressed text
+//	{addr} c
+//	{addr} i
+//		Just like a, but c changes the addressed text
 //		and i inserts before the addressed text.
 //		Dot is set to the address.
 //	{addr} d
 //		Deletes the addressed text.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-//	{addr} m {[a-zA-Z]}
+//	{addr} t {addr}
+//	{addr} m {addr}
+//		Copies or moves runes from the first address to after the second.
+//		Dot is set to the newly inserted or moved runes.
+//	{addr} s/regexp/text/
+//		Substitute substitutes text for the first match
+// 		of the regular expression in the addressed range.
+// 		When substituting, a backslash followed by a digit d
+// 		stands for the string that matched the d-th subexpression.
+// 		It is an error if such a subexpression has more than MaxRunes.
+//		\n is a literal newline.
+// 		If the delimiter after the text is followed by the letter g
+//		then all matches in the address range are substituted.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the modified address.
+//	{addr} k {[a-zA-Z]}
 //		Sets the named mark to the address.
 //		If an address is not supplied, dot is used.
 //		If a mark name is not given, dot is set.
@@ -488,24 +560,12 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //	{addr} p
 //		Returns the runes identified by the address.
 //		If an address is not supplied, dot is used.
+// 		It is an error to print more than MaxRunes runes.
 //		Dot is set to the address.
 //	{addr} =#
 //		Returns the runes offsets of the address.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-//	{addr} s/regexp/text/
-//		Substitute substitutes text for the first match
-// 		of the regular expression in the addressed range.
-// 		When substituting, a backslash followed by a digit d
-// 		stands for the string that matched the d-th subexpression.
-//		\n is a literal newline.
-// 		If the delimiter after the text is followed by the letter g
-//		then all matches in the address range are substituted.
-//		If an address is not supplied, dot is used.
-//		Dot is set to the modified address.
-//	{addr} t {addr}
-//		Copies the runes from the first address to after the second.
-//		Dot is set to the address of the newly inserted runes.
 func (ed *Editor) Edit(cmd []rune) ([]rune, error) {
 	var pr []rune
 	err := ed.do(func() (at addr, err error) {
@@ -540,7 +600,7 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 	case 'd':
 		at, err := change(ed, a, []rune{})
 		return nil, at, err
-	case 'm':
+	case 'k':
 		at, err := mark(ed, a, parseMarkRune(cmd[1:]))
 		return nil, at, err
 	case 'p':
@@ -565,12 +625,20 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 		g := len(repl) < len(cmd)-1 && cmd[len(repl)+1] == 'g'
 		at, err := sub(ed, a, re, repl, g)
 		return nil, at, err
-	case 't':
+	case 't', 'm':
 		a1, _, err := Addr(cmd[1:])
-		if err != nil {
+		switch {
+		case err != nil:
 			return nil, addr{}, err
+		case a1 == nil:
+			a1 = Dot
 		}
-		at, err := cpy(ed, a, a1)
+		var at addr
+		if c == 't' {
+			at, err = cpy(ed, a, a1)
+		} else {
+			at, err = move(ed, a, a1)
+		}
 		return nil, at, err
 	default:
 		return nil, addr{}, errors.New("unknown command: " + string(c))
