@@ -531,7 +531,11 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //		Deletes the addressed text.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-//	{addr} m {[a-zA-Z]}
+//	{addr} t {addr}
+//	{addr} m {addr}
+//		Copies or moves runes from the first address to after the second.
+//		Dot is set to the newly inserted or moved runes.
+//	{addr} k {[a-zA-Z]}
 //		Sets the named mark to the address.
 //		If an address is not supplied, dot is used.
 //		If a mark name is not given, dot is set.
@@ -554,9 +558,6 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //		then all matches in the address range are substituted.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the modified address.
-//	{addr} t {addr}
-//		Copies the runes from the first address to after the second.
-//		Dot is set to the address of the newly inserted runes.
 func (ed *Editor) Edit(cmd []rune) ([]rune, error) {
 	var pr []rune
 	err := ed.do(func() (at addr, err error) {
@@ -591,7 +592,7 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 	case 'd':
 		at, err := change(ed, a, []rune{})
 		return nil, at, err
-	case 'm':
+	case 'k':
 		at, err := mark(ed, a, parseMarkRune(cmd[1:]))
 		return nil, at, err
 	case 'p':
@@ -616,12 +617,20 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 		g := len(repl) < len(cmd)-1 && cmd[len(repl)+1] == 'g'
 		at, err := sub(ed, a, re, repl, g)
 		return nil, at, err
-	case 't':
+	case 't', 'm':
 		a1, _, err := Addr(cmd[1:])
-		if err != nil {
+		switch {
+		case err != nil:
 			return nil, addr{}, err
+		case a1 == nil:
+			a1 = Dot
 		}
-		at, err := cpy(ed, a, a1)
+		var at addr
+		if c == 't' {
+			at, err = cpy(ed, a, a1)
+		} else {
+			at, err = move(ed, a, a1)
+		}
 		return nil, at, err
 	default:
 		return nil, addr{}, errors.New("unknown command: " + string(c))
