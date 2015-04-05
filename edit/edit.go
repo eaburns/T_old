@@ -125,12 +125,17 @@ func (ed *Editor) Close() error {
 // In the face of retries, f is called multiple times,
 // so it must be idempotent.
 func (ed *Editor) do(f func() (addr, error)) error {
+	var marks map[rune]addr
+	defer func() { ed.marks = marks }()
 retry:
-	marks := make(map[rune]addr, len(ed.marks))
+	marks = make(map[rune]addr, len(ed.marks))
 	for r, a := range ed.marks {
 		marks[r] = a
 	}
 	seq, at, err := pendChanges(ed, f)
+	if err != nil {
+		return err
+	}
 	if at, err = fixAddrs(at, ed.pending); err != nil {
 		return err
 	}
@@ -138,10 +143,10 @@ retry:
 	case err != nil:
 		return err
 	case retry:
-		ed.marks = marks
 		goto retry
 	}
 	ed.marks['.'] = at
+	marks = ed.marks
 	return err
 }
 
@@ -178,10 +183,16 @@ func fixAddrs(at addr, l *log) (addr, error) {
 		return addr{}, errors.New("changes not in sequence")
 	}
 	for e := logFirst(l); !e.end(); e = e.next() {
-		if e.at.from < at.from || e.at.to > at.to {
-			panic("change not contained in address")
+		if e.at.from == at.from {
+			// If they have the same from, grow at.
+			// This grows at, even if it's a point address,
+			// to include the change made by e.
+			// Otherwise, update would simply leave it
+			// as a point address and simply move it.
+			at.to = at.update(e.at, e.data().size()).to
+		} else {
+			at = at.update(e.at, e.data().size())
 		}
-		at.to = at.update(e.at, e.data().size()).to
 		for f := e.next(); !f.end(); f = f.next() {
 			f.at = f.at.update(e.at, e.data().size())
 			if err := f.store(); err != nil {
@@ -327,6 +338,48 @@ func cpy(ed *Editor, src, dst Address) (addr, error) {
 	}
 	d.from = d.to
 	return d, pend(ed, d, bufferSource{at: s, buf: ed.buf.runes})
+}
+
+// Move moves the runes from the source address
+// to after the destination address.
+// Dot is set to the copied runes.
+// It is an error the end of the destination
+// to be within the source.
+func (ed *Editor) Move(src, dst Address) error {
+	return ed.do(func() (addr, error) { return move(ed, src, dst) })
+}
+
+func move(ed *Editor, src, dst Address) (addr, error) {
+	s, err := src.addr(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	d, err := dst.addr(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	d.from = d.to
+
+	if d.from > s.from && d.from < s.to {
+		return addr{}, errors.New("addresses overlap")
+	}
+
+	if d.from >= s.to {
+		// Moving to after the source. Delete the source first.
+		if err := pend(ed, s, emptySource{}); err != nil {
+			return addr{}, err
+		}
+	}
+	if err := pend(ed, d, bufferSource{at: s, buf: ed.buf.runes}); err != nil {
+		return addr{}, err
+	}
+	if d.from <= s.from {
+		// Moving to before the source. Delete the source second.
+		if err := pend(ed, s, emptySource{}); err != nil {
+			return addr{}, err
+		}
+	}
+	return d, nil
 }
 
 // Substitute substitutes text for the first match

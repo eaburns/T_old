@@ -1,6 +1,7 @@
 package edit
 
 import (
+	"regexp"
 	"strconv"
 	"testing"
 
@@ -160,7 +161,7 @@ func (test changeTest) run(f func(*Editor, Address, []rune) error, name string, 
 }
 
 func TestCopy(t *testing.T) {
-	tests := []copyTest{
+	tests := []copyMoveTest{
 		{init: "abc", src: "/abc/", dst: "$", want: "abcabc", dot: addr{3, 6}},
 		{init: "abc", src: "/abc/", dst: "0", want: "abcabc", dot: addr{0, 3}},
 		{init: "abc", src: "/abc/", dst: "#1", want: "aabcbc", dot: addr{1, 4}},
@@ -173,16 +174,46 @@ func TestCopy(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test.run(t)
+		test.run((*Editor).Copy, "Copy", t)
 	}
 }
 
-type copyTest struct {
-	init, want, src, dst string
-	dot                  addr
+func TestMove(t *testing.T) {
+	tests := []copyMoveTest{
+		{init: "abc", src: "/abc/", dst: "#0", want: "abc", dot: addr{0, 3}},
+		{init: "abc", src: "/abc/", dst: "#1", err: "overlap"},
+		{init: "abc", src: "/abc/", dst: "#2", err: "overlap"},
+		{init: "abc", src: "/abc/", dst: "#3", want: "abc", dot: addr{0, 3}},
+		{
+			init: "abcdef",
+			src:  "/abc/", dst: "$",
+			want: "defabc",
+			dot:  addr{3, 6},
+		},
+		{
+			init: "abcdef",
+			src:  "/def/", dst: "0",
+			want: "defabc",
+			dot:  addr{0, 3},
+		},
+		{
+			init: "abc\ndef\nghi",
+			src:  "/def/", dst: "3",
+			want: "abc\n\nghidef",
+			dot:  addr{8, 11},
+		},
+	}
+	for _, test := range tests {
+		test.run((*Editor).Move, "Move", t)
+	}
 }
 
-func (test copyTest) run(t *testing.T) {
+type copyMoveTest struct {
+	init, want, src, dst, err string
+	dot                       addr
+}
+
+func (test copyMoveTest) run(f func(ed *Editor, src, dst Address) error, name string, t *testing.T) {
 	src, _, err := Addr([]rune(test.src))
 	if err != nil {
 		t.Fatalf("%#v: bad source address: %s", test, test.src)
@@ -199,8 +230,11 @@ func (test copyTest) run(t *testing.T) {
 	if err := ed.Append(Rune(0), []rune(test.init)); err != nil {
 		t.Fatalf("%v, init failed", test)
 	}
-	if err := ed.Copy(src, dst); err != nil {
-		t.Errorf("ed.Copy(%q, %q)=%v, want nil", test.src, test.dst, err)
+	if err = f(ed, src, dst); !errMatch(test.err, err) {
+		t.Errorf("ed.%s(%q, %q)=%v, want %q", name, test.src, test.dst, err, test.err)
+	}
+	if err != nil {
+		return
 	}
 	if ed.marks['.'] != test.dot {
 		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
@@ -731,4 +765,14 @@ func (test editTest) run(t *testing.T) {
 			continue
 		}
 	}
+}
+
+func errMatch(re string, err error) bool {
+	if err == nil {
+		return re == ""
+	}
+	if re == "" {
+		return err == nil
+	}
+	return regexp.MustCompile(re).Match([]byte(err.Error()))
 }

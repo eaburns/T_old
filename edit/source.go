@@ -12,6 +12,12 @@ type source interface {
 	insert(b *runes.Buffer, at int64) error
 }
 
+type emptySource struct{}
+
+func (s emptySource) size() int64 { return 0 }
+
+func (s emptySource) insert(*runes.Buffer, int64) error { return nil }
+
 type sliceSource []rune
 
 func (s sliceSource) size() int64 { return int64(len(s)) }
