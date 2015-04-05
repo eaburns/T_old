@@ -12,9 +12,9 @@ import (
 	"github.com/eaburns/T/re1"
 )
 
-// MaxRead is the maximum number of runes to read
+// MaxRunes is the maximum number of runes to read
 // into memory for operations like Print.
-const MaxRead = 4096
+const MaxRunes = 4096
 
 // A Buffer is an editable rune buffer.
 type Buffer struct {
@@ -244,6 +244,7 @@ func mark(ed *Editor, a Address, m rune) (addr, error) {
 }
 
 // Print returns the runes identified by the address.
+// It is an error to print more than MaxRunes runes.
 // Dot is set to the address.
 func (ed *Editor) Print(a Address) ([]rune, error) {
 	ed.buf.lock.RLock()
@@ -257,7 +258,7 @@ func print(ed *Editor, a Address) ([]rune, addr, error) {
 	if err != nil {
 		return nil, addr{}, err
 	}
-	if at.size() > MaxRead {
+	if at.size() > MaxRunes {
 		return nil, addr{}, errors.New("print too big")
 	}
 	rs, err := ed.buf.runes.Read(int(at.size()), at.from)
@@ -386,6 +387,7 @@ func move(ed *Editor, src, dst Address) (addr, error) {
 // of the regular expression in the addressed range.
 // When substituting, a backslash followed by a digit d
 // stands for the string that matched the d-th subexpression.
+// It is an error if such a subexpression has more than MaxRunes.
 // \n is a literal newline.
 // If g is true then all matches in the address range are substituted.
 // Dot is set to the modified address.
@@ -461,7 +463,7 @@ func subExprMatch(ed *Editor, m [][2]int64, i int) ([]rune, error) {
 		return []rune{}, nil
 	}
 	n := m[i][1] - m[i][0]
-	if n > MaxRead {
+	if n > MaxRunes {
 		return nil, errors.New("subexpression too big")
 	}
 	rs, err := ed.buf.runes.Read(int(n), m[i][0])
@@ -539,6 +541,17 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //	{addr} m {addr}
 //		Copies or moves runes from the first address to after the second.
 //		Dot is set to the newly inserted or moved runes.
+//	{addr} s/regexp/text/
+//		Substitute substitutes text for the first match
+// 		of the regular expression in the addressed range.
+// 		When substituting, a backslash followed by a digit d
+// 		stands for the string that matched the d-th subexpression.
+// 		It is an error if such a subexpression has more than MaxRunes.
+//		\n is a literal newline.
+// 		If the delimiter after the text is followed by the letter g
+//		then all matches in the address range are substituted.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the modified address.
 //	{addr} k {[a-zA-Z]}
 //		Sets the named mark to the address.
 //		If an address is not supplied, dot is used.
@@ -547,21 +560,12 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //	{addr} p
 //		Returns the runes identified by the address.
 //		If an address is not supplied, dot is used.
+// 		It is an error to print more than MaxRunes runes.
 //		Dot is set to the address.
 //	{addr} =#
 //		Returns the runes offsets of the address.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-//	{addr} s/regexp/text/
-//		Substitute substitutes text for the first match
-// 		of the regular expression in the addressed range.
-// 		When substituting, a backslash followed by a digit d
-// 		stands for the string that matched the d-th subexpression.
-//		\n is a literal newline.
-// 		If the delimiter after the text is followed by the letter g
-//		then all matches in the address range are substituted.
-//		If an address is not supplied, dot is used.
-//		Dot is set to the modified address.
 func (ed *Editor) Edit(cmd []rune) ([]rune, error) {
 	var pr []rune
 	err := ed.do(func() (at addr, err error) {

@@ -39,7 +39,7 @@ func (s bufferSource) insert(b *runes.Buffer, at int64) error {
 	if s.buf == nil {
 		return nil
 	}
-	if s.at.size() > MaxRead {
+	if s.at.size() > MaxRunes {
 		// This goes away when the TODO above is fixed.
 		return errors.New("bufferSource insert too big")
 	}
