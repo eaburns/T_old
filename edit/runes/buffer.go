@@ -93,7 +93,6 @@ func (b *Buffer) Size() int64 { return b.size }
 
 // Rune returns the rune at the given offset.
 // If the rune is out of range it panics.
-// If there is an error reading, it panics a RuneReadError containing the error.
 func (b *Buffer) Rune(offs int64) (rune, error) {
 	if offs < 0 || offs > b.Size() {
 		panic("rune index out of bounds")
@@ -111,31 +110,39 @@ func (b *Buffer) Rune(offs int64) (rune, error) {
 // Read reads runes from the buffer beginning at a given offset.
 // It is an error to read out of the range of the buffer.
 func (b *Buffer) Read(n int, offs int64) ([]rune, error) {
-	if n < 0 {
-		panic("bad count: " + strconv.Itoa(n))
+	r := b.Reader(offs)
+	r = &LimitedReader{Reader: r, N: int64(n)}
+	return ReadAll(r)
+}
+
+type reader struct {
+	*Buffer
+	pos int64
+}
+
+// Reader returns a reader that reads from the Buffer
+// beginning at the given offset.
+// The returned Reader need not be closed.
+// The Buffer must not be modified
+// between Read calls on the returned Reader.
+func (b *Buffer) Reader(offs int64) Reader { return &reader{Buffer: b, pos: offs} }
+
+func (r *reader) Read(p []rune) (int, error) {
+	if r.pos < 0 || r.pos > r.Size() {
+		return 0, os.ErrInvalid
 	}
-	if offs < 0 || offs+int64(n) > b.Size() {
-		return nil, errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
+	if r.pos == r.Size() {
+		return 0, io.EOF
 	}
-	rs := make([]rune, n)
-	for n > 0 {
-		if offs == b.Size() {
-			panic("impossible read")
-		}
-		i, q0 := b.blockAt(offs)
-		blk, err := b.get(i)
-		if err != nil {
-			if err == io.EOF {
-				err = io.ErrUnexpectedEOF
-			}
-			return nil, err
-		}
-		o := int(offs - q0)
-		m := copy(rs[len(rs)-n:], b.cache[o:blk.n])
-		n -= m
-		offs += int64(m)
+	i, blkStart := r.blockAt(r.pos)
+	blk, err := r.get(i)
+	if err != nil {
+		return 0, err
 	}
-	return rs, nil
+	cacheOffs := int(r.pos - blkStart)
+	n := copy(p, r.cache[cacheOffs:blk.n])
+	r.pos += int64(n)
+	return n, nil
 }
 
 // Insert inserts runes into the buffer at the given offset.

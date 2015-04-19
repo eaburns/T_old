@@ -32,10 +32,10 @@ func TestRead(t *testing.T) {
 		want string
 		err  string
 	}{
-		{n: 1, offs: 27, err: "invalid offset"},
-		{n: 1, offs: 28, err: "invalid offset"},
-		{n: 1, offs: -1, err: "invalid offset"},
-		{n: 1, offs: -2, err: "invalid offset"},
+		{n: 1, offs: 27, want: ""}, // EOF
+		{n: 1, offs: 28, err: "invalid"},
+		{n: 1, offs: -1, err: "invalid"},
+		{n: 1, offs: -2, err: "invalid"},
 
 		{n: 0, offs: 0, want: ""},
 		{n: 1, offs: 0, want: "0"},
@@ -51,7 +51,7 @@ func TestRead(t *testing.T) {
 	for _, test := range tests {
 		rs, err := b.Read(test.n, test.offs)
 		if str := string(rs); !errMatch(test.err, err) || str != test.want {
-			t.Errorf("ReadAt(%v, %v)=%q,%v, want %q,%v", test.n, test.offs, str, err, test.want, test.err)
+			t.Errorf("Read(%v, %v)=%q,%v, want %q,%v", test.n, test.offs, str, err, test.want, test.err)
 		}
 	}
 }

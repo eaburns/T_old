@@ -4,7 +4,14 @@
 // and io-package-style interfaces for reading and writing rune slices.
 package runes
 
-import "io"
+import (
+	"bytes"
+	"io"
+)
+
+// MinRead is the minimum rune buffer size
+// passed to a Read call.
+const MinRead = bytes.MinRead
 
 // Reader wraps the basic Read method.
 // It behaves like io.Reader
@@ -59,4 +66,23 @@ func (r *SliceReader) Read(p []rune) (int, error) {
 	n := copy(p, r.Rs)
 	r.Rs = r.Rs[n:]
 	return n, nil
+}
+
+// ReadAll reads runes from the reader
+// until an error or io.EOF is encountered.
+// It returns all of the runes read.
+// On success, the error is nil, not io.EOF.
+func ReadAll(r Reader) ([]rune, error) {
+	var rs []rune
+	p := make([]rune, MinRead)
+	for {
+		n, err := r.Read(p)
+		rs = append(rs, p[:n]...)
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return rs, err
+		}
+	}
 }

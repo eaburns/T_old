@@ -21,6 +21,24 @@ var (
 	}
 )
 
+func TestReadAll(t *testing.T) {
+	manyRunes := make([]rune, MinRead*1.5)
+	for i := range manyRunes {
+		manyRunes[i] = rune(i)
+	}
+	tests := [][]rune{
+		helloWorldTestRunes,
+		manyRunes,
+	}
+	for _, test := range tests {
+		r := &SliceReader{test}
+		rs, err := ReadAll(r)
+		if !reflect.DeepEqual(rs, test) || err != nil {
+			t.Errorf("ReadAll(·)=%q,%v, want %q,<nil>", string(rs), err, string(test))
+		}
+	}
+}
+
 func TestSliceReader(t *testing.T) {
 	r := &SliceReader{helloWorldTestRunes}
 	helloWorldReadTests.run(t, r)
