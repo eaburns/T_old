@@ -94,9 +94,9 @@ func TestInsert(t *testing.T) {
 		want      string
 		err       string
 	}{
-		{init: "", add: "0", at: -1, err: "invalid offset"},
-		{init: "", add: "0", at: 1, err: "invalid offset"},
-		{init: "0", add: "1", at: 2, err: "invalid offset"},
+		{init: "", add: "0", at: -1, err: "invalid"},
+		{init: "", add: "0", at: 1, err: "invalid"},
+		{init: "0", add: "1", at: 2, err: "invalid"},
 
 		{init: "", add: "", at: 0, want: ""},
 		{init: "", add: "0", at: 0, want: "0"},

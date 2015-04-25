@@ -120,7 +120,7 @@ type reader struct {
 	pos int64
 }
 
-// Reader returns a reader that reads from the Buffer
+// Reader returns a Reader that reads from the Buffer
 // beginning at the given offset.
 // The returned Reader need not be closed.
 // The Buffer must not be modified
@@ -147,40 +147,71 @@ func (r *reader) Read(p []rune) (int, error) {
 
 // Insert inserts runes into the buffer at the given offset.
 // It is an error to insert at a point than is out of the range of the buffer.
-func (b *Buffer) Insert(rs []rune, offs int64) error {
-	if offs < 0 || offs > b.Size() {
-		return errors.New("invalid offset: " + strconv.FormatInt(offs, 10))
+func (b *Buffer) Insert(p []rune, offs int64) error {
+	_, err := b.Writer(offs).Write(p)
+	return err
+}
+
+// Writer returns a Writer that inserts into the Buffer
+// beginning at the given offset.
+// The returned Writer need not be closed.
+func (b *Buffer) Writer(offs int64) Writer { return &writer{Buffer: b, pos: offs} }
+
+type writer struct {
+	*Buffer
+	pos int64
+}
+
+func (w *writer) Write(p []rune) (n int, err error) {
+	if w.pos < 0 || w.pos > w.Size() {
+		return 0, os.ErrInvalid
 	}
-	for len(rs) > 0 {
-		i, q0 := b.blockAt(offs)
-		blk, err := b.get(i)
+	for len(p) > 0 {
+		space, err := w.Buffer.makeSpace(int64(len(p)), w.pos)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		m := b.blockSize - blk.n
-		if m == 0 {
-			if i, err = b.insertAt(offs); err != nil {
-				return err
-			}
-			if blk, err = b.get(i); err != nil {
-				return err
-			}
-			q0 = offs
-			m = b.blockSize
+		m := copy(space, p)
+		w.pos += int64(m)
+		p = p[m:]
+		n += m
+		if err != nil {
+			break
 		}
-		if m > len(rs) {
-			m = len(rs)
-		}
-		o := int(offs - q0)
-		copy(b.cache[o+m:], b.cache[o:blk.n])
-		copy(b.cache[o:], rs[:m])
-		b.dirty = true
-		rs = rs[m:]
-		blk.n += m
-		b.size += int64(m)
-		offs += int64(m)
 	}
-	return nil
+	return n, err
+}
+
+// MakeSpace makes space in the buffer
+// for up to n runes at the given address
+// and returns a slice of the cache
+// corresponding to the space.
+func (b *Buffer) makeSpace(n, at int64) ([]rune, error) {
+	i, blkStart := b.blockAt(at)
+	blk, err := b.get(i)
+	if err != nil {
+		return nil, err
+	}
+	blkSpace := b.blockSize - blk.n
+	if blkSpace == 0 {
+		if i, err = b.insertAt(at); err != nil {
+			return nil, err
+		}
+		if blk, err = b.get(i); err != nil {
+			return nil, err
+		}
+		blkStart = at
+		blkSpace = b.blockSize
+	}
+	if n < int64(blkSpace) {
+		blkSpace = int(n)
+	}
+	cacheOffs := int(at - blkStart)
+	copy(b.cache[cacheOffs+blkSpace:], b.cache[cacheOffs:blk.n])
+	b.dirty = true
+	blk.n += blkSpace
+	b.size += int64(blkSpace)
+	return b.cache[cacheOffs : cacheOffs+blkSpace], nil
 }
 
 // Delete deletes runes from the buffer starting at the given offset.
