@@ -7,6 +7,7 @@ package edit
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"unicode"
 
@@ -428,17 +429,27 @@ func move(ed *Editor, src, dst Address) (addr, error) {
 // If g is true then all matches in the address range are substituted.
 // Dot is set to the modified address.
 func (ed *Editor) Substitute(a Address, re *re1.Regexp, repl []rune, g bool) error {
-	return ed.do(func() (addr, error) { return sub(ed, a, re, repl, g) })
+	return ed.do(func() (addr, error) { return sub(ed, a, re, repl, g, 1) })
 }
 
-func sub(ed *Editor, a Address, re *re1.Regexp, repl []rune, g bool) (addr, error) {
+// SubstituteFrom is the same as Substitute but with an added option,
+// n, which will skip the first n-1 matches.
+func (ed *Editor) SubstituteFrom(a Address, re *re1.Regexp, repl []rune, g bool, n int) error {
+	return ed.do(func() (addr, error) { return sub(ed, a, re, repl, g, n) })
+}
+
+func sub(ed *Editor, a Address, re *re1.Regexp, repl []rune, g bool, n int) (addr, error) {
+	if n < 0 {
+		return addr{}, errors.New("match number out of range: " + strconv.Itoa(n))
+	}
 	at, err := a.addr(ed)
 	if err != nil {
 		return addr{}, err
 	}
+
 	from := at.from
 	for {
-		m, err := sub1(ed, addr{from, at.to}, re, repl)
+		m, err := subSingle(ed, addr{from, at.to}, re, repl, n)
 		if err != nil {
 			return addr{}, err
 		}
@@ -446,14 +457,15 @@ func sub(ed *Editor, a Address, re *re1.Regexp, repl []rune, g bool) (addr, erro
 			break
 		}
 		from = m[0][1]
+		n = 1 // reset n to 1, so that on future iterations of this loop we get the next instance.
 	}
 	return at, nil
 }
 
-// Sub1 substitutes the first match of the regular expression
+// SubSingle substitutes the Nth match of the regular expression
 // with the replacement specifier.
-func sub1(ed *Editor, at addr, re *re1.Regexp, repl []rune) ([][2]int64, error) {
-	m, err := match(ed, at, re)
+func subSingle(ed *Editor, at addr, re *re1.Regexp, repl []rune, n int) ([][2]int64, error) {
+	m, err := nthMatch(ed, at, re, n)
 	if err != nil || m == nil {
 		return m, err
 	}
@@ -463,6 +475,23 @@ func sub1(ed *Editor, at addr, re *re1.Regexp, repl []rune) ([][2]int64, error) 
 	}
 	at = addr{m[0][0], m[0][1]}
 	return m, pend(ed, at, &runes.SliceReader{Rs: rs})
+}
+
+// nthMatch skips past the first n-1 matches of the regular expression
+func nthMatch(ed *Editor, at addr, re *re1.Regexp, n int) ([][2]int64, error) {
+	var err error
+	var m [][2]int64
+	if n == 0 {
+		n = 1
+	}
+	for i := 0; i < n; i++ {
+		m, err = match(ed, at, re)
+		if err != nil || m == nil {
+			return nil, err
+		}
+		at.from = m[0][1]
+	}
+	return m, err
 }
 
 // ReplRunes returns the runes that replace a matched regexp.
@@ -579,15 +608,19 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //	{addr} m {addr}
 //		Copies or moves runes from the first address to after the second.
 //		Dot is set to the newly inserted or moved runes.
-//	{addr} s/regexp/text/
+//	{addr} s{n}/regexp/text/{g}
 //		Substitute substitutes text for the first match
 // 		of the regular expression in the addressed range.
 // 		When substituting, a backslash followed by a digit d
 // 		stands for the string that matched the d-th subexpression.
 // 		It is an error if such a subexpression has more than MaxRunes.
 //		\n is a literal newline.
+//		A number n after s indicates we substitute the Nth match in the
+//		address range. If n == 0 set n = 1.
 // 		If the delimiter after the text is followed by the letter g
 //		then all matches in the address range are substituted.
+//		If a number n and the letter g are both present then the Nth match
+//		and all subsequent matches in the address range are	substituted.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the modified address.
 //	{addr} k {[a-zA-Z]}
@@ -674,15 +707,19 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 		}
 		return []rune(ret), at, nil
 	case 's':
-		re, err := re1.Compile(cmd[1:], re1.Options{Delimited: true})
+		n, cmd, err := parseNumber(cmd[1:])
+		if err != nil {
+			return nil, addr{}, err
+		}
+		re, err := re1.Compile(cmd[:], re1.Options{Delimited: true})
 		if err != nil {
 			return nil, addr{}, err
 		}
 		exp := re.Expression()
-		cmd = cmd[1+len(exp):]
+		cmd = cmd[len(exp):]
 		repl := parseDelimited(exp[0], true, cmd)
 		g := len(repl) < len(cmd)-1 && cmd[len(repl)+1] == 'g'
-		at, err := sub(ed, a, re, repl, g)
+		at, err := sub(ed, a, re, repl, g, n)
 		return nil, at, err
 	case 't', 'm':
 		a1, _, err := Addr(cmd[1:])
@@ -753,4 +790,22 @@ func parseMarkRune(cmd []rune) (rune, error) {
 		return '.', nil
 	}
 	return ' ', errors.New("bad mark: " + string(cmd[i]))
+}
+
+// parseNumber parses and returns a positive integer. The first returned
+// value is the parsed number, the second is the number of runes parsed.
+func parseNumber(cmd []rune) (int, []rune, error) {
+	i := 0
+	n := 1 // by default use the first instance
+	var err error
+	for len(cmd) > i && unicode.IsDigit(cmd[i]) {
+		i++
+	}
+	if i != 0 {
+		n, err = strconv.Atoi(string(cmd[:i]))
+		if err != nil {
+			return 0, cmd[:], err
+		}
+	}
+	return n, cmd[i:], nil
 }

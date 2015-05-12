@@ -250,82 +250,107 @@ func (test copyMoveTest) run(f func(ed *Editor, src, dst Address) error, name st
 	}
 }
 
-func TestSubstitute(t *testing.T) {
+func TestSubstituteFrom(t *testing.T) {
 	tests := []subTest{
 		{
 			init: "Hello, 世界!",
-			addr: ",", re: ".*", sub: ``, g: true,
+			addr: ",", re: ".*", sub: ``, g: true, n: 1,
 			want: "", dot: addr{0, 0},
 		},
 		{
 			init: "Hello, 世界!",
-			addr: ",", re: "世界", sub: `World`,
+			addr: ",", re: "世界", sub: `World`, n: 1,
 			want: "Hello, World!", dot: addr{0, 13},
 		},
 		{
 			init: "Hello, 世界!",
-			addr: ",", re: "(.)", sub: `\1-`, g: true,
+			addr: ",", re: "(.)", sub: `\1-`, g: true, n: 1,
 			want: "H-e-l-l-o-,- -世-界-!-", dot: addr{0, 20},
 		},
 		{
 			init: "abcabc",
-			addr: ",", re: "abc", sub: "defg",
+			addr: ",", re: "abc", sub: "defg", n: 1,
 			want: "defgabc", dot: addr{0, 7},
 		},
 		{
 			init: "abcabcabc",
-			addr: ",", re: "abc", sub: "defg", g: true,
+			addr: ",", re: "abc", sub: "defg", g: true, n: 1,
 			want: "defgdefgdefg", dot: addr{0, 12},
 		},
 		{
 			init: "abcabcabc",
-			addr: "/abcabc/", re: "abc", sub: "defg", g: true,
+			addr: "/abcabc/", re: "abc", sub: "defg", g: true, n: 1,
 			want: "defgdefgabc", dot: addr{0, 8},
 		},
 		{
 			init: "abc abc",
-			addr: ",", re: "abc", sub: "defg",
+			addr: ",", re: "abc", sub: "defg", n: 1,
 			want: "defg abc", dot: addr{0, 8},
 		},
 		{
 			init: "abc abc",
-			addr: ",", re: "abc", sub: "defg", g: true,
+			addr: ",", re: "abc", sub: "defg", g: true, n: 1,
 			want: "defg defg", dot: addr{0, 9},
 		},
 		{
 			init: "abc abc abc",
-			addr: "/abc abc/", re: "abc", sub: "defg", g: true,
+			addr: "/abc abc/", re: "abc", sub: "defg", g: true, n: 1,
 			want: "defg defg abc", dot: addr{0, 9},
 		},
 		{
 			init: "abcabc",
-			addr: ",", re: "abc", sub: "de",
+			addr: ",", re: "abc", sub: "de", n: 1,
 			want: "deabc", dot: addr{0, 5},
 		},
 		{
 			init: "abcabcabc",
-			addr: ",", re: "abc", sub: "de", g: true,
+			addr: ",", re: "abc", sub: "de", g: true, n: 1,
 			want: "dedede", dot: addr{0, 6},
 		},
 		{
 			init: "abcabcabc",
-			addr: "/abcabc/", re: "abc", sub: "de", g: true,
+			addr: "/abcabc/", re: "abc", sub: "de", g: true, n: 1,
 			want: "dedeabc", dot: addr{0, 4},
 		},
 		{
 			init: "func f()",
-			addr: ",", re: `func (.*)\(\)`, sub: `func (T) \1()`, g: true,
+			addr: ",", re: `func (.*)\(\)`, sub: `func (T) \1()`, g: true, n: 1,
 			want: "func (T) f()", dot: addr{0, 12},
 		},
 		{
 			init: "abcdefghi",
-			addr: ",", re: "(abc)(def)(ghi)", sub: `\0 \3 \2 \1`,
+			addr: ",", re: "(abc)(def)(ghi)", sub: `\0 \3 \2 \1`, n: 1,
 			want: "abcdefghi ghi def abc", dot: addr{0, 21},
 		},
 		{
 			init: "abc",
-			addr: ",", re: "abc", sub: `\1`,
+			addr: ",", re: "abc", sub: `\1`, n: 1,
 			want: "", dot: addr{0, 0},
+		},
+		{
+			init: "abcabcabc",
+			addr: ",", re: "abc", sub: "def", n: 2,
+			want: "abcdefabc", dot: addr{0, 9},
+		},
+		{
+			init: "abcabcabc",
+			addr: ",", re: "abc", sub: "def", g: true, n: 2,
+			want: "abcdefdef", dot: addr{0, 9},
+		},
+		{
+			init: "abcabcabc",
+			addr: ",", re: "abc", sub: "def", g: false, n: 0,
+			want: "defabcabc", dot: addr{0, 9},
+		},
+		{
+			init: "abcabcabc",
+			addr: ",", re: "notpresent", sub: "def", g: false, n: 4,
+			want: "abcabcabc", dot: addr{0, 9},
+		},
+		{
+			init: "abcabcabc",
+			addr: ",", re: "abc", sub: "def", g: false, n: 4,
+			want: "abcabcabc", dot: addr{0, 9},
 		},
 	}
 	for _, test := range tests {
@@ -336,6 +361,7 @@ func TestSubstitute(t *testing.T) {
 type subTest struct {
 	init, addr, re, sub, want string
 	g                         bool
+	n                         int
 	dot                       addr
 }
 
@@ -354,9 +380,9 @@ func (test subTest) run(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%#v: bad re: %q %v", test, test.re, err)
 	}
-	if err := ed.Substitute(addr, re, []rune(test.sub), test.g); err != nil {
-		t.Fatalf("%#v: ed.Substitute(%q, %q, %q, %v)=%v, want nil",
-			test, test.addr, test.re, test.sub, test.g, err)
+	if err := ed.SubstituteFrom(addr, re, []rune(test.sub), test.g, test.n); err != nil {
+		t.Fatalf("%#v: ed.SubstituteFrom(%q, %q, %q, %v, %v)=%v, want nil",
+			test, test.addr, test.re, test.sub, test.g, test.n, err)
 	}
 	if ed.marks['.'] != test.dot {
 		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
@@ -718,6 +744,38 @@ func TestEditorEditSubstitute(t *testing.T) {
 		{
 			{edit: "a/abc", want: "abc"},
 			{edit: `s/abc/\1`, want: ""},
+		},
+		{
+			{edit: "a/abc abc abc", want: "abc abc abc"},
+			{edit: "s0/abc/hello/", want: "hello abc abc"},
+		},
+		{
+			{edit: "a/abc abc abc", want: "abc abc abc"},
+			{edit: "s2/abc/hello/", want: "abc hello abc"},
+		},
+		{
+			{edit: "a/abc abc abc", want: "abc abc abc"},
+			{edit: "s2/abc/hello/g", want: "abc hello hello"},
+		},
+		{
+			{edit: "a/abc abc abc", want: "abc abc abc"},
+			{edit: "s0/abc/hello/g", want: "hello hello hello"},
+		},
+		{
+			{edit: "a/abc abc abc", want: "abc abc abc"},
+			{edit: "s2/notpresent/def/", want: "abc abc abc"},
+		},
+		{
+			{edit: "a/abc abc abc", want: "abc abc abc"},
+			{edit: "s4/abc/def/g", want: "abc abc abc"},
+		},
+		{
+			{edit: "a/aaa aaa aaa aaa", want: "aaa aaa aaa aaa"},
+			{edit: "s11/a/b/", want: "aaa aaa aaa aba"},
+		},
+		{
+			{edit: "a/aaa aaa aaa aaa", want: "aaa aaa aaa aaa"},
+			{edit: "s11/a/b/g", want: "aaa aaa aaa abb"},
 		},
 	}
 	for _, test := range tests {
