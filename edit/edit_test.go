@@ -402,6 +402,11 @@ func TestEditorEdit(t *testing.T) {
 			{edit: "/World/c/Test", want: "Hello, Test!"},
 			{edit: "c/World", want: "Hello, World!"},
 		},
+		{
+			{edit: "a/Hello, World!", want: "Hello, World!"},
+			{edit: "/World/", want: "Hello, World!"},
+			{edit: "c/Test", want: "Hello, Test!"},
+		},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -440,7 +445,6 @@ func TestEditorEditMark(t *testing.T) {
 			{edit: "/, World/k", want: "Hello, World!"},
 			{edit: "d", want: "Hello!"},
 		},
-
 		// Edit after the mark.
 		{
 			{edit: "a/Hello, World!", want: "Hello, World!"},

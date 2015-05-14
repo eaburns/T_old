@@ -520,6 +520,8 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 // Items in {} are optional.
 //
 // Commands are:
+//	addr
+//		Sets the address of Dot.
 // 	{addr} a/text/
 //	or
 //	{addr} a
@@ -583,7 +585,12 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 	case a == nil:
 		a = Dot
 	case len(cmd) == n:
-		return nil, addr{}, errors.New("missing command")
+		at, err := a.addr(ed)
+		if err != nil {
+			return nil, addr{}, err
+		}
+		ed.marks['.'] = at
+		return nil, at, err
 	default:
 		cmd = cmd[n:]
 	}
@@ -601,7 +608,11 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 		at, err := change(ed, a, []rune{})
 		return nil, at, err
 	case 'k':
-		at, err := mark(ed, a, parseMarkRune(cmd[1:]))
+		mk, err := parseMarkRune(cmd[1:])
+		if err != nil {
+			return nil, addr{}, err
+		}
+		at, err := mark(ed, a, mk)
 		return nil, at, err
 	case 'p':
 		return print(ed, a)
@@ -684,12 +695,14 @@ func parseDelimited(d rune, digits bool, cmd []rune) []rune {
 	return rs
 }
 
-func parseMarkRune(cmd []rune) rune {
+func parseMarkRune(cmd []rune) (rune, error) {
 	var i int
 	for ; i < len(cmd) && unicode.IsSpace(cmd[i]); i++ {
 	}
 	if i < len(cmd) && isMarkRune(cmd[i]) {
-		return cmd[i]
+		return cmd[i], nil
+	} else if i == len(cmd) {
+		return '.', nil
 	}
-	return '.'
+	return ' ', errors.New("bad mark: " + string(cmd[i]))
 }
