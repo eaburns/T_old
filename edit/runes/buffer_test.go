@@ -2,6 +2,7 @@ package runes
 
 import (
 	"errors"
+	"io"
 	"reflect"
 	"regexp"
 	"testing"
@@ -87,53 +88,62 @@ func TestEmptyReadAtEOF(t *testing.T) {
 	}
 }
 
-func TestInsert(t *testing.T) {
-	tests := []struct {
-		init, add string
-		at        int64
-		want      string
-		err       string
-	}{
-		{init: "", add: "0", at: -1, err: "invalid"},
-		{init: "", add: "0", at: 1, err: "invalid"},
-		{init: "0", add: "1", at: 2, err: "invalid"},
+type insertTest struct {
+	init, add string
+	at        int64
+	want      string
+	err       string
+}
 
-		{init: "", add: "", at: 0, want: ""},
-		{init: "", add: "0", at: 0, want: "0"},
-		{init: "", add: "012", at: 0, want: "012"},
-		{init: "", add: "01234567", at: 0, want: "01234567"},
-		{init: "", add: "012345670", at: 0, want: "012345670"},
-		{init: "", add: "0123456701234567", at: 0, want: "0123456701234567"},
-		{init: "1", add: "0", at: 0, want: "01"},
-		{init: "2", add: "01", at: 0, want: "012"},
-		{init: "0", add: "01234567", at: 0, want: "012345670"},
-		{init: "01234567", add: "01234567", at: 0, want: "0123456701234567"},
-		{init: "01234567", add: "01234567", at: 8, want: "0123456701234567"},
-		{init: "0123456701234567", add: "01234567", at: 8, want: "012345670123456701234567"},
-		{init: "02", add: "1", at: 1, want: "012"},
-		{init: "07", add: "123456", at: 1, want: "01234567"},
-		{init: "00", add: "1234567", at: 1, want: "012345670"},
-		{init: "01234567", add: "abc", at: 1, want: "0abc1234567"},
-		{init: "01234567", add: "abc", at: 2, want: "01abc234567"},
-		{init: "01234567", add: "abc", at: 3, want: "012abc34567"},
-		{init: "01234567", add: "abc", at: 4, want: "0123abc4567"},
-		{init: "01234567", add: "abc", at: 5, want: "01234abc567"},
-		{init: "01234567", add: "abc", at: 6, want: "012345abc67"},
-		{init: "01234567", add: "abc", at: 7, want: "0123456abc7"},
-		{init: "01234567", add: "abc", at: 8, want: "01234567abc"},
-		{init: "01234567", add: "abcdefgh", at: 4, want: "0123abcdefgh4567"},
-		{init: "01234567", add: "abcdefghSTUVWXYZ", at: 4, want: "0123abcdefghSTUVWXYZ4567"},
-		{init: "0123456701234567", add: "abcdefgh", at: 8, want: "01234567abcdefgh01234567"},
+var insertTests = []insertTest{
+	{init: "", add: "0", at: -1, err: "invalid"},
+	{init: "", add: "0", at: 1, err: "invalid"},
+	{init: "0", add: "1", at: 2, err: "invalid"},
+
+	{init: "", add: "", at: 0, want: ""},
+	{init: "", add: "0", at: 0, want: "0"},
+	{init: "", add: "☺", at: 0, want: "☺"},
+	{init: "", add: "012", at: 0, want: "012"},
+	{init: "", add: "01234567", at: 0, want: "01234567"},
+	{init: "", add: "012345670", at: 0, want: "012345670"},
+	{init: "", add: "0123456701234567", at: 0, want: "0123456701234567"},
+	{init: "1", add: "0", at: 0, want: "01"},
+	{init: "☺", add: "☹", at: 0, want: "☹☺"},
+	{init: "2", add: "01", at: 0, want: "012"},
+	{init: "☹", add: "☹☺", at: 0, want: "☹☺☹"},
+	{init: "0", add: "01234567", at: 0, want: "012345670"},
+	{init: "01234567", add: "01234567", at: 0, want: "0123456701234567"},
+	{init: "01234567", add: "01234567", at: 8, want: "0123456701234567"},
+	{init: "0123456701234567", add: "01234567", at: 8, want: "012345670123456701234567"},
+	{init: "02", add: "1", at: 1, want: "012"},
+	{init: "07", add: "123456", at: 1, want: "01234567"},
+	{init: "00", add: "1234567", at: 1, want: "012345670"},
+	{init: "01234567", add: "abc", at: 1, want: "0abc1234567"},
+	{init: "01234567", add: "abc", at: 2, want: "01abc234567"},
+	{init: "01234567", add: "abc", at: 3, want: "012abc34567"},
+	{init: "01234567", add: "abc", at: 4, want: "0123abc4567"},
+	{init: "01234567", add: "abc", at: 5, want: "01234abc567"},
+	{init: "01234567", add: "abc", at: 6, want: "012345abc67"},
+	{init: "01234567", add: "abc", at: 7, want: "0123456abc7"},
+	{init: "01234567", add: "abc", at: 8, want: "01234567abc"},
+	{init: "01234567", add: "abcdefgh", at: 4, want: "0123abcdefgh4567"},
+	{init: "01234567", add: "abcdefghSTUVWXYZ", at: 4, want: "0123abcdefghSTUVWXYZ4567"},
+	{init: "0123456701234567", add: "abcdefgh", at: 8, want: "01234567abcdefgh01234567"},
+}
+
+// InitBuffer initializes the insert buffer with its initial test runes.
+func (test *insertTest) initBuffer(t *testing.T, b *Buffer) {
+	if err := b.Insert([]rune(test.init), 0); err != nil {
+		t.Fatalf("%+v init failed: insert(%v, 0)=%v, want nil", test, test.init, err)
+		return
 	}
-	for _, test := range tests {
+}
+
+func TestInsert(t *testing.T) {
+	for _, test := range insertTests {
 		b := NewBuffer(testBlockSize)
 		defer b.Close()
-		if len(test.init) > 0 {
-			if err := b.Insert([]rune(test.init), 0); err != nil {
-				t.Errorf("%+v init failed: insert(%v, 0)=%v, want nil", test, test.init, err)
-				continue
-			}
-		}
+		test.initBuffer(t, b)
 		err := b.Insert([]rune(test.add), test.at)
 		if !errMatch(test.err, err) {
 			t.Errorf("%+v add failed: insert(%v, %v)=%v, want %v", test, test.add, test.at, err, test.err)
@@ -146,6 +156,70 @@ func TestInsert(t *testing.T) {
 			t.Errorf("%+v read failed: readAll(·)=%v,%v, want %v,nil", test, s, err, test.want)
 			continue
 		}
+	}
+}
+
+func TestReaderFromSlowPath(t *testing.T) {
+	for _, test := range insertTests {
+		b := NewBuffer(testBlockSize)
+		defer b.Close()
+		test.initBuffer(t, b)
+		r := testReader{&SliceReader{[]rune(test.add)}}
+		n, err := b.ReaderFrom(test.at).ReadFrom(r)
+		add := []rune(test.add)
+		if !errMatch(test.err, err) || (n != int64(len(add)) && test.err == "") {
+			t.Errorf("%+v add failed: ReaderFrom(%q).ReadFrom{%v})=%v,%v, want %v,%v",
+				test, test.add, test.at, n, err, len(test.add), test.err)
+		}
+		if test.err != "" {
+			continue
+		}
+		if s := readAll(b); s != test.want || err != nil {
+			t.Errorf("%+v read failed: readAll(·)=%v,%v, want %v,nil", test, s, err, test.want)
+			continue
+		}
+	}
+}
+
+// testShortReader is like SliceReader,
+// but returns no more than maxRead runes
+// per call to Read.
+type testShortReader struct {
+	rs      []rune
+	maxRead int
+}
+
+func (r *testShortReader) readSize() int64 { return int64(len(r.rs)) }
+
+func (r *testShortReader) Read(p []rune) (int, error) {
+	n := len(r.rs)
+	if n == 0 {
+		return 0, io.EOF
+	}
+	if n > r.maxRead {
+		n = r.maxRead
+	}
+	copy(p, r.rs[:n])
+	r.rs = r.rs[n:]
+	return n, nil
+}
+
+// Test that the ReaderFrom fast path correctly handles short reads.
+func TestReaderFromFastPathShortReads(t *testing.T) {
+	rs := make([]rune, testBlockSize)
+	for i := range rs {
+		rs[i] = rune(i)
+	}
+	src := &testShortReader{rs: rs, maxRead: len(rs) / 4}
+
+	dst := NewBuffer(testBlockSize * 2)
+	n, err := dst.ReaderFrom(0).ReadFrom(src)
+	if n != int64(len(rs)) || err != nil {
+		t.Fatalf("dst.ReaderFrom(0).ReadFrom(src.Reader(0))=%d,%v, want %d,nil", n, err, len(rs))
+	}
+
+	if s := readAll(dst); s != string(rs) {
+		t.Errorf("readAll(dst)=%q, want %q", s, string(rs))
 	}
 }
 

@@ -120,6 +120,8 @@ type reader struct {
 	pos int64
 }
 
+func (r *reader) readSize() int64 { return r.Size() - r.pos }
+
 // Reader returns a Reader that reads from the Buffer
 // beginning at the given offset.
 // The returned Reader need not be closed.
@@ -162,24 +164,90 @@ type writer struct {
 	pos int64
 }
 
-func (w *writer) Write(p []rune) (n int, err error) {
-	if w.pos < 0 || w.pos > w.Size() {
+func (w *writer) Write(p []rune) (int, error) {
+	n, err := w.ReadFrom(&SliceReader{p})
+	w.pos += n
+	return int(n), err
+}
+
+func (w *writer) ReadFrom(r Reader) (int64, error) {
+	return w.Buffer.ReaderFrom(w.pos).ReadFrom(r)
+}
+
+// ReaderFrom returns a ReaderFrom that inserts into the Buffer
+// beginning at the given offset.
+func (b *Buffer) ReaderFrom(offs int64) ReaderFrom {
+	return &readerFrom{Buffer: b, pos: offs}
+}
+
+type readerFrom struct {
+	*Buffer
+	pos int64
+}
+
+func (dst *readerFrom) ReadFrom(r Reader) (int64, error) {
+	if dst.pos < 0 || dst.pos > dst.Size() {
 		return 0, os.ErrInvalid
 	}
-	for len(p) > 0 {
-		space, err := w.Buffer.makeSpace(int64(len(p)), w.pos)
+	if sz, ok := readSize(r); ok {
+		return fastReadFrom(dst, r, sz)
+	}
+	return slowCopy(dst.Buffer.Writer(dst.pos), r)
+}
+
+func fastReadFrom(dst *readerFrom, r Reader, sz int64) (int64, error) {
+	var tot int64
+	for tot < sz {
+		p, err := dst.makeSpace(sz-tot, dst.pos+tot)
 		if err != nil {
-			return 0, err
+			return tot, err
 		}
-		m := copy(space, p)
-		w.pos += int64(m)
-		p = p[m:]
-		n += m
+		n, err := readFull(r, p)
+		tot += int64(n)
 		if err != nil {
-			break
+			return tot, err
 		}
 	}
-	return n, err
+	// Sanity check: no more to read.
+	if n, err := r.Read(make([]rune, 1)); n != 0 || err != io.EOF {
+		panic("more to read")
+	}
+	return tot, nil
+}
+
+func readFull(r Reader, p []rune) (int, error) {
+	var tot int
+	for tot < len(p) {
+		n, err := r.Read(p[tot:])
+		tot += n
+		if err != nil {
+			if err == io.EOF {
+				panic("not enough to read")
+			}
+			return tot, err
+		}
+	}
+	return tot, nil
+}
+
+// ReadSize returns the exact number of runes to be read and true,
+// or 0 and false if the exact number could not be determined.
+func readSize(r Reader) (int64, bool) {
+	switch r := r.(type) {
+	case *LimitedReader:
+		if sz, ok := readSize(r.Reader); ok {
+			if r.N < sz {
+				return r.N, true
+			}
+			return sz, true
+		}
+
+	case interface {
+		readSize() int64
+	}:
+		return r.readSize(), true
+	}
+	return 0, false
 }
 
 // MakeSpace makes space in the buffer

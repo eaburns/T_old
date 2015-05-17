@@ -21,6 +21,16 @@ var (
 	}
 )
 
+// A Reader that is not special-cased for any fast paths.
+type testReader struct{ Reader }
+
+func (r testReader) Read(p []rune) (int, error) { return r.Reader.Read(p) }
+
+// A Writer that is not special-cased for any fast paths.
+type testWriter struct{ Writer }
+
+func (w testWriter) Write(p []rune) (int, error) { return w.Writer.Write(p) }
+
 func TestReadAll(t *testing.T) {
 	manyRunes := make([]rune, MinRead*1.5)
 	for i := range manyRunes {
@@ -86,5 +96,78 @@ func (tests readTests) run(t *testing.T, r Reader) {
 	n, err := r.Read(make([]rune, 1))
 	if n != 0 || err != io.EOF {
 		t.Errorf("Read(len=1)=%d,%v, want 0,io.EOF", n, err)
+	}
+}
+
+func TestCopy(t *testing.T) {
+	for _, test := range insertTests {
+		rs := []rune(test.add)
+		n := int64(len(rs))
+		bSrc := NewBuffer(testBlockSize)
+		defer bSrc.Close()
+		if err := bSrc.Insert(rs, 0); err != nil {
+			t.Fatalf("b.Insert(%q, 0)=%v, want nil", rs, err)
+		}
+		srcs := []func() Reader{
+			func() Reader { return &SliceReader{rs} },
+			func() Reader { return bSrc.Reader(0) },
+			func() Reader { return &LimitedReader{Reader: bSrc.Reader(0), N: n} },
+		}
+		// Fast path.
+		for _, src := range srcs {
+			bDst := NewBuffer(testBlockSize)
+			defer bDst.Close()
+			test.initBuffer(t, bDst)
+			testCopy(t, test, bDst, bDst.Writer(test.at), src())
+		}
+		// Slow path.
+		for _, src := range srcs {
+			bDst := NewBuffer(testBlockSize)
+			defer bDst.Close()
+			test.initBuffer(t, bDst)
+			testCopy(t, test, bDst, testWriter{bDst.Writer(test.at)}, src())
+		}
+	}
+}
+
+func TestCopySmallLimiterReader(t *testing.T) {
+	srcRunes := []rune{'☺', '☹', '☹', '☹', '☹'}
+	test := insertTest{
+		init: "abcdef",
+		add:  string(srcRunes[:1]),
+		at:   3,
+		want: "abc☺def",
+		err:  "",
+	}
+
+	bSrc := NewBuffer(testBlockSize)
+	defer bSrc.Close()
+	if err := bSrc.Insert(srcRunes, 0); err != nil {
+		t.Fatalf("b.Insert(%q, 0)=%v, want nil", srcRunes, err)
+	}
+	src := &LimitedReader{Reader: bSrc.Reader(0), N: 1}
+
+	bDst := NewBuffer(testBlockSize)
+	defer bDst.Close()
+	test.initBuffer(t, bDst)
+	dst := bDst.Writer(test.at)
+
+	testCopy(t, test, bDst, dst, src)
+}
+
+func testCopy(t *testing.T, test insertTest, bDst *Buffer, dst Writer, src Reader) {
+	n, err := Copy(dst, src)
+	add := []rune(test.add)
+	if !errMatch(test.err, err) || (n != int64(len(add)) && test.err == "") {
+		t.Errorf("Copy(%#v, %#v)=%v,%v, want %v,%q",
+			dst, src, n, err, len(test.add), test.err)
+	}
+	if test.err != "" {
+		return
+	}
+	if s := readAll(bDst); s != test.want || err != nil {
+		t.Errorf("Copy(%#v, %#v); readAll(·)=%q,%v, want %q,nil",
+			dst, src, s, err, test.want)
+		return
 	}
 }

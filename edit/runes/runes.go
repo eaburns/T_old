@@ -29,6 +29,13 @@ type Writer interface {
 	Write([]rune) (int, error)
 }
 
+// ReaderFrom wraps the ReadFrom method.
+// It reads runes from the reader
+// until there are no more runes to read.
+type ReaderFrom interface {
+	ReadFrom(Reader) (int64, error)
+}
+
 // LimitedReader wraps a Reader,
 // limiting the number of runes read.
 // When the limit is reached, io.EOF is returned.
@@ -59,6 +66,8 @@ type SliceReader struct {
 	Rs []rune
 }
 
+func (r *SliceReader) readSize() int64 { return int64(len(r.Rs)) }
+
 func (r *SliceReader) Read(p []rune) (int, error) {
 	if len(r.Rs) == 0 {
 		return 0, io.EOF
@@ -83,6 +92,38 @@ func ReadAll(r Reader) ([]rune, error) {
 				err = nil
 			}
 			return rs, err
+		}
+	}
+}
+
+// Copy copies from src into dst until either EOF is reached or an error occurs.
+// It returns the number of bytes written or the first error encountered, if any.
+//
+// A successful Copy returns err == nil, not err == io.EOF.
+//
+// If dst implements the ReaderFrom interface,
+// the copy is implemented by calling dst.ReadFrom.
+func Copy(dst Writer, src Reader) (int64, error) {
+	if rf, ok := dst.(ReaderFrom); ok {
+		return rf.ReadFrom(src)
+	}
+	return slowCopy(dst, src)
+}
+
+func slowCopy(dst Writer, src Reader) (int64, error) {
+	var tot int64
+	var buf [MinRead]rune
+	for {
+		nr, rerr := src.Read(buf[:])
+		nw, werr := dst.Write(buf[:nr])
+		tot += int64(nw)
+		switch {
+		case rerr != nil && rerr != io.EOF:
+			return tot, rerr
+		case werr != nil:
+			return tot, werr
+		case rerr == io.EOF:
+			return tot, nil
 		}
 	}
 }
