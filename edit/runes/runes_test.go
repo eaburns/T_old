@@ -1,3 +1,5 @@
+// Copyright © 2015, The T Authors.
+
 package runes
 
 import (
