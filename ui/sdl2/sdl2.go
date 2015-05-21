@@ -1,3 +1,5 @@
+// Copyright © 2015, The T Authors.
+
 // Package sdl2 provides an SDL2-based UI implementation.
 package sdl2
 

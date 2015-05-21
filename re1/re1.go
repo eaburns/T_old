@@ -1,3 +1,5 @@
+// Copyright © 2015, The T Authors.
+
 /*
 Package re1 is an implementation of a variant of Plan 9 regular expressions.
 Plan 9 regular expressions are defined in the regexp(7) man page,

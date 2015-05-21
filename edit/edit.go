@@ -1,3 +1,5 @@
+// Copyright © 2015, The T Authors.
+
 // Package edit provides sam-style editing of rune buffers.
 // See sam(1) for an overview: http://swtch.com/plan9port/man/man1/sam.html.
 package edit

@@ -1,3 +1,5 @@
+// Copyright © 2015, The T Authors.
+
 // Package runes provides unbounded, file-backed rune buffers.
 package runes
 

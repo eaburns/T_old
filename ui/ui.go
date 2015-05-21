@@ -1,3 +1,5 @@
+// Copyright © 2015, The T Authors.
+
 // Package ui provides a platform-independent API
 // for manipulating and drawing to windows
 // and reading keyboard and mouse events.

@@ -1,3 +1,5 @@
+// Copyright © 2015, The T Authors.
+
 package edit
 
 import "github.com/eaburns/T/edit/runes"
