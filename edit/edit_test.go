@@ -61,12 +61,14 @@ func TestMark(t *testing.T) {
 
 func TestWhere(t *testing.T) {
 	tests := []whereTest{
-		{init: "Hello, 世界!", addr: All, from: 0, to: 10},
-		{init: "Hello, 世界!", addr: End, from: 10, to: 10},
-		{init: "Hello, 世界!", addr: Line(0), from: 0, to: 0},
-		{init: "Hello, 世界!", addr: Line(1), from: 0, to: 10},
-		{init: "Hello, 世界!", addr: Regexp("/Hello"), from: 0, to: 5},
-		{init: "Hello, 世界!", addr: Regexp("/世界"), from: 7, to: 9},
+		{init: "", addr: All, rfrom: 0, rto: 0, lfrom: 1, lto: 1},
+		{init: "H\ne\nl\nl\no\n 世\n界\n!", addr: All, rfrom: 0, rto: 16, lfrom: 1, lto: 8},
+		{init: "Hello\n 世界!", addr: All, rfrom: 0, rto: 10, lfrom: 1, lto: 2},
+		{init: "Hello\n 世界!", addr: End, rfrom: 10, rto: 10, lfrom: 2, lto: 2},
+		{init: "Hello\n 世界!", addr: Line(1), rfrom: 0, rto: 6, lfrom: 1, lto: 1},
+		{init: "Hello\n 世界!", addr: Line(2), rfrom: 6, rto: 10, lfrom: 2, lto: 2},
+		{init: "Hello\n 世界!", addr: Regexp("/Hello"), rfrom: 0, rto: 5, lfrom: 1, lto: 1},
+		{init: "Hello\n 世界!", addr: Regexp("/世界"), rfrom: 7, rto: 9, lfrom: 2, lto: 2},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -74,9 +76,10 @@ func TestWhere(t *testing.T) {
 }
 
 type whereTest struct {
-	init     string
-	addr     Address
-	from, to int64
+	init       string
+	addr       Address
+	rfrom, rto int64
+	lfrom, lto int64
 }
 
 func (test *whereTest) run(t *testing.T) {
@@ -86,10 +89,10 @@ func (test *whereTest) run(t *testing.T) {
 	if err := ed.Append(All, []rune(test.init)); err != nil {
 		t.Fatalf("ed.Append(All, %q)=%v, want nil", test.init, err)
 	}
-	from, to, err := ed.Where(test.addr)
-	if from != test.from || to != test.to || err != nil {
-		t.Errorf("ed.Where(%q)=%d,%d,%v, want %d,%d,nil",
-			test.addr, from, to, err, test.from, test.to)
+	rfrom, rto, lfrom, lto, err := ed.Where(test.addr)
+	if rfrom != test.rfrom || rto != test.rto || lfrom != test.lfrom || lto != test.lto || err != nil {
+		t.Errorf("ed.Where(%q)=%d,%d,%d,%d,%v, want %d,%d,%d,%d,nil",
+			test.addr, rfrom, rto, lfrom, lto, err, test.rfrom, test.rto, test.lfrom, test.lto)
 	}
 }
 
@@ -622,6 +625,24 @@ func TestEditorEditWhere(t *testing.T) {
 			{edit: "/e.*/=#", print: "#1,#13", want: "Hello, World!"},
 			{edit: "0=#", print: "#0,#0", want: "Hello, World!"},
 			{edit: "$=#", print: "#13,#13", want: "Hello, World!"},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestEditorEditWhereLine(t *testing.T) {
+	tests := []editTest{
+		{
+			{edit: "=", print: "1", want: ""},
+			{edit: "a/Hello\n World!", want: "Hello\n World!"},
+			{edit: "=", print: "1,2", want: "Hello\n World!"},
+			{edit: "/e.*\n.*/=", print: "1,2", want: "Hello\n World!"},
+			{edit: "0=", print: "1", want: "Hello\n World!"},
+			{edit: "$=", print: "2", want: "Hello\n World!"},
+			{edit: "/Hello/s/Hello/H\ne\nl\nl\no", want: "H\ne\nl\nl\no\n World!"},
+			{edit: "=", print: "1,5", want: "H\ne\nl\nl\no\n World!"},
 		},
 	}
 	for _, test := range tests {
