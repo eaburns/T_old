@@ -177,20 +177,16 @@ func checkEntry(t *testing.T, i int, entries []testEntry, e entry) {
 func initTestLog(t *testing.T, entries []testEntry) *log {
 	l := newLog()
 	for _, e := range entries {
-		if err := l.append(e.seq, e.who, e.at, sliceSource([]rune(e.str))); err != nil {
+		r := &runes.SliceReader{Rs: []rune(e.str)}
+		if err := l.append(e.seq, e.who, e.at, r); err != nil {
 			t.Fatalf("l.append(%v, %v, %q)=%v", e.seq, e.at, e.str, err)
 		}
 	}
 	return l
 }
 
-func readSource(src source) string {
-	b := runes.NewBuffer(int(src.size()))
-	defer b.Close()
-	if err := src.insert(b, b.Size()); err != nil {
-		panic(err)
-	}
-	rs, err := b.Read(int(src.size()), 0)
+func readSource(src runes.Reader) string {
+	rs, err := runes.ReadAll(src)
 	if err != nil {
 		panic(err)
 	}

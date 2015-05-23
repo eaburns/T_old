@@ -77,19 +77,22 @@ func (h *header) unmarshal(data []rune) {
 	h.who = data[9]
 }
 
-func (l *log) append(seq, who int32, at addr, src source) error {
+func (l *log) append(seq, who int32, at addr, src runes.Reader) error {
+	prev := l.last
+	l.last = l.buf.Size()
+	n, err := runes.Copy(l.buf.Writer(l.last), src)
+	if err != nil {
+		return err
+	}
+	// Insert the header before the data.
 	h := header{
-		prev: l.last,
+		prev: prev,
 		at:   at,
-		size: src.size(),
+		size: n,
 		seq:  seq,
 		who:  who,
 	}
-	l.last = l.buf.Size()
-	if err := l.buf.Insert(h.marshal(), l.last); err != nil {
-		return err
-	}
-	return src.insert(l.buf, l.buf.Size())
+	return l.buf.Insert(h.marshal(), l.last)
 }
 
 type entry struct {
@@ -192,14 +195,11 @@ func (e *entry) store() error {
 	return e.l.buf.Insert(e.header.marshal(), e.offs)
 }
 
-// Data returns a source for the entry's data.
-func (e entry) data() source {
+// Data returns the entry's data.
+func (e entry) data() runes.Reader {
 	if e.err != nil {
 		panic("data called on the end iterator")
 	}
 	from := e.offs + headerRunes
-	return &bufferSource{
-		at:  addr{from: from, to: from + e.size},
-		buf: e.l.buf,
-	}
+	return &runes.LimitedReader{Reader: e.l.buf.Reader(from), N: e.size}
 }
