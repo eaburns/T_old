@@ -52,19 +52,20 @@ func (buf *Buffer) size() int64 { return buf.runes.Size() }
 func (buf *Buffer) rune(i int64) (rune, error) { return buf.runes.Rune(i) }
 
 // Change changes the string identified by at
-// to contain the runes from the source.
+// to contain the runes from the Reader.
 //
 // This method must be called with the Lock held.
-func (buf *Buffer) change(at addr, rs source) error {
+func (buf *Buffer) change(at addr, src runes.Reader) error {
 	if err := buf.runes.Delete(at.size(), at.from); err != nil {
 		return err
 	}
-	if err := rs.insert(buf.runes, at.from); err != nil {
+	n, err := runes.Copy(buf.runes.Writer(at.from), src)
+	if err != nil {
 		return err
 	}
 	for _, ed := range buf.eds {
 		for m := range ed.marks {
-			ed.marks[m] = ed.marks[m].update(at, rs.size())
+			ed.marks[m] = ed.marks[m].update(at, n)
 		}
 	}
 	return nil
@@ -191,12 +192,12 @@ func fixAddrs(at addr, l *log) (addr, error) {
 			// to include the change made by e.
 			// Otherwise, update would simply leave it
 			// as a point address and move it.
-			at.to = at.update(e.at, e.data().size()).to
+			at.to = at.update(e.at, e.size).to
 		} else {
-			at = at.update(e.at, e.data().size())
+			at = at.update(e.at, e.size)
 		}
 		for f := e.next(); !f.end(); f = f.next() {
-			f.at = f.at.update(e.at, e.data().size())
+			f.at = f.at.update(e.at, e.size)
 			if err := f.store(); err != nil {
 				return addr{}, err
 			}
@@ -217,7 +218,7 @@ func inSequence(l *log) bool {
 	return true
 }
 
-func pend(ed *Editor, at addr, src source) error {
+func pend(ed *Editor, at addr, src runes.Reader) error {
 	return ed.pending.append(ed.buf.seq, ed.who, at, src)
 }
 
@@ -301,7 +302,7 @@ func change(ed *Editor, a Address, rs []rune) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	return at, pend(ed, at, sliceSource(rs))
+	return at, pend(ed, at, &runes.SliceReader{Rs: rs})
 }
 
 // Append inserts the runes after the address
@@ -340,7 +341,8 @@ func cpy(ed *Editor, src, dst Address) (addr, error) {
 		return addr{}, err
 	}
 	d.from = d.to
-	return d, pend(ed, d, bufferSource{at: s, buf: ed.buf.runes})
+	r := &runes.LimitedReader{Reader: ed.buf.runes.Reader(s.from), N: s.size()}
+	return d, pend(ed, d, r)
 }
 
 // Move moves the runes from the source address
@@ -369,16 +371,17 @@ func move(ed *Editor, src, dst Address) (addr, error) {
 
 	if d.from >= s.to {
 		// Moving to after the source. Delete the source first.
-		if err := pend(ed, s, emptySource{}); err != nil {
+		if err := pend(ed, s, &runes.SliceReader{}); err != nil {
 			return addr{}, err
 		}
 	}
-	if err := pend(ed, d, bufferSource{at: s, buf: ed.buf.runes}); err != nil {
+	r := &runes.LimitedReader{Reader: ed.buf.runes.Reader(s.from), N: s.size()}
+	if err := pend(ed, d, r); err != nil {
 		return addr{}, err
 	}
 	if d.from <= s.from {
 		// Moving to before the source. Delete the source second.
-		if err := pend(ed, s, emptySource{}); err != nil {
+		if err := pend(ed, s, &runes.SliceReader{}); err != nil {
 			return addr{}, err
 		}
 	}
@@ -428,7 +431,7 @@ func sub1(ed *Editor, at addr, re *re1.Regexp, repl []rune) ([][2]int64, error) 
 		return nil, err
 	}
 	at = addr{m[0][0], m[0][1]}
-	return m, pend(ed, at, sliceSource(rs))
+	return m, pend(ed, at, &runes.SliceReader{Rs: rs})
 }
 
 // ReplRunes returns the runes that replace a matched regexp.
