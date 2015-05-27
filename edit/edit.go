@@ -278,7 +278,7 @@ func print(ed *Editor, a Address) ([]rune, addr, error) {
 func (ed *Editor) Where(a Address) (rfrom, rto, lfrom, lto int64, err error) {
 	ed.buf.lock.RLock()
 	defer ed.buf.lock.RUnlock()
-	at, err := whereAddr(ed, a)
+	at, err := whereRune(ed, a)
 	if err != nil {
 		return 0, 0, 0, 0, err
 	}
@@ -286,7 +286,7 @@ func (ed *Editor) Where(a Address) (rfrom, rto, lfrom, lto int64, err error) {
 	return at.from, at.to, lfrom, lto, err
 }
 
-func whereAddr(ed *Editor, a Address) (addr, error) {
+func whereRune(ed *Editor, a Address) (addr, error) {
 	at, err := a.addr(ed)
 	if err != nil {
 		return addr{}, err
@@ -655,7 +655,7 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 		return print(ed, a)
 	case '=':
 		var ret string
-		at, err := whereAddr(ed, a)
+		at, err := whereRune(ed, a)
 		if err != nil {
 			return nil, addr{}, err
 		}
