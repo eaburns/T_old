@@ -16,8 +16,7 @@ import (
 	"github.com/eaburns/T/re1"
 )
 
-// MaxRunes is the maximum number of runes to read
-// into memory for operations like Print.
+// MaxRunes is the maximum number of runes to read into memory.
 const MaxRunes = 4096
 
 // A Buffer is an editable rune buffer.
@@ -248,66 +247,47 @@ func mark(ed *Editor, a Address, m rune) (addr, error) {
 	return at, nil
 }
 
-// Print returns the runes identified by the address.
-// It is an error to print more than MaxRunes runes.
+// Print writes the runes identified by the address to w.
 // Dot is set to the address.
-func (ed *Editor) Print(a Address) ([]rune, error) {
+func (ed *Editor) Print(a Address, w io.Writer) error {
 	ed.buf.lock.RLock()
 	defer ed.buf.lock.RUnlock()
-	pr, _, err := print(ed, a)
-	return pr, err
+	_, err := print(ed, a, w)
+	return err
 }
 
-func print(ed *Editor, a Address) ([]rune, addr, error) {
+func print(ed *Editor, a Address, w io.Writer) (addr, error) {
 	at, err := a.addr(ed)
 	if err != nil {
-		return nil, addr{}, err
+		return addr{}, err
 	}
-	if at.size() > MaxRunes {
-		return nil, addr{}, errors.New("print too big")
-	}
-	rs, err := ed.buf.runes.Read(int(at.size()), at.from)
-	if err != nil {
-		return nil, addr{}, err
-	}
-	ed.marks['.'] = at
-	return rs, at, nil
-}
-
-// Where returns the rune offsets and line offsets of an address.
-// The from offset is inclusive and to is exclusive.
-// Dot is set to the address.
-func (ed *Editor) Where(a Address) (rfrom, rto, lfrom, lto int64, err error) {
-	ed.buf.lock.RLock()
-	defer ed.buf.lock.RUnlock()
-	at, err := whereRune(ed, a)
-	if err != nil {
-		return 0, 0, 0, 0, err
-	}
-	lfrom, lto, err = whereLine(ed, a)
-	return at.from, at.to, lfrom, lto, err
-}
-
-func whereRune(ed *Editor, a Address) (addr, error) {
-	at, err := a.addr(ed)
-	if err != nil {
+	r := runes.LimitReader(ed.buf.runes.Reader(at.from), at.size())
+	if _, err := runes.Copy(runes.UTF8Writer(w), r); err != nil {
 		return addr{}, err
 	}
 	ed.marks['.'] = at
 	return at, nil
 }
 
-func whereLine(ed *Editor, a Address) (lfrom, lto int64, err error) {
-	at, err := a.addr(ed)
-	if err != nil {
-		return 0, 0, err
+// Where returns the rune offsets and line offsets of an address.
+// The from offset is inclusive and to is exclusive.
+// Dot is set to the address.
+func (ed *Editor) Where(a Address) (at addr, lfrom, lto int64, err error) {
+	ed.buf.lock.RLock()
+	defer ed.buf.lock.RUnlock()
+	return where(ed, a)
+}
+
+func where(ed *Editor, a Address) (at addr, lfrom, lto int64, err error) {
+	if at, err = a.addr(ed); err != nil {
+		return addr{}, 0, 0, err
 	}
 	var i int64
 	lfrom = 1 // line numbers are 1 based.
 	for ; i < at.from; i++ {
 		r, err := ed.buf.rune(i)
 		if err != nil {
-			return 0, 0, err
+			return addr{}, 0, 0, err
 		} else if r == '\n' {
 			lfrom++
 		}
@@ -316,11 +296,12 @@ func whereLine(ed *Editor, a Address) (lfrom, lto int64, err error) {
 	for ; i < at.to; i++ {
 		r, err := ed.buf.rune(i)
 		if err != nil {
-			return 0, 0, err
+			return addr{}, 0, 0, err
 		} else if r == '\n' && i < at.to-1 {
 			lto++
 		}
 	}
+	ed.marks['.'] = at
 	return
 }
 
@@ -562,8 +543,7 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 }
 
 // Edit parses a command and performs its edit on the buffer.
-// The returned rune slice is the result of commands that output,
-// such as p and =#.
+// Commands that output, such as p and =, write their output to the writer.
 //
 // In the following, text surrounded by / represents delimited text.
 // The delimiter can be any character, it need not be /.
@@ -601,7 +581,6 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 // 		of the regular expression in the addressed range.
 // 		When substituting, a backslash followed by a digit d
 // 		stands for the string that matched the d-th subexpression.
-// 		It is an error if such a subexpression has more than MaxRunes.
 //		\n is a literal newline.
 //		A number n after s indicates we substitute the Nth match in the
 //		address range. If n == 0 set n = 1.
@@ -626,29 +605,24 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //		With '#' returns the rune offsets of the address.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-func (ed *Editor) Edit(cmd []rune) ([]rune, error) {
-	var pr []rune
-	err := ed.do(func() (at addr, err error) {
-		pr, at, err = edit(ed, cmd)
-		return at, err
-	})
-	return pr, err
+func (ed *Editor) Edit(cmd []rune, w io.Writer) error {
+	return ed.do(func() (at addr, err error) { return edit(ed, cmd, w) })
 }
 
-func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
+func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 	a, n, err := Addr(cmd)
 	switch {
 	case err != nil:
-		return nil, addr{}, err
+		return addr{}, err
 	case a == nil:
 		a = Dot
 	case len(cmd) == n:
 		at, err := a.addr(ed)
 		if err != nil {
-			return nil, addr{}, err
+			return addr{}, err
 		}
 		ed.marks['.'] = at
-		return nil, at, err
+		return at, err
 	default:
 		cmd = cmd[n:]
 	}
@@ -656,67 +630,69 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 	case 'a':
 		r := runes.SliceReader(parseText(cmd[1:]))
 		at, err := change(ed, a.Plus(Rune(0)), r)
-		return nil, at, err
+		return at, err
 	case 'c':
 		r := runes.SliceReader(parseText(cmd[1:]))
 		at, err := change(ed, a, r)
-		return nil, at, err
+		return at, err
 	case 'i':
 		r := runes.SliceReader(parseText(cmd[1:]))
 		at, err := change(ed, a.Minus(Rune(0)), r)
-		return nil, at, err
+		return at, err
 	case 'd':
 		at, err := change(ed, a, runes.EmptyReader())
-		return nil, at, err
+		return at, err
 	case 'k':
 		mk, err := parseMarkRune(cmd[1:])
 		if err != nil {
-			return nil, addr{}, err
+			return addr{}, err
 		}
 		at, err := mark(ed, a, mk)
-		return nil, at, err
+		return at, err
 	case 'p':
-		return print(ed, a)
+		return print(ed, a, w)
 	case '=':
-		var ret string
-		at, err := whereRune(ed, a)
+		at, lfrom, lto, err := where(ed, a)
 		if err != nil {
-			return nil, addr{}, err
+			return addr{}, err
 		}
 		if len(cmd) == 1 || cmd[1] != '#' {
-			lineFrom, lineTo, err := whereLine(ed, a)
-			if err != nil {
-				return nil, addr{}, err
-			}
-			if lineFrom == lineTo {
-				ret = fmt.Sprintf("%d", lineFrom)
+			if lfrom == lto {
+				_, err = fmt.Fprintf(w, "%d", lfrom)
 			} else {
-				ret = fmt.Sprintf("%d,%d", lineFrom, lineTo)
+				_, err = fmt.Fprintf(w, "%d,%d", lfrom, lto)
 			}
 		} else {
-			ret = fmt.Sprintf("#%d,#%d", at.from, at.to)
+			if at.size() == 0 {
+				_, err = fmt.Fprintf(w, "#%d", at.from)
+			} else {
+				_, err = fmt.Fprintf(w, "#%d,#%d", at.from, at.to)
+			}
 		}
-		return []rune(ret), at, nil
+		if err != nil {
+			return addr{}, err
+		}
+		return at, nil
 	case 's':
 		n, cmd, err := parseNumber(cmd[1:])
 		if err != nil {
-			return nil, addr{}, err
+			return addr{}, err
 		}
 		re, err := re1.Compile(cmd[:], re1.Options{Delimited: true})
 		if err != nil {
-			return nil, addr{}, err
+			return addr{}, err
 		}
 		exp := re.Expression()
 		cmd = cmd[len(exp):]
 		repl := parseDelimited(exp[0], true, cmd)
 		g := len(repl) < len(cmd)-1 && cmd[len(repl)+1] == 'g'
 		at, err := sub(ed, a, re, repl, g, n)
-		return nil, at, err
+		return at, err
 	case 't', 'm':
 		a1, _, err := Addr(cmd[1:])
 		switch {
 		case err != nil:
-			return nil, addr{}, err
+			return addr{}, err
 		case a1 == nil:
 			a1 = Dot
 		}
@@ -726,9 +702,9 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 		} else {
 			at, err = move(ed, a, a1)
 		}
-		return nil, at, err
+		return at, err
 	default:
-		return nil, addr{}, errors.New("unknown command: " + string(c))
+		return addr{}, errors.New("unknown command: " + string(c))
 	}
 }
 

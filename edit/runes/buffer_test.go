@@ -10,6 +10,15 @@ import (
 
 const testBlockSize = 8
 
+// String returns a string containing the entire buffer contents.
+func (b *Buffer) String() string {
+	rs, err := ReadAll(b.Reader(0))
+	if err != nil {
+		panic(err)
+	}
+	return string(rs)
+}
+
 func TestRunesRune(t *testing.T) {
 	rs := []rune("Hello, 世界!")
 	b := NewBuffer(testBlockSize)
@@ -152,8 +161,8 @@ func TestInsert(t *testing.T) {
 		if test.err != "" {
 			continue
 		}
-		if s := readAll(b); s != test.want || err != nil {
-			t.Errorf("%+v read failed: readAll(·)=%v,%v, want %v,nil", test, s, err, test.want)
+		if s := b.String(); s != test.want || err != nil {
+			t.Errorf("%+v read failed: b.String()=%v, want %v,nil", test, s, test.want)
 			continue
 		}
 	}
@@ -174,8 +183,8 @@ func TestReaderFromSlowPath(t *testing.T) {
 		if test.err != "" {
 			continue
 		}
-		if s := readAll(b); s != test.want || err != nil {
-			t.Errorf("%+v read failed: readAll(·)=%v,%v, want %v,nil", test, s, err, test.want)
+		if s := b.String(); s != test.want || err != nil {
+			t.Errorf("%+v read failed: b.String()=%v, want %v,nil", test, s, test.want)
 			continue
 		}
 	}
@@ -218,8 +227,8 @@ func TestReaderFromFastPathShortReads(t *testing.T) {
 		t.Fatalf("dst.ReaderFrom(0).ReadFrom(src.Reader(0))=%d,%v, want %d,nil", n, err, len(rs))
 	}
 
-	if s := readAll(dst); s != string(rs) {
-		t.Errorf("readAll(dst)=%q, want %q", s, string(rs))
+	if s := dst.String(); s != string(rs) {
+		t.Errorf("dst.String()=%q, want %q", s, string(rs))
 	}
 }
 
@@ -271,8 +280,8 @@ func TestDelete(t *testing.T) {
 		if test.err != "" {
 			continue
 		}
-		if s := readAll(b); s != test.want || err != nil {
-			t.Errorf("%+v read failed: ReadAll(·)=%v,%v want %v,nil", test, s, err, test.want)
+		if s := b.String(); s != test.want || err != nil {
+			t.Errorf("%+v read failed: b.String()=%v want %v,nil", test, s, test.want)
 		}
 	}
 }
@@ -327,23 +336,23 @@ func TestInsertDeleteAndRead(t *testing.T) {
 	if err := b.Insert([]rune(hiWorld), 0); err != nil {
 		t.Fatalf(`insert(%s, 0)=%v, want nil`, hiWorld, err)
 	}
-	if s := readAll(b); s != hiWorld {
-		t.Fatalf(`readAll(·)=%v, want %s`, s, hiWorld)
+	if s := b.String(); s != hiWorld {
+		t.Fatalf(`b.String()=%v, want %s`, s, hiWorld)
 	}
 
 	if err := b.Delete(5, 7); err != nil {
 		t.Fatalf(`delete(5, 7)=%v, want nil`, err)
 	}
-	if s := readAll(b); s != "Hello, !" {
-		t.Fatalf(`readAll(·)=%v, want "Hello, !"`, s)
+	if s := b.String(); s != "Hello, !" {
+		t.Fatalf(`b.String()=%v, want "Hello, !"`, s)
 	}
 
 	const gophers = "Gophers"
 	if err := b.Insert([]rune(gophers), 7); err != nil {
 		t.Fatalf(`insert(%s, 7)=%v, want nil`, gophers, err)
 	}
-	if s := readAll(b); s != "Hello, Gophers!" {
-		t.Fatalf(`readAll(·)=%v, want "Hello, Gophers!"`, s)
+	if s := b.String(); s != "Hello, Gophers!" {
+		t.Fatalf(`b.String()=%v, want "Hello, Gophers!"`, s)
 	}
 }
 
@@ -355,14 +364,6 @@ func errMatch(re string, err error) bool {
 		return err == nil
 	}
 	return regexp.MustCompile(re).Match([]byte(err.Error()))
-}
-
-func readAll(b *Buffer) string {
-	rs, err := b.Read(int(b.Size()), 0)
-	if err != nil {
-		panic(err)
-	}
-	return string(rs)
 }
 
 // Initializes a buffer with the text "01234567abcd!@#efghSTUVWXYZ"

@@ -204,8 +204,8 @@ func testCopy(t *testing.T, test insertTest, bDst *Buffer, dst Writer, src Reade
 	if test.err != "" {
 		return
 	}
-	if s := readAll(bDst); s != test.want || err != nil {
-		t.Errorf("Copy(%#v, %#v); readAll(·)=%q,%v, want %q,nil",
+	if s := bDst.String(); s != test.want || err != nil {
+		t.Errorf("Copy(%#v, %#v); dst.String()=%q,%v, want %q,nil",
 			dst, src, s, err, test.want)
 		return
 	}

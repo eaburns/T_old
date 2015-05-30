@@ -3,6 +3,7 @@
 package edit
 
 import (
+	"bytes"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,6 +12,15 @@ import (
 	"github.com/eaburns/T/edit/runes"
 	"github.com/eaburns/T/re1"
 )
+
+// String returns a string containing the entire editor contents.
+func (ed *Editor) String() string {
+	rs, err := runes.ReadAll(ed.buf.runes.Reader(0))
+	if err != nil {
+		panic(err)
+	}
+	return string(rs)
+}
 
 func TestRetry(t *testing.T) {
 	ed := NewEditor(NewBuffer())
@@ -27,9 +37,8 @@ func TestRetry(t *testing.T) {
 	if err := ed.do(ch); err != nil {
 		t.Fatalf("ed.do(ch)=%v, want nil", err)
 	}
-	rs, err := ed.Print(All)
-	if s := string(rs); s != str || err != nil {
-		t.Errorf("ed.Print(All)=%q,%v, want %q,nil\n", s, err, str)
+	if s := ed.String(); s != str {
+		t.Errorf("ed.String()=%q, want %q,nil\n", s, str)
 	}
 }
 
@@ -92,10 +101,10 @@ func (test *whereTest) run(t *testing.T) {
 	if err := ed.Change(All, strings.NewReader(test.init)); err != nil {
 		t.Fatalf("ed.Append(All, %q)=%v, want nil", test.init, err)
 	}
-	rfrom, rto, lfrom, lto, err := ed.Where(test.addr)
-	if rfrom != test.rfrom || rto != test.rto || lfrom != test.lfrom || lto != test.lto || err != nil {
-		t.Errorf("ed.Where(%q)=%d,%d,%d,%d,%v, want %d,%d,%d,%d,nil",
-			test.addr, rfrom, rto, lfrom, lto, err, test.rfrom, test.rto, test.lfrom, test.lto)
+	at, lfrom, lto, err := ed.Where(test.addr)
+	if at.from != test.rfrom || at.to != test.rto || lfrom != test.lfrom || lto != test.lto || err != nil {
+		t.Errorf("ed.Where(%q)=%v,%d,%d,%v, want %d,%d,%d,%d,nil",
+			test.addr, at, lfrom, lto, err, test.rfrom, test.rto, test.lfrom, test.lto)
 	}
 }
 
@@ -136,9 +145,8 @@ func (test changeTest) run(t *testing.T) {
 	if ed.marks['.'] != test.dot {
 		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
 	}
-	rs, err := ed.Print(All)
-	if s := string(rs); s != test.want || err != nil {
-		t.Errorf("%#v: string=%q, want %q\n", test, s, test.want)
+	if s := ed.String(); s != test.want {
+		t.Errorf("ed.String()=%q, want %q,nil\n", s, test.want)
 	}
 }
 
@@ -221,9 +229,8 @@ func (test copyMoveTest) run(f func(ed *Editor, src, dst Address) error, name st
 	if ed.marks['.'] != test.dot {
 		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
 	}
-	rs, err := ed.Print(All)
-	if s := string(rs); s != test.want || err != nil {
-		t.Errorf("%#v: string=%q, want %q\n", test, s, test.want)
+	if s := ed.String(); s != test.want {
+		t.Errorf("ed.String()=%q, want %q,nil\n", s, test.want)
 	}
 }
 
@@ -364,9 +371,8 @@ func (test subTest) run(t *testing.T) {
 	if ed.marks['.'] != test.dot {
 		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
 	}
-	rs, err := ed.Print(All)
-	if s := string(rs); s != test.want || err != nil {
-		t.Errorf("%#v: string=%q, want %q\n", test, s, test.want)
+	if s := ed.String(); s != test.want {
+		t.Errorf("ed.String()=%q, want %q,nil\n", s, test.want)
 	}
 }
 
@@ -626,8 +632,8 @@ func TestEditorEditWhere(t *testing.T) {
 			{edit: "a/Hello, World!", want: "Hello, World!"},
 			{edit: "=#", print: "#0,#13", want: "Hello, World!"},
 			{edit: "/e.*/=#", print: "#1,#13", want: "Hello, World!"},
-			{edit: "0=#", print: "#0,#0", want: "Hello, World!"},
-			{edit: "$=#", print: "#13,#13", want: "Hello, World!"},
+			{edit: "0=#", print: "#0", want: "Hello, World!"},
+			{edit: "$=#", print: "#13", want: "Hello, World!"},
 		},
 	}
 	for _, test := range tests {
@@ -828,19 +834,14 @@ func (test editTest) run(t *testing.T) {
 		defer eds[i].Close()
 	}
 	for i, c := range test {
-		t.Logf("%q\n", c.edit)
-		pr, err := eds[c.who].Edit([]rune(c.edit))
-		if pr := string(pr); pr != c.print || err != nil {
+		w := bytes.NewBuffer(nil)
+		err := eds[c.who].Edit([]rune(c.edit), w)
+		if pr := w.String(); pr != c.print || err != nil {
 			t.Errorf("%v, %d, Edit(%v)=%q,%v, want %q,nil", test, i,
 				strconv.Quote(c.edit), pr, err, c.print)
 			continue
 		}
-		rs, err := b.runes.Read(int(b.runes.Size()), 0)
-		if err != nil {
-			t.Errorf("%v, %d, read failed=%v\n", test, i, err)
-			continue
-		}
-		if s := string(rs); s != c.want {
+		if s := eds[c.who].String(); s != c.want {
 			t.Errorf("%v, %d: string=%v, want %v\n",
 				test, i, strconv.Quote(s), strconv.Quote(c.want))
 			continue
