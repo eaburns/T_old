@@ -37,6 +37,25 @@ type ReaderFrom interface {
 	ReadFrom(Reader) (int64, error)
 }
 
+type utf8Writer struct{ w io.Writer }
+
+// UTF8Writer returns a Writer that writes UTF8 to w.
+func UTF8Writer(w io.Writer) Writer { return utf8Writer{w} }
+
+func (w utf8Writer) Write(p []rune) (int, error) {
+	for i, r := range p {
+		var e [utf8.UTFMax]byte
+		sz := utf8.EncodeRune(e[:], r)
+		switch n, err := w.w.Write(e[:sz]); {
+		case n < sz:
+			return i, err
+		case err != nil:
+			return i + 1, err
+		}
+	}
+	return len(p), nil
+}
+
 type limitedReader struct {
 	r        Reader
 	n, limit int64

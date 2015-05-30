@@ -3,6 +3,7 @@
 package runes
 
 import (
+	"bytes"
 	"io"
 	"reflect"
 	"strings"
@@ -107,6 +108,32 @@ func (tests readTests) run(t *testing.T, r Reader) {
 	n, err := r.Read(make([]rune, 1))
 	if n != 0 || err != io.EOF {
 		t.Errorf("Read(len=1)=%d,%v, want 0,io.EOF", n, err)
+	}
+}
+
+func TestUTF8Writer(t *testing.T) {
+	tests := []struct {
+		writes []string
+		want   string
+	}{
+		{[]string{""}, ""},
+		{[]string{"Hello,", "", " ", "", "World!"}, "Hello, World!"},
+		{[]string{"Hello", ",", " ", "World!"}, "Hello, World!"},
+		{[]string{"Hello", ",", " ", "世界!"}, "Hello, 世界!"},
+	}
+	for _, test := range tests {
+		b := bytes.NewBuffer(nil)
+		w := UTF8Writer(b)
+		for _, write := range test.writes {
+			rs := []rune(write)
+			n, err := w.Write(rs)
+			if n != len(rs) || err != nil {
+				t.Errorf("w.Write(%q)=%d,%v, want %d,nil", test.writes, n, err, len(rs))
+			}
+		}
+		if str := b.String(); str != test.want {
+			t.Errorf("write %#v, want=%q, got %q", test.writes, str, test.want)
+		}
 	}
 }
 
