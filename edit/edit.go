@@ -7,6 +7,7 @@ package edit
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"sync"
 	"unicode"
@@ -323,23 +324,24 @@ func whereLine(ed *Editor, a Address) (lfrom, lto int64, err error) {
 	return
 }
 
-// Change changes the Address to the given runes
-// and sets dot to the Address of the changed runes.
+// Change reads runes from r until end of file
+// and changing the Address to the runes read.
+// On success, dot is set to the changed runes.
 //
 // Change can be used to insert, append, and delete:
-// 	Change(a.Minus(Rune(0)), rs) // Insert
-// 	Change(a.Plus(Rune(0)), rs) // Append
-// 	Change(a, []rune{}) // Delete
-func (ed *Editor) Change(a Address, rs []rune) error {
-	return ed.do(func() (addr, error) { return change(ed, a, rs) })
+// 	Change(a.Minus(Rune(0)), r) // Insert
+// 	Change(a.Plus(Rune(0)), r) // Append
+// 	Change(a, runes.EmptyReader()) // Delete
+func (ed *Editor) Change(a Address, r io.RuneReader) error {
+	return ed.do(func() (addr, error) { return change(ed, a, runes.RunesReader(r)) })
 }
 
-func change(ed *Editor, a Address, rs []rune) (addr, error) {
+func change(ed *Editor, a Address, r runes.Reader) (addr, error) {
 	at, err := a.addr(ed)
 	if err != nil {
 		return addr{}, err
 	}
-	return at, pend(ed, at, runes.SliceReader(rs))
+	return at, pend(ed, at, r)
 }
 
 // Copy copies the runes from the source address
@@ -652,16 +654,19 @@ func edit(ed *Editor, cmd []rune) ([]rune, addr, error) {
 	}
 	switch c := cmd[0]; c {
 	case 'a':
-		at, err := change(ed, a.Plus(Rune(0)), parseText(cmd[1:]))
+		r := runes.SliceReader(parseText(cmd[1:]))
+		at, err := change(ed, a.Plus(Rune(0)), r)
 		return nil, at, err
 	case 'c':
-		at, err := change(ed, a, parseText(cmd[1:]))
+		r := runes.SliceReader(parseText(cmd[1:]))
+		at, err := change(ed, a, r)
 		return nil, at, err
 	case 'i':
-		at, err := change(ed, a.Minus(Rune(0)), parseText(cmd[1:]))
+		r := runes.SliceReader(parseText(cmd[1:]))
+		at, err := change(ed, a.Minus(Rune(0)), r)
 		return nil, at, err
 	case 'd':
-		at, err := change(ed, a, []rune{})
+		at, err := change(ed, a, runes.EmptyReader())
 		return nil, at, err
 	case 'k':
 		mk, err := parseMarkRune(cmd[1:])

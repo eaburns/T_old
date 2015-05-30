@@ -103,6 +103,22 @@ func (r *sliceReader) Read(p []rune) (int, error) {
 	return n, nil
 }
 
+type runesReader struct{ r io.RuneReader }
+
+// RunesReader returns a Reader that reads from an io.RuneReader.
+func RunesReader(r io.RuneReader) Reader { return runesReader{r} }
+
+func (r runesReader) Read(p []rune) (int, error) {
+	for i := range p {
+		ru, _, err := r.r.ReadRune()
+		if err != nil {
+			return i, err
+		}
+		p[i] = ru
+	}
+	return len(p), nil
+}
+
 // ReadAll reads runes from the reader
 // until an error or io.EOF is encountered.
 // It returns all of the runes read.

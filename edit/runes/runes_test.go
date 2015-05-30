@@ -5,6 +5,7 @@ package runes
 import (
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,11 @@ func TestSliceReader(t *testing.T) {
 
 func TestStringReader(t *testing.T) {
 	r := StringReader(string(helloWorldTestRunes))
+	helloWorldReadTests.run(t, r)
+}
+
+func TestRunesReader(t *testing.T) {
+	r := RunesReader(strings.NewReader(string(helloWorldTestRunes)))
 	helloWorldReadTests.run(t, r)
 }
 
