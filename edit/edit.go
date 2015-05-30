@@ -339,7 +339,7 @@ func change(ed *Editor, a Address, rs []rune) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	return at, pend(ed, at, &runes.SliceReader{Rs: rs})
+	return at, pend(ed, at, runes.SliceReader(rs))
 }
 
 // Copy copies the runes from the source address
@@ -359,7 +359,7 @@ func cpy(ed *Editor, src, dst Address) (addr, error) {
 		return addr{}, err
 	}
 	d.from = d.to
-	r := &runes.LimitedReader{Reader: ed.buf.runes.Reader(s.from), N: s.size()}
+	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
 	return d, pend(ed, d, r)
 }
 
@@ -389,17 +389,17 @@ func move(ed *Editor, src, dst Address) (addr, error) {
 
 	if d.from >= s.to {
 		// Moving to after the source. Delete the source first.
-		if err := pend(ed, s, &runes.SliceReader{}); err != nil {
+		if err := pend(ed, s, runes.EmptyReader()); err != nil {
 			return addr{}, err
 		}
 	}
-	r := &runes.LimitedReader{Reader: ed.buf.runes.Reader(s.from), N: s.size()}
+	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
 	if err := pend(ed, d, r); err != nil {
 		return addr{}, err
 	}
 	if d.from <= s.from {
 		// Moving to before the source. Delete the source second.
-		if err := pend(ed, s, &runes.SliceReader{}); err != nil {
+		if err := pend(ed, s, runes.EmptyReader()); err != nil {
 			return addr{}, err
 		}
 	}
@@ -460,7 +460,7 @@ func subSingle(ed *Editor, at addr, re *re1.Regexp, repl []rune, n int) ([][2]in
 		return nil, err
 	}
 	at = addr{m[0][0], m[0][1]}
-	return m, pend(ed, at, &runes.SliceReader{Rs: rs})
+	return m, pend(ed, at, runes.SliceReader(rs))
 }
 
 // nthMatch skips past the first n-1 matches of the regular expression

@@ -41,7 +41,7 @@ func TestReadAll(t *testing.T) {
 		manyRunes,
 	}
 	for _, test := range tests {
-		r := &SliceReader{test}
+		r := SliceReader(test)
 		rs, err := ReadAll(r)
 		if !reflect.DeepEqual(rs, test) || err != nil {
 			t.Errorf("ReadAll(·)=%q,%v, want %q,<nil>", string(rs), err, string(test))
@@ -50,7 +50,12 @@ func TestReadAll(t *testing.T) {
 }
 
 func TestSliceReader(t *testing.T) {
-	r := &SliceReader{helloWorldTestRunes}
+	r := SliceReader(helloWorldTestRunes)
+	helloWorldReadTests.run(t, r)
+}
+
+func TestStringReader(t *testing.T) {
+	r := StringReader(string(helloWorldTestRunes))
 	helloWorldReadTests.run(t, r)
 }
 
@@ -60,7 +65,7 @@ func TestLimitedReaderBigReader(t *testing.T) {
 	left := int64(len(helloWorldTestRunes))
 	bigRunes := make([]rune, left*10)
 	copy(bigRunes, helloWorldTestRunes)
-	r := &LimitedReader{Reader: &SliceReader{bigRunes}, N: left}
+	r := LimitReader(SliceReader(bigRunes), left)
 	helloWorldReadTests.run(t, r)
 }
 
@@ -73,7 +78,7 @@ func TestLimitedReaderSmallReader(t *testing.T) {
 	tests := helloWorldReadTests[:len(helloWorldReadTests)-1]
 
 	left := int64(len(helloWorldTestRunes))
-	r := &LimitedReader{Reader: &SliceReader{rs}, N: left}
+	r := LimitReader(SliceReader(rs), left)
 	tests.run(t, r)
 }
 
@@ -109,9 +114,10 @@ func TestCopy(t *testing.T) {
 			t.Fatalf("b.Insert(%q, 0)=%v, want nil", rs, err)
 		}
 		srcs := []func() Reader{
-			func() Reader { return &SliceReader{rs} },
+			func() Reader { return StringReader(string(rs)) },
+			func() Reader { return SliceReader(rs) },
 			func() Reader { return bSrc.Reader(0) },
-			func() Reader { return &LimitedReader{Reader: bSrc.Reader(0), N: n} },
+			func() Reader { return LimitReader(bSrc.Reader(0), n) },
 		}
 		// Fast path.
 		for _, src := range srcs {
@@ -145,7 +151,7 @@ func TestCopySmallLimiterReader(t *testing.T) {
 	if err := bSrc.Insert(srcRunes, 0); err != nil {
 		t.Fatalf("b.Insert(%q, 0)=%v, want nil", srcRunes, err)
 	}
-	src := &LimitedReader{Reader: bSrc.Reader(0), N: 1}
+	src := LimitReader(bSrc.Reader(0), 1)
 
 	bDst := NewBuffer(testBlockSize)
 	defer bDst.Close()

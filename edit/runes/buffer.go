@@ -111,7 +111,7 @@ func (b *Buffer) Rune(offs int64) (rune, error) {
 // It is an error to read out of the range of the buffer.
 func (b *Buffer) Read(n int, offs int64) ([]rune, error) {
 	r := b.Reader(offs)
-	r = &LimitedReader{Reader: r, N: int64(n)}
+	r = LimitReader(r, int64(n))
 	return ReadAll(r)
 }
 
@@ -120,7 +120,8 @@ type reader struct {
 	pos int64
 }
 
-func (r *reader) readSize() int64 { return r.Size() - r.pos }
+// Len returns the number of runes in the unread portion of the reader.
+func (r *reader) Len() int64 { return r.Size() - r.pos }
 
 // Reader returns a Reader that reads from the Buffer
 // beginning at the given offset.
@@ -165,7 +166,7 @@ type writer struct {
 }
 
 func (w *writer) Write(p []rune) (int, error) {
-	n, err := w.ReadFrom(&SliceReader{p})
+	n, err := w.ReadFrom(SliceReader(p))
 	w.pos += n
 	return int(n), err
 }
@@ -189,7 +190,7 @@ func (dst *readerFrom) ReadFrom(r Reader) (int64, error) {
 	if dst.pos < 0 || dst.pos > dst.Size() {
 		return 0, os.ErrInvalid
 	}
-	if sz, ok := readSize(r); ok {
+	if sz, ok := readLen(r); ok {
 		return fastReadFrom(dst, r, sz)
 	}
 	return slowCopy(dst.Buffer.Writer(dst.pos), r)
@@ -230,22 +231,22 @@ func readFull(r Reader, p []rune) (int, error) {
 	return tot, nil
 }
 
-// ReadSize returns the exact number of runes to be read and true,
-// or 0 and false if the exact number could not be determined.
-func readSize(r Reader) (int64, bool) {
+// ReadLen returns the number of runes in the unread portion of the reader,
+// or false if the number cannot be determined.
+func readLen(r Reader) (int64, bool) {
 	switch r := r.(type) {
-	case *LimitedReader:
-		if sz, ok := readSize(r.Reader); ok {
-			if r.N < sz {
-				return r.N, true
+	case *limitedReader:
+		if sz, ok := readLen(r.r); ok {
+			if r.limit < sz {
+				return r.limit, true
 			}
 			return sz, true
 		}
 
 	case interface {
-		readSize() int64
+		Len() int64
 	}:
-		return r.readSize(), true
+		return r.Len(), true
 	}
 	return 0, false
 }

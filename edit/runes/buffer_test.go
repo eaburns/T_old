@@ -164,7 +164,7 @@ func TestReaderFromSlowPath(t *testing.T) {
 		b := NewBuffer(testBlockSize)
 		defer b.Close()
 		test.initBuffer(t, b)
-		r := testReader{&SliceReader{[]rune(test.add)}}
+		r := testReader{StringReader(test.add)}
 		n, err := b.ReaderFrom(test.at).ReadFrom(r)
 		add := []rune(test.add)
 		if !errMatch(test.err, err) || (n != int64(len(add)) && test.err == "") {
