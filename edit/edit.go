@@ -325,6 +325,11 @@ func whereLine(ed *Editor, a Address) (lfrom, lto int64, err error) {
 
 // Change changes the Address to the given runes
 // and sets dot to the Address of the changed runes.
+//
+// Change can be used to insert, append, and delete:
+// 	Change(a.Minus(Rune(0)), rs) // Insert
+// 	Change(a.Plus(Rune(0)), rs) // Append
+// 	Change(a, []rune{}) // Delete
 func (ed *Editor) Change(a Address, rs []rune) error {
 	return ed.do(func() (addr, error) { return change(ed, a, rs) })
 }
@@ -335,25 +340,6 @@ func change(ed *Editor, a Address, rs []rune) (addr, error) {
 		return addr{}, err
 	}
 	return at, pend(ed, at, &runes.SliceReader{Rs: rs})
-}
-
-// Append inserts the runes after the address
-// and sets dot to the address of the appended runes.
-func (ed *Editor) Append(ad Address, rs []rune) error {
-	return ed.Change(ad.Plus(Rune(0)), rs)
-}
-
-// Delete deletes the runes at the address
-// and sets dot to the address of the empty string
-// where the runes were deleted.
-func (ed *Editor) Delete(a Address) error {
-	return ed.Change(a, []rune{})
-}
-
-// Insert inserts the runes before the address
-// and sets dot to the address of the inserted runes.
-func (ed *Editor) Insert(ad Address, rs []rune) error {
-	return ed.Change(ad.Minus(Rune(0)), rs)
 }
 
 // Copy copies the runes from the source address

@@ -47,7 +47,7 @@ func TestMark(t *testing.T) {
 	for _, test := range tests {
 		ed := NewEditor(NewBuffer())
 		defer ed.Close()
-		if err := ed.Append(Line(0), []rune(test.init)); err != nil {
+		if err := ed.Change(Line(0).Plus(Rune(0)), []rune(test.init)); err != nil {
 			t.Fatalf("ed.Append(0, %q)=%v, want nil", test.init, err)
 		}
 		if err := ed.Mark(test.addr, test.mark); err != nil {
@@ -86,39 +86,13 @@ func (test *whereTest) run(t *testing.T) {
 	ed := NewEditor(NewBuffer())
 	defer ed.Close()
 
-	if err := ed.Append(All, []rune(test.init)); err != nil {
+	if err := ed.Change(All, []rune(test.init)); err != nil {
 		t.Fatalf("ed.Append(All, %q)=%v, want nil", test.init, err)
 	}
 	rfrom, rto, lfrom, lto, err := ed.Where(test.addr)
 	if rfrom != test.rfrom || rto != test.rto || lfrom != test.lfrom || lto != test.lto || err != nil {
 		t.Errorf("ed.Where(%q)=%d,%d,%d,%d,%v, want %d,%d,%d,%d,nil",
 			test.addr, rfrom, rto, lfrom, lto, err, test.rfrom, test.rto, test.lfrom, test.lto)
-	}
-}
-
-func TestAppend(t *testing.T) {
-	const str = "Hello, 世界!"
-	tests := []changeTest{
-		{init: str, addr: "#0", add: "XYZ", want: "XYZHello, 世界!", dot: addr{0, 3}},
-		{init: str, addr: "$", add: "XYZ", want: "Hello, 世界!XYZ", dot: addr{10, 13}},
-		{init: str, addr: "#1", add: "XYZ", want: "HXYZello, 世界!", dot: addr{1, 4}},
-		{init: str, addr: "#0,#1", add: "XYZ", want: "HXYZello, 世界!", dot: addr{1, 4}},
-	}
-	for _, test := range tests {
-		test.run((*Editor).Append, "Append", t)
-	}
-}
-
-func TestInsert(t *testing.T) {
-	const str = "Hello, 世界!"
-	tests := []changeTest{
-		{init: str, addr: "#0", add: "XYZ", want: "XYZHello, 世界!", dot: addr{0, 3}},
-		{init: str, addr: "$", add: "XYZ", want: "Hello, 世界!XYZ", dot: addr{10, 13}},
-		{init: str, addr: "#1", add: "XYZ", want: "HXYZello, 世界!", dot: addr{1, 4}},
-		{init: str, addr: "#0,#1", add: "XYZ", want: "XYZHello, 世界!", dot: addr{0, 3}},
-	}
-	for _, test := range tests {
-		test.run((*Editor).Insert, "Insert", t)
 	}
 }
 
@@ -145,7 +119,7 @@ func (test changeTest) run(f func(*Editor, Address, []rune) error, name string, 
 	ed := NewEditor(NewBuffer())
 	defer ed.Close()
 	defer ed.buf.Close()
-	if err := ed.Append(Rune(0), []rune(test.init)); err != nil {
+	if err := ed.Change(All, []rune(test.init)); err != nil {
 		t.Fatalf("%v, init failed", test)
 	}
 	addr, _, err := Addr([]rune(test.addr))
@@ -232,7 +206,7 @@ func (test copyMoveTest) run(f func(ed *Editor, src, dst Address) error, name st
 	ed := NewEditor(NewBuffer())
 	defer ed.Close()
 	defer ed.buf.Close()
-	if err := ed.Append(Rune(0), []rune(test.init)); err != nil {
+	if err := ed.Change(All, []rune(test.init)); err != nil {
 		t.Fatalf("%v, init failed", test)
 	}
 	if err = f(ed, src, dst); !errMatch(test.err, err) {
@@ -369,7 +343,7 @@ func (test subTest) run(t *testing.T) {
 	ed := NewEditor(NewBuffer())
 	defer ed.Close()
 	defer ed.buf.Close()
-	if err := ed.Append(Rune(0), []rune(test.init)); err != nil {
+	if err := ed.Change(All, []rune(test.init)); err != nil {
 		t.Fatalf("%#v, init failed", test)
 	}
 	addr, _, err := Addr([]rune(test.addr))
