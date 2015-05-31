@@ -329,49 +329,6 @@ func cpy(ed *Editor, src, dst Address) (addr, error) {
 	return d, pend(ed, d, r)
 }
 
-// Move moves the runes from the source address
-// to after the destination address.
-// Dot is set to the copied runes.
-// It is an error the end of the destination
-// to be within the source.
-func (ed *Editor) Move(src, dst Address) error {
-	return ed.do(func() (addr, error) { return move(ed, src, dst) })
-}
-
-func move(ed *Editor, src, dst Address) (addr, error) {
-	s, err := src.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	d, err := dst.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	d.from = d.to
-
-	if d.from > s.from && d.from < s.to {
-		return addr{}, errors.New("addresses overlap")
-	}
-
-	if d.from >= s.to {
-		// Moving to after the source. Delete the source first.
-		if err := pend(ed, s, runes.EmptyReader()); err != nil {
-			return addr{}, err
-		}
-	}
-	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
-	if err := pend(ed, d, r); err != nil {
-		return addr{}, err
-	}
-	if d.from <= s.from {
-		// Moving to before the source. Delete the source second.
-		if err := pend(ed, s, runes.EmptyReader()); err != nil {
-			return addr{}, err
-		}
-	}
-	return d, nil
-}
-
 // Substitute substitutes text for the first match
 // of the regular expression in the addressed range.
 // When substituting, a backslash followed by a digit d
@@ -672,13 +629,10 @@ func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 		case a1 == nil:
 			a1 = Dot
 		}
-		var at addr
 		if c == 't' {
-			at, err = cpy(ed, a, a1)
-		} else {
-			at, err = move(ed, a, a1)
+			return cpy(ed, a, a1)
 		}
-		return at, err
+		return move{src: a, dst: a1}.do(ed, w)
 	default:
 		return addr{}, errors.New("unknown command: " + string(c))
 	}

@@ -5,6 +5,7 @@
 package edit
 
 import (
+	"errors"
 	"io"
 	"unicode/utf8"
 
@@ -86,4 +87,50 @@ func escape(str string) string {
 		}
 	}
 	return string(append(es, delim))
+}
+
+type move struct {
+	src, dst Address
+}
+
+// Move returns an Edit
+// that moves runes from src to after dst
+// and sets dot to the moved runes.
+// It is an error if the end of dst is within src.
+func Move(src, dst Address) Edit { return move{src: src, dst: dst} }
+
+func (e move) String() string { return e.src.String() + "m" + e.dst.String() }
+
+func (e move) do(ed *Editor, _ io.Writer) (addr, error) {
+	s, err := e.src.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	d, err := e.dst.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	d.from = d.to
+
+	if d.from > s.from && d.from < s.to {
+		return addr{}, errors.New("addresses overlap")
+	}
+
+	if d.from >= s.to {
+		// Moving to after the source. Delete the source first.
+		if err := pend(ed, s, runes.EmptyReader()); err != nil {
+			return addr{}, err
+		}
+	}
+	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
+	if err := pend(ed, d, r); err != nil {
+		return addr{}, err
+	}
+	if d.from <= s.from {
+		// Moving to before the source. Delete the source second.
+		if err := pend(ed, s, runes.EmptyReader()); err != nil {
+			return addr{}, err
+		}
+	}
+	return d, nil
 }

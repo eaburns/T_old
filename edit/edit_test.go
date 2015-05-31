@@ -173,6 +173,21 @@ func TestDeleteEdit(t *testing.T) {
 	}
 }
 
+func TestMoveEdit(t *testing.T) {
+	tests := []eTest{
+		{init: "abc", e: Move(Regexp("/abc/"), Rune(0)), want: "abc", dot: addr{0, 3}},
+		{init: "abc", e: Move(Regexp("/abc/"), Rune(1)), err: "overlap"},
+		{init: "abc", e: Move(Regexp("/abc/"), Rune(2)), err: "overlap"},
+		{init: "abc", e: Move(Regexp("/abc/"), Rune(3)), want: "abc", dot: addr{0, 3}},
+		{init: "abcdef", e: Move(Regexp("/abc/"), End), want: "defabc", dot: addr{3, 6}},
+		{init: "abcdef", e: Move(Regexp("/def/"), Line(0)), want: "defabc", dot: addr{0, 3}},
+		{init: "abc\ndef\nghi", e: Move(Regexp("/def/"), Line(3)), want: "abc\n\nghidef", dot: addr{8, 11}},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 type eTest struct {
 	init, want, print, err string
 	e                      Edit

@@ -128,36 +128,6 @@ func TestCopy(t *testing.T) {
 	}
 }
 
-func TestMove(t *testing.T) {
-	tests := []copyMoveTest{
-		{init: "abc", src: "/abc/", dst: "#0", want: "abc", dot: addr{0, 3}},
-		{init: "abc", src: "/abc/", dst: "#1", err: "overlap"},
-		{init: "abc", src: "/abc/", dst: "#2", err: "overlap"},
-		{init: "abc", src: "/abc/", dst: "#3", want: "abc", dot: addr{0, 3}},
-		{
-			init: "abcdef",
-			src:  "/abc/", dst: "$",
-			want: "defabc",
-			dot:  addr{3, 6},
-		},
-		{
-			init: "abcdef",
-			src:  "/def/", dst: "0",
-			want: "defabc",
-			dot:  addr{0, 3},
-		},
-		{
-			init: "abc\ndef\nghi",
-			src:  "/def/", dst: "3",
-			want: "abc\n\nghidef",
-			dot:  addr{8, 11},
-		},
-	}
-	for _, test := range tests {
-		test.run((*Editor).Move, "Move", t)
-	}
-}
-
 type copyMoveTest struct {
 	init, want, src, dst, err string
 	dot                       addr
