@@ -6,6 +6,7 @@ package edit
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"unicode/utf8"
 
@@ -211,6 +212,57 @@ func (e print) do(ed *Editor, w io.Writer) (addr, error) {
 	if _, err := runes.Copy(runes.UTF8Writer(w), r); err != nil {
 		return addr{}, err
 	}
-	ed.marks['.'] = at
 	return at, nil
+}
+
+type where struct {
+	a    Address
+	line bool
+}
+
+// Where returns an Edit
+// that prints the rune location of a
+// to an io.Writer
+// and sets dot to the a.
+func Where(a Address) Edit { return where{a: a} }
+
+// WhereLine returns an Edit that prints both
+// the rune address and the lines containing a
+// to an io.Writer
+// and sets dot to the a.
+func WhereLine(a Address) Edit { return where{a: a, line: true} }
+
+func (e where) String() string {
+	if e.line {
+		return e.a.String() + "="
+	}
+	return e.a.String() + "=#"
+}
+
+func (e where) do(ed *Editor, w io.Writer) (addr, error) {
+	at, err := e.a.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	if e.line {
+		l0, l1, err := ed.lines(at)
+		if err != nil {
+			return addr{}, err
+		}
+		if l0 == l1 {
+			_, err = fmt.Fprintf(w, "%d", l0)
+		} else {
+			_, err = fmt.Fprintf(w, "%d,%d", l0, l1)
+		}
+	} else {
+		if at.size() == 0 {
+			_, err = fmt.Fprintf(w, "#%d", at.from)
+		} else {
+			_, err = fmt.Fprintf(w, "#%d,#%d", at.from, at.to)
+		}
+	}
+	if err != nil {
+		return addr{}, err
+	}
+	return at, err
 }

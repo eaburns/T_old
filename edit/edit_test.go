@@ -232,6 +232,42 @@ func TestPrintEdit(t *testing.T) {
 	}
 }
 
+func TestWhereEdit(t *testing.T) {
+	const s = "Hello\n 世界!"
+	tests := []eTest{
+		{e: Where(All), print: "#0", dot: addr{0, 0}},
+		{init: "H\ne\nl\nl\no\n 世\n界\n!", want: "H\ne\nl\nl\no\n 世\n界\n!",
+			e: Where(All), print: "#0,#16", dot: addr{0, 16}},
+		{init: s, want: s, e: Where(All), print: "#0,#10", dot: addr{0, 10}},
+		{init: s, want: s, e: Where(End), print: "#10", dot: addr{10, 10}},
+		{init: s, want: s, e: Where(Line(1)), print: "#0,#6", dot: addr{0, 6}},
+		{init: s, want: s, e: Where(Line(2)), print: "#6,#10", dot: addr{6, 10}},
+		{init: s, want: s, e: Where(Regexp("/Hello")), print: "#0,#5", dot: addr{0, 5}},
+		{init: s, want: s, e: Where(Regexp("/世界")), print: "#7,#9", dot: addr{7, 9}},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestWhereLinesEdit(t *testing.T) {
+	const s = "Hello\n 世界!"
+	tests := []eTest{
+		{e: WhereLine(All), print: "1", dot: addr{0, 0}},
+		{init: "H\ne\nl\nl\no\n 世\n界\n!", want: "H\ne\nl\nl\no\n 世\n界\n!",
+			e: WhereLine(All), print: "1,8", dot: addr{0, 16}},
+		{init: s, want: s, e: WhereLine(All), print: "1,2", dot: addr{0, 10}},
+		{init: s, want: s, e: WhereLine(End), print: "2", dot: addr{10, 10}},
+		{init: s, want: s, e: WhereLine(Line(1)), print: "1", dot: addr{0, 6}},
+		{init: s, want: s, e: WhereLine(Line(2)), print: "2", dot: addr{6, 10}},
+		{init: s, want: s, e: WhereLine(Regexp("/Hello")), print: "1", dot: addr{0, 5}},
+		{init: s, want: s, e: WhereLine(Regexp("/世界")), print: "2", dot: addr{7, 9}},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 type eTest struct {
 	init, want, print, err string
 	e                      Edit

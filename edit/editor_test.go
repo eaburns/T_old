@@ -46,39 +46,31 @@ func TestRetry(t *testing.T) {
 }
 
 func TestWhere(t *testing.T) {
-	tests := []whereTest{
-		{init: "", addr: All, rfrom: 0, rto: 0, lfrom: 1, lto: 1},
-		{init: "H\ne\nl\nl\no\n 世\n界\n!", addr: All, rfrom: 0, rto: 16, lfrom: 1, lto: 8},
-		{init: "Hello\n 世界!", addr: All, rfrom: 0, rto: 10, lfrom: 1, lto: 2},
-		{init: "Hello\n 世界!", addr: End, rfrom: 10, rto: 10, lfrom: 2, lto: 2},
-		{init: "Hello\n 世界!", addr: Line(1), rfrom: 0, rto: 6, lfrom: 1, lto: 1},
-		{init: "Hello\n 世界!", addr: Line(2), rfrom: 6, rto: 10, lfrom: 2, lto: 2},
-		{init: "Hello\n 世界!", addr: Regexp("/Hello"), rfrom: 0, rto: 5, lfrom: 1, lto: 1},
-		{init: "Hello\n 世界!", addr: Regexp("/世界"), rfrom: 7, rto: 9, lfrom: 2, lto: 2},
+	tests := []struct {
+		init string
+		a    Address
+		at   addr
+	}{
+		{init: "", a: All, at: addr{0, 0}},
+		{init: "H\ne\nl\nl\no\n 世\n界\n!", a: All, at: addr{0, 16}},
+		{init: "Hello\n 世界!", a: All, at: addr{0, 10}},
+		{init: "Hello\n 世界!", a: End, at: addr{10, 10}},
+		{init: "Hello\n 世界!", a: Line(1), at: addr{0, 6}},
+		{init: "Hello\n 世界!", a: Line(2), at: addr{6, 10}},
+		{init: "Hello\n 世界!", a: Regexp("/Hello"), at: addr{0, 5}},
+		{init: "Hello\n 世界!", a: Regexp("/世界"), at: addr{7, 9}},
 	}
 	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-type whereTest struct {
-	init       string
-	addr       Address
-	rfrom, rto int64
-	lfrom, lto int64
-}
-
-func (test *whereTest) run(t *testing.T) {
-	ed := NewEditor(NewBuffer())
-	defer ed.Close()
-
-	if err := ed.change(All, test.init); err != nil {
-		t.Fatalf("ed.Append(All, %q)=%v, want nil", test.init, err)
-	}
-	at, lfrom, lto, err := ed.Where(test.addr)
-	if at.from != test.rfrom || at.to != test.rto || lfrom != test.lfrom || lto != test.lto || err != nil {
-		t.Errorf("ed.Where(%q)=%v,%d,%d,%v, want %d,%d,%d,%d,nil",
-			test.addr, at, lfrom, lto, err, test.rfrom, test.rto, test.lfrom, test.lto)
+		ed := NewEditor(NewBuffer())
+		defer ed.buf.Close()
+		if err := ed.change(All, test.init); err != nil {
+			t.Errorf("failed to init %#v: %v", test, err)
+			continue
+		}
+		at, err := ed.Where(test.a)
+		if at != test.at || err != nil {
+			t.Errorf("ed.Where(%q)=%v,%v, want %v,<nil>", test.a, at, err, test.at)
+		}
 	}
 }
 

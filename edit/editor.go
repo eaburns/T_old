@@ -4,7 +4,6 @@ package edit
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"strconv"
 	"sync"
@@ -106,6 +105,17 @@ func (ed *Editor) Close() error {
 		}
 	}
 	return errors.New("already closed")
+}
+
+// Where returns rune offsets of the address.
+func (ed *Editor) Where(a Address) (addr, error) {
+	ed.buf.lock.RLock()
+	defer ed.buf.lock.RUnlock()
+	at, err := a.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	return at, err
 }
 
 // Do performs an Edit on the Editor's Buffer.
@@ -226,40 +236,27 @@ func pend(ed *Editor, at addr, src runes.Reader) error {
 	return ed.pending.append(ed.buf.seq, ed.who, at, src)
 }
 
-// Where returns the rune offsets and line offsets of an address.
-// The from offset is inclusive and to is exclusive.
-// Dot is set to the address.
-func (ed *Editor) Where(a Address) (at addr, lfrom, lto int64, err error) {
-	ed.buf.lock.RLock()
-	defer ed.buf.lock.RUnlock()
-	return where(ed, a)
-}
-
-func where(ed *Editor, a Address) (at addr, lfrom, lto int64, err error) {
-	if at, err = a.where(ed); err != nil {
-		return addr{}, 0, 0, err
-	}
+func (ed *Editor) lines(at addr) (l0, l1 int64, err error) {
 	var i int64
-	lfrom = 1 // line numbers are 1 based.
+	l0 = int64(1) // line numbers are 1 based.
 	for ; i < at.from; i++ {
 		r, err := ed.buf.rune(i)
 		if err != nil {
-			return addr{}, 0, 0, err
+			return 0, 0, err
 		} else if r == '\n' {
-			lfrom++
+			l0++
 		}
 	}
-	lto = lfrom
+	l1 = l0
 	for ; i < at.to; i++ {
 		r, err := ed.buf.rune(i)
 		if err != nil {
-			return addr{}, 0, 0, err
+			return 0, 0, err
 		} else if r == '\n' && i < at.to-1 {
-			lto++
+			l1++
 		}
 	}
-	ed.marks['.'] = at
-	return
+	return l0, l1, nil
 }
 
 // Substitute substitutes text for the first match
@@ -517,27 +514,7 @@ func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 	case 'p':
 		return print{a: a}.do(ed, w)
 	case '=':
-		at, lfrom, lto, err := where(ed, a)
-		if err != nil {
-			return addr{}, err
-		}
-		if len(cmd) == 1 || cmd[1] != '#' {
-			if lfrom == lto {
-				_, err = fmt.Fprintf(w, "%d", lfrom)
-			} else {
-				_, err = fmt.Fprintf(w, "%d,%d", lfrom, lto)
-			}
-		} else {
-			if at.size() == 0 {
-				_, err = fmt.Fprintf(w, "#%d", at.from)
-			} else {
-				_, err = fmt.Fprintf(w, "#%d,#%d", at.from, at.to)
-			}
-		}
-		if err != nil {
-			return addr{}, err
-		}
-		return at, nil
+		return where{a: a, line: len(cmd) == 1 || cmd[1] != '#'}.do(ed, w)
 	case 's':
 		n, cmd, err := parseNumber(cmd[1:])
 		if err != nil {
