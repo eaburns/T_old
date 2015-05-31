@@ -268,6 +268,119 @@ func TestWhereLinesEdit(t *testing.T) {
 	}
 }
 
+func TestSubstituteEdit(t *testing.T) {
+	tests := []eTest{
+		{
+			init: "Hello, 世界!",
+			e:    Substitute{A: All, RE: "/.*/", With: "", Global: true},
+			want: "", dot: addr{0, 0},
+		},
+		{
+			init: "Hello, 世界!",
+			e:    Substitute{A: All, RE: "/世界/", With: "World"},
+			want: "Hello, World!", dot: addr{0, 13},
+		},
+		{
+			init: "Hello, 世界!",
+			e:    Substitute{A: All, RE: "/(.)/", With: `\1-`, Global: true},
+			want: "H-e-l-l-o-,- -世-界-!-", dot: addr{0, 20},
+		},
+		{
+			init: "abcabc",
+			e:    Substitute{A: All, RE: "/abc/", With: "defg"},
+			want: "defgabc", dot: addr{0, 7},
+		},
+		{
+			init: "abcabcabc",
+			e:    Substitute{A: All, RE: "/abc/", With: "defg", Global: true},
+			want: "defgdefgdefg", dot: addr{0, 12},
+		},
+		{
+			init: "abcabcabc",
+			e:    Substitute{A: Regexp("/abcabc/"), RE: "/abc/", With: "defg", Global: true},
+			want: "defgdefgabc", dot: addr{0, 8},
+		},
+		{
+			init: "abc abc",
+			e:    Substitute{A: All, RE: "/abc/", With: "defg"},
+			want: "defg abc", dot: addr{0, 8},
+		},
+		{
+			init: "abc abc",
+			e:    Substitute{A: All, RE: "/abc/", With: "defg", Global: true},
+			want: "defg defg", dot: addr{0, 9},
+		},
+		{
+			init: "abc abc abc",
+			e:    Substitute{A: Regexp("/abc abc/"), RE: "/abc/", With: "defg", Global: true},
+			want: "defg defg abc", dot: addr{0, 9},
+		},
+		{
+			init: "abcabc",
+			e:    Substitute{A: All, RE: "/abc/", With: "de"},
+			want: "deabc", dot: addr{0, 5},
+		},
+		{
+			init: "abcabcabc",
+			e:    Substitute{A: All, RE: "/abc/", With: "de", Global: true},
+			want: "dedede", dot: addr{0, 6},
+		},
+		{
+			init: "abcabcabc",
+			e:    Substitute{A: Regexp("/abcabc/"), RE: "/abc/", With: "de", Global: true},
+			want: "dedeabc", dot: addr{0, 4},
+		},
+		{
+			init: "func f()",
+			e:    Substitute{A: All, RE: `/func (.*)\(\)/`, With: `func (T) \1()`, Global: true},
+			want: "func (T) f()", dot: addr{0, 12},
+		},
+		{
+			init: "abcdefghi",
+			e:    Substitute{A: All, RE: "/(abc)(def)(ghi)/", With: `\0 \3 \2 \1`},
+			want: "abcdefghi ghi def abc", dot: addr{0, 21},
+		},
+		{
+			init: "abc",
+			e:    Substitute{A: All, RE: "/abc/", With: `\1`},
+			want: "", dot: addr{0, 0},
+		},
+		{
+			init: "abcabcabc",
+			e:    Substitute{A: All, RE: "/abc/", With: "def", From: 0},
+			want: "defabcabc", dot: addr{0, 9},
+		},
+		{
+			init: "abcabcabc",
+			e:    Substitute{A: All, RE: "/abc/", With: "def", From: 1},
+			want: "defabcabc", dot: addr{0, 9},
+		},
+		{
+			init: "abcabcabc",
+			e:    Substitute{A: All, RE: "/abc/", With: "def", From: 2},
+			want: "abcdefabc", dot: addr{0, 9},
+		},
+		{
+			init: "abcabcabc",
+			e:    Substitute{A: All, RE: "/abc/", With: "def", Global: true, From: 2},
+			want: "abcdefdef", dot: addr{0, 9},
+		},
+		{
+			init: "abcabcabc",
+			e:    Substitute{A: All, RE: "/notpresent/", With: "def", From: 4},
+			want: "abcabcabc", dot: addr{0, 9},
+		},
+		{
+			init: "abcabcabc",
+			e:    Substitute{A: All, RE: "/abc/", With: "def", From: 4},
+			want: "abcabcabc", dot: addr{0, 9},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 type eTest struct {
 	init, want, print, err string
 	e                      Edit

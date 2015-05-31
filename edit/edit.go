@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/eaburns/T/edit/runes"
+	"github.com/eaburns/T/re1"
 )
 
 // An Edit is an operation that can be made on a Buffer by an Editor.
@@ -265,4 +268,207 @@ func (e where) do(ed *Editor, w io.Writer) (addr, error) {
 		return addr{}, err
 	}
 	return at, err
+}
+
+// Substitute is an Edit that substitutes regular expression matches.
+type Substitute struct {
+	// A is the address in which to search for matches.
+	// After performing the edit, Dot is set the modified address A.
+	A Address
+	// RE is the regular expression to match.
+	// It is compiled with re1.Options{Delimited: true}.
+	RE string
+	// With is the runes with which to replace each match.
+	// Within With, a backslash followed by a digit d
+	// stands for the string that matched the d-th subexpression.
+	// Subexpression 0 is the entire match.
+	// It is an error if such a subexpression contains
+	// more than MaxRunes runes.
+	// \n is a literal newline.
+	With string
+	// Global is whether to replace all matches, or just one.
+	// If Global is false, only one match is replaced.
+	// If Global is true, all matches are replaced.
+	//
+	// When Global is true, matches skipped via From (see below)
+	// are not replaced.
+	Global bool
+	// From is the number of the first match to begin substituting.
+	// For example:
+	// If From is 1, substitution begins with the first match.
+	// If From is 2, substitution begins with the second match,
+	// and the first match is left unchanged.
+	//
+	// If From is less than 1, substitution begins with the first match.
+	From int
+}
+
+// Sub returns a Substitute Edit
+// that substitutes the first occurrence
+// of the regular expression within a
+// and sets dot to the modified address a.
+func Sub(a Address, re, with string) Edit { return Substitute{A: a, RE: re, With: with, From: 1} }
+
+// SubGlobal returns a Substitute Edit
+// that substitutes the all occurrences
+// of the regular expression within a
+// and sets dot to the modified address a.
+func SubGlobal(a Address, re, with string) Edit {
+	return Substitute{A: a, RE: re, With: with, Global: true, From: 1}
+}
+
+func (e Substitute) String() string {
+	s := e.A.String() + "s"
+	if e.From > 1 {
+		s += strconv.Itoa(e.From)
+	}
+	if e.RE == "" {
+		e.RE = "/"
+	}
+	s += withTrailingDelim(e.RE) + e.With
+	if e.Global {
+		delim, _ := utf8.DecodeRuneInString(e.RE)
+		s += string(delim) + "g"
+	}
+	return s
+}
+
+func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
+	if e.From < 1 {
+		e.From = 1
+	}
+	at, err := e.A.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	re, err := re1.Compile([]rune(e.RE), re1.Options{Delimited: true})
+	if err != nil {
+		return addr{}, err
+	}
+	from := at.from
+	for {
+		m, err := subSingle(ed, addr{from, at.to}, re, e.With, e.From)
+		if err != nil {
+			return addr{}, err
+		}
+		if !e.Global || m == nil || m[0][1] == at.to {
+			break
+		}
+		from = m[0][1]
+		e.From = 1 // reset n to 1, so that on future iterations of this loop we get the next instance.
+	}
+	return at, nil
+
+}
+
+// SubSingle substitutes the Nth match of the regular expression
+// with the replacement specifier.
+func subSingle(ed *Editor, at addr, re *re1.Regexp, with string, n int) ([][2]int64, error) {
+	m, err := nthMatch(ed, at, re, n)
+	if err != nil || m == nil {
+		return m, err
+	}
+	rs, err := replRunes(ed, m, with)
+	if err != nil {
+		return nil, err
+	}
+	at = addr{m[0][0], m[0][1]}
+	return m, pend(ed, at, runes.SliceReader(rs))
+}
+
+// nthMatch skips past the first n-1 matches of the regular expression
+func nthMatch(ed *Editor, at addr, re *re1.Regexp, n int) ([][2]int64, error) {
+	var err error
+	var m [][2]int64
+	if n == 0 {
+		n = 1
+	}
+	for i := 0; i < n; i++ {
+		m, err = match(ed, at, re)
+		if err != nil || m == nil {
+			return nil, err
+		}
+		at.from = m[0][1]
+	}
+	return m, err
+}
+
+// ReplRunes returns the runes that replace a matched regexp.
+func replRunes(ed *Editor, m [][2]int64, with string) ([]rune, error) {
+	var rs []rune
+	repl := []rune(with)
+	for i := 0; i < len(repl); i++ {
+		d := escDigit(repl[i:])
+		if d < 0 {
+			rs = append(rs, repl[i])
+			continue
+		}
+		sub, err := subExprMatch(ed, m, d)
+		if err != nil {
+			return nil, err
+		}
+		rs = append(rs, sub...)
+		i++
+	}
+	return rs, nil
+}
+
+// EscDigit returns the digit from \[0-9]
+// or -1 if the text does not represent an escaped digit.
+func escDigit(sub []rune) int {
+	if len(sub) >= 2 && sub[0] == '\\' && unicode.IsDigit(sub[1]) {
+		return int(sub[1] - '0')
+	}
+	return -1
+}
+
+// SubExprMatch returns the runes of a matched subexpression.
+func subExprMatch(ed *Editor, m [][2]int64, i int) ([]rune, error) {
+	if i < 0 || i >= len(m) {
+		return []rune{}, nil
+	}
+	n := m[i][1] - m[i][0]
+	if n > MaxRunes {
+		return nil, errors.New("subexpression too big")
+	}
+	rs, err := ed.buf.runes.Read(int(n), m[i][0])
+	if err != nil {
+		return nil, err
+	}
+	return rs, nil
+}
+
+type runeSlice struct {
+	buf *runes.Buffer
+	addr
+	err error
+}
+
+func (rs *runeSlice) Size() int64 { return rs.size() }
+
+func (rs *runeSlice) Rune(i int64) rune {
+	switch {
+	case i < 0 || i >= rs.size():
+		panic("index out of bounds")
+	case rs.err != nil:
+		return -1
+	}
+	r, err := rs.buf.Rune(rs.from + i)
+	if err != nil {
+		rs.err = err
+		return -1
+	}
+	return r
+}
+
+// Match returns the results of matching a regular experssion
+// within an address range in an Editor.
+func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
+	rs := &runeSlice{buf: ed.buf.runes, addr: at}
+	m := re.Match(rs, 0)
+	for i := range m {
+		m[i][0] += at.from
+		m[i][1] += at.from
+	}
+	return m, rs.err
 }

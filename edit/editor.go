@@ -259,159 +259,6 @@ func (ed *Editor) lines(at addr) (l0, l1 int64, err error) {
 	return l0, l1, nil
 }
 
-// Substitute substitutes text for the first match
-// of the regular expression in the addressed range.
-// When substituting, a backslash followed by a digit d
-// stands for the string that matched the d-th subexpression.
-// It is an error if such a subexpression has more than MaxRunes.
-// \n is a literal newline.
-// If g is true then all matches in the address range are substituted.
-// Dot is set to the modified address.
-func (ed *Editor) Substitute(a Address, re *re1.Regexp, repl []rune, g bool) error {
-	return ed.do(func() (addr, error) { return sub(ed, a, re, repl, g, 1) })
-}
-
-// SubstituteFrom is the same as Substitute but with an added option,
-// n, which will skip the first n-1 matches.
-func (ed *Editor) SubstituteFrom(a Address, re *re1.Regexp, repl []rune, g bool, n int) error {
-	return ed.do(func() (addr, error) { return sub(ed, a, re, repl, g, n) })
-}
-
-func sub(ed *Editor, a Address, re *re1.Regexp, repl []rune, g bool, n int) (addr, error) {
-	if n < 0 {
-		return addr{}, errors.New("match number out of range: " + strconv.Itoa(n))
-	}
-	at, err := a.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-
-	from := at.from
-	for {
-		m, err := subSingle(ed, addr{from, at.to}, re, repl, n)
-		if err != nil {
-			return addr{}, err
-		}
-		if !g || m == nil || m[0][1] == at.to {
-			break
-		}
-		from = m[0][1]
-		n = 1 // reset n to 1, so that on future iterations of this loop we get the next instance.
-	}
-	return at, nil
-}
-
-// SubSingle substitutes the Nth match of the regular expression
-// with the replacement specifier.
-func subSingle(ed *Editor, at addr, re *re1.Regexp, repl []rune, n int) ([][2]int64, error) {
-	m, err := nthMatch(ed, at, re, n)
-	if err != nil || m == nil {
-		return m, err
-	}
-	rs, err := replRunes(ed, m, repl)
-	if err != nil {
-		return nil, err
-	}
-	at = addr{m[0][0], m[0][1]}
-	return m, pend(ed, at, runes.SliceReader(rs))
-}
-
-// nthMatch skips past the first n-1 matches of the regular expression
-func nthMatch(ed *Editor, at addr, re *re1.Regexp, n int) ([][2]int64, error) {
-	var err error
-	var m [][2]int64
-	if n == 0 {
-		n = 1
-	}
-	for i := 0; i < n; i++ {
-		m, err = match(ed, at, re)
-		if err != nil || m == nil {
-			return nil, err
-		}
-		at.from = m[0][1]
-	}
-	return m, err
-}
-
-// ReplRunes returns the runes that replace a matched regexp.
-func replRunes(ed *Editor, m [][2]int64, repl []rune) ([]rune, error) {
-	var rs []rune
-	for i := 0; i < len(repl); i++ {
-		d := escDigit(repl[i:])
-		if d < 0 {
-			rs = append(rs, repl[i])
-			continue
-		}
-		sub, err := subExprMatch(ed, m, d)
-		if err != nil {
-			return nil, err
-		}
-		rs = append(rs, sub...)
-		i++
-	}
-	return rs, nil
-}
-
-// EscDigit returns the digit from \[0-9]
-// or -1 if the text does not represent an escaped digit.
-func escDigit(sub []rune) int {
-	if len(sub) >= 2 && sub[0] == '\\' && unicode.IsDigit(sub[1]) {
-		return int(sub[1] - '0')
-	}
-	return -1
-}
-
-// SubExprMatch returns the runes of a matched subexpression.
-func subExprMatch(ed *Editor, m [][2]int64, i int) ([]rune, error) {
-	if i < 0 || i >= len(m) {
-		return []rune{}, nil
-	}
-	n := m[i][1] - m[i][0]
-	if n > MaxRunes {
-		return nil, errors.New("subexpression too big")
-	}
-	rs, err := ed.buf.runes.Read(int(n), m[i][0])
-	if err != nil {
-		return nil, err
-	}
-	return rs, nil
-}
-
-type runeSlice struct {
-	buf *runes.Buffer
-	addr
-	err error
-}
-
-func (rs *runeSlice) Size() int64 { return rs.size() }
-
-func (rs *runeSlice) Rune(i int64) rune {
-	switch {
-	case i < 0 || i >= rs.size():
-		panic("index out of bounds")
-	case rs.err != nil:
-		return -1
-	}
-	r, err := rs.buf.Rune(rs.from + i)
-	if err != nil {
-		rs.err = err
-		return -1
-	}
-	return r
-}
-
-// Match returns the results of matching a regular experssion
-// within an address range in an Editor.
-func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
-	rs := &runeSlice{buf: ed.buf.runes, addr: at}
-	m := re.Match(rs, 0)
-	for i := range m {
-		m[i][0] += at.from
-		m[i][1] += at.from
-	}
-	return m, rs.err
-}
-
 // Edit parses a command and performs its edit on the buffer.
 // Commands that output, such as p and =, write their output to the writer.
 //
@@ -528,8 +375,13 @@ func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 		cmd = cmd[len(exp):]
 		repl := parseDelimited(exp[0], cmd)
 		g := len(repl) < len(cmd)-1 && cmd[len(repl)+1] == 'g'
-		at, err := sub(ed, a, re, repl, g, n)
-		return at, err
+		return Substitute{
+			A:      a,
+			RE:     string(exp),
+			With:   string(repl),
+			Global: g,
+			From:   n,
+		}.do(ed, w)
 	case 't', 'm':
 		a1, _, err := Addr(cmd[1:])
 		switch {
