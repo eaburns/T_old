@@ -188,6 +188,19 @@ func TestMoveEdit(t *testing.T) {
 	}
 }
 
+func TestCopyEdit(t *testing.T) {
+	tests := []eTest{
+		{init: "abc", e: Copy(Regexp("/abc/"), End), want: "abcabc", dot: addr{3, 6}},
+		{init: "abc", e: Copy(Regexp("/abc/"), Line(0)), want: "abcabc", dot: addr{0, 3}},
+		{init: "abc", e: Copy(Regexp("/abc/"), Rune(1)), want: "aabcbc", dot: addr{1, 4}},
+		{init: "abcdef", e: Copy(Regexp("/abc/"), Rune(4)), want: "abcdabcef", dot: addr{4, 7}},
+		{init: "abc\ndef\nghi", e: Copy(Regexp("/def/"), Line(1)), want: "abc\ndefdef\nghi", dot: addr{4, 7}},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 type eTest struct {
 	init, want, print, err string
 	e                      Edit

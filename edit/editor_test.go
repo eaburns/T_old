@@ -110,60 +110,6 @@ func (test *whereTest) run(t *testing.T) {
 	}
 }
 
-func TestCopy(t *testing.T) {
-	tests := []copyMoveTest{
-		{init: "abc", src: "/abc/", dst: "$", want: "abcabc", dot: addr{3, 6}},
-		{init: "abc", src: "/abc/", dst: "0", want: "abcabc", dot: addr{0, 3}},
-		{init: "abc", src: "/abc/", dst: "#1", want: "aabcbc", dot: addr{1, 4}},
-		{init: "abcdef", src: "/abc/", dst: "#4", want: "abcdabcef", dot: addr{4, 7}},
-		{
-			init: "abc\ndef\nghi",
-			src:  "/def/", dst: "1",
-			want: "abc\ndefdef\nghi",
-			dot:  addr{4, 7},
-		},
-	}
-	for _, test := range tests {
-		test.run((*Editor).Copy, "Copy", t)
-	}
-}
-
-type copyMoveTest struct {
-	init, want, src, dst, err string
-	dot                       addr
-}
-
-func (test copyMoveTest) run(f func(ed *Editor, src, dst Address) error, name string, t *testing.T) {
-	src, _, err := Addr([]rune(test.src))
-	if err != nil {
-		t.Fatalf("%#v: bad source address: %s", test, test.src)
-		return
-	}
-	dst, _, err := Addr([]rune(test.dst))
-	if err != nil {
-		t.Fatalf("%#v: bad destination address: %s", test, test.dst)
-		return
-	}
-	ed := NewEditor(NewBuffer())
-	defer ed.Close()
-	defer ed.buf.Close()
-	if err := ed.change(All, test.init); err != nil {
-		t.Fatalf("%v, init failed", test)
-	}
-	if err = f(ed, src, dst); !errMatch(test.err, err) {
-		t.Errorf("ed.%s(%q, %q)=%v, want %q", name, test.src, test.dst, err, test.err)
-	}
-	if err != nil {
-		return
-	}
-	if ed.marks['.'] != test.dot {
-		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
-	}
-	if s := ed.String(); s != test.want {
-		t.Errorf("ed.String()=%q, want %q,nil\n", s, test.want)
-	}
-}
-
 func TestSubstituteFrom(t *testing.T) {
 	tests := []subTest{
 		{

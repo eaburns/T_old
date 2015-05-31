@@ -308,27 +308,6 @@ func where(ed *Editor, a Address) (at addr, lfrom, lto int64, err error) {
 	return
 }
 
-// Copy copies the runes from the source address
-// after the destination address.
-// Dot is set to the copied runes.
-func (ed *Editor) Copy(src, dst Address) error {
-	return ed.do(func() (addr, error) { return cpy(ed, src, dst) })
-}
-
-func cpy(ed *Editor, src, dst Address) (addr, error) {
-	s, err := src.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	d, err := dst.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	d.from = d.to
-	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
-	return d, pend(ed, d, r)
-}
-
 // Substitute substitutes text for the first match
 // of the regular expression in the addressed range.
 // When substituting, a backslash followed by a digit d
@@ -630,7 +609,7 @@ func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 			a1 = Dot
 		}
 		if c == 't' {
-			return cpy(ed, a, a1)
+			return cpy{src: a, dst: a1}.do(ed, w)
 		}
 		return move{src: a, dst: a1}.do(ed, w)
 	default:

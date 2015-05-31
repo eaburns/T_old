@@ -134,3 +134,28 @@ func (e move) do(ed *Editor, _ io.Writer) (addr, error) {
 	}
 	return d, nil
 }
+
+type cpy struct {
+	src, dst Address
+}
+
+// Copy returns an Edit
+// that copies runes from src to after dst
+// and sets dot to the copied runes.
+func Copy(src, dst Address) Edit { return cpy{src: src, dst: dst} }
+
+func (e cpy) String() string { return e.src.String() + "t" + e.dst.String() }
+
+func (e cpy) do(ed *Editor, _ io.Writer) (addr, error) {
+	s, err := e.src.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	d, err := e.dst.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	d.from = d.to
+	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
+	return d, pend(ed, d, r)
+}
