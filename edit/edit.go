@@ -1,0 +1,89 @@
+// Copyright © 2015, The T Authors.
+
+// Package edit provides sam-style editing of rune buffers.
+// See sam(1) for an overview: http://swtch.com/plan9port/man/man1/sam.html.
+package edit
+
+import (
+	"io"
+	"unicode/utf8"
+
+	"github.com/eaburns/T/edit/runes"
+)
+
+// An Edit is an operation that can be made on a Buffer by an Editor.
+type Edit interface {
+	// String returns the string representation of the edit.
+	// The returned string will result in an equivalent edit
+	// when parsed with Ed().
+	String() string
+
+	do(*Editor, io.Writer) (addr, error)
+}
+
+type change struct {
+	a   Address
+	op  rune
+	str string
+}
+
+// Change returns an Edit
+// that changes the string at a to str,
+// and sets dot to the changed runes.
+func Change(a Address, str string) Edit { return change{a: a, op: 'c', str: str} }
+
+// Append returns an Edit
+// that appends str after the string at a,
+// and sets dot to the appended runes.
+func Append(a Address, str string) Edit { return change{a: a, op: 'a', str: str} }
+
+// Insert returns an Edit
+// that inserts str before the string at a,
+// and sets dot to the inserted runes.
+func Insert(a Address, str string) Edit { return change{a: a, op: 'i', str: str} }
+
+// Delete returns an Edit
+// that deletes the string at a,
+// and sets dot to the empty string
+// that was deleted.
+func Delete(a Address) Edit { return change{a: a, op: 'd'} }
+
+func (e change) String() string { return e.a.String() + string(e.op) + escape(e.str) }
+
+func (e change) do(ed *Editor, _ io.Writer) (addr, error) {
+	switch e.op {
+	case 'a':
+		e.a = e.a.Plus(Rune(0))
+	case 'i':
+		e.a = e.a.Minus(Rune(0))
+	}
+	at, err := e.a.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	return at, pend(ed, at, runes.StringReader(e.str))
+}
+
+func escape(str string) string {
+	if r, _ := utf8.DecodeLastRuneInString(str); r == '\n' {
+		// Use multi-line format.
+		return "\n" + str + ".\n"
+	}
+
+	const (
+		delim = '/'
+		esc   = '\\'
+	)
+	es := []rune{delim}
+	for _, r := range str {
+		switch r {
+		case '\n':
+			es = append(es, esc, 'n')
+		case delim:
+			es = append(es, esc, r)
+		default:
+			es = append(es, r)
+		}
+	}
+	return string(append(es, delim))
+}

@@ -1,7 +1,5 @@
 // Copyright © 2015, The T Authors.
 
-// Package edit provides sam-style editing of rune buffers.
-// See sam(1) for an overview: http://swtch.com/plan9port/man/man1/sam.html.
 package edit
 
 import (
@@ -108,6 +106,11 @@ func (ed *Editor) Close() error {
 		}
 	}
 	return errors.New("already closed")
+}
+
+// Do performs an Edit on the Editor's Buffer.
+func (ed *Editor) Do(e Edit, w io.Writer) error {
+	return ed.do(func() (addr, error) { return e.do(ed, w) })
 }
 
 // Do applies changes to an Editor's Buffer.
@@ -303,26 +306,6 @@ func where(ed *Editor, a Address) (at addr, lfrom, lto int64, err error) {
 	}
 	ed.marks['.'] = at
 	return
-}
-
-// Change reads runes from r until end of file
-// and changing the Address to the runes read.
-// On success, dot is set to the changed runes.
-//
-// Change can be used to insert, append, and delete:
-// 	Change(a.Minus(Rune(0)), r) // Insert
-// 	Change(a.Plus(Rune(0)), r) // Append
-// 	Change(a, runes.EmptyReader()) // Delete
-func (ed *Editor) Change(a Address, r io.RuneReader) error {
-	return ed.do(func() (addr, error) { return change(ed, a, runes.RunesReader(r)) })
-}
-
-func change(ed *Editor, a Address, r runes.Reader) (addr, error) {
-	at, err := a.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	return at, pend(ed, at, r)
 }
 
 // Copy copies the runes from the source address
@@ -628,20 +611,13 @@ func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 	}
 	switch c := cmd[0]; c {
 	case 'a':
-		r := runes.SliceReader(parseText(cmd[1:]))
-		at, err := change(ed, a.Plus(Rune(0)), r)
-		return at, err
+		return change{a: a, op: 'a', str: string(parseText(cmd[1:]))}.do(ed, w)
 	case 'c':
-		r := runes.SliceReader(parseText(cmd[1:]))
-		at, err := change(ed, a, r)
-		return at, err
+		return change{a: a, op: 'c', str: string(parseText(cmd[1:]))}.do(ed, w)
 	case 'i':
-		r := runes.SliceReader(parseText(cmd[1:]))
-		at, err := change(ed, a.Minus(Rune(0)), r)
-		return at, err
+		return change{a: a, op: 'i', str: string(parseText(cmd[1:]))}.do(ed, w)
 	case 'd':
-		at, err := change(ed, a, runes.EmptyReader())
-		return at, err
+		return change{a: a, op: 'd'}.do(ed, w)
 	case 'k':
 		mk, err := parseMarkRune(cmd[1:])
 		if err != nil {
