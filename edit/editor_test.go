@@ -45,34 +45,6 @@ func TestRetry(t *testing.T) {
 	}
 }
 
-func TestMark(t *testing.T) {
-	tests := []struct {
-		init string
-		addr Address
-		mark rune
-		want addr
-	}{
-		{init: "Hello, 世界!", addr: All, mark: 'a', want: addr{0, 10}},
-		{init: "Hello, 世界!", addr: Regexp("/Hello"), mark: 'a', want: addr{0, 5}},
-		{init: "Hello, 世界!", addr: Line(0), mark: 'z', want: addr{0, 0}},
-		{init: "Hello, 世界!", addr: End, mark: 'm', want: addr{10, 10}},
-	}
-
-	for _, test := range tests {
-		ed := NewEditor(NewBuffer())
-		defer ed.Close()
-		if err := ed.change(Line(0).Plus(Rune(0)), test.init); err != nil {
-			t.Fatalf("ed.Append(0, %q)=%v, want nil", test.init, err)
-		}
-		if err := ed.Mark(test.addr, test.mark); err != nil {
-			t.Errorf("ed.Mark(%q, %q)=%v, want nil", test.addr, test.mark, err)
-		}
-		if r := ed.marks[test.mark]; r != test.want {
-			t.Errorf("ed.marks[%q]=%v, want %v", test.mark, r, test.want)
-		}
-	}
-}
-
 func TestWhere(t *testing.T) {
 	tests := []whereTest{
 		{init: "", addr: All, rfrom: 0, rto: 0, lfrom: 1, lto: 1},

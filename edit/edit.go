@@ -159,3 +159,36 @@ func (e cpy) do(ed *Editor, _ io.Writer) (addr, error) {
 	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
 	return d, pend(ed, d, r)
 }
+
+type set struct {
+	a Address
+	m rune
+}
+
+// Set returns an Edit
+// that sets the dot or mark m to a.
+// The mark m must be either
+// a lower-case or upper-case letter or dot: [a-zA-Z.].
+// Any other rune is an error.
+// If the mark is . then dot is set to a,
+// otherwise the named mark is set to a.
+func Set(a Address, m rune) Edit { return set{a: a, m: m} }
+
+func (e set) String() string {
+	if e.m == '.' {
+		return e.a.String() + "k"
+	}
+	return e.a.String() + "k" + string(e.m)
+}
+
+func (e set) do(ed *Editor, _ io.Writer) (addr, error) {
+	if !isMarkRune(e.m) && e.m != '.' {
+		return addr{}, errors.New("bad mark: " + string(e.m))
+	}
+	at, err := e.a.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	ed.marks[e.m] = at
+	return ed.marks['.'], nil
+}

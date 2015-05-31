@@ -201,10 +201,27 @@ func TestCopyEdit(t *testing.T) {
 	}
 }
 
+func TestSetEdit(t *testing.T) {
+	const s = "Hello, 世界!"
+	tests := []eTest{
+		{e: Set(All, '.'), dot: addr{0, 0}},
+		{e: Set(All, 'm'), marks: map[rune]addr{'m': addr{0, 0}}},
+		{init: s, want: s, e: Set(All, '.'), dot: addr{0, 10}},
+		{init: s, want: s, e: Set(All, 'a'), marks: map[rune]addr{'a': addr{0, 10}}},
+		{init: s, want: s, e: Set(Regexp("/Hello"), 'a'), marks: map[rune]addr{'a': addr{0, 5}}},
+		{init: s, want: s, e: Set(Line(0), 'z'), marks: map[rune]addr{'z': addr{0, 0}}},
+		{init: s, want: s, e: Set(End, 'm'), marks: map[rune]addr{'m': addr{10, 10}}},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 type eTest struct {
 	init, want, print, err string
 	e                      Edit
 	dot                    addr
+	marks                  map[rune]addr
 }
 
 func (test eTest) run(t *testing.T) {
@@ -214,6 +231,8 @@ func (test eTest) run(t *testing.T) {
 		t.Errorf("failed to init %#v: %v", test, err)
 		return
 	}
+	ed.marks['.'] = addr{} // Start with dot=#0
+
 	pr := bytes.NewBuffer(nil)
 	err := ed.Do(test.e, pr)
 	if test.err != "" {
@@ -240,5 +259,13 @@ func (test eTest) run(t *testing.T) {
 	}
 	if dot := ed.marks['.']; dot != test.dot {
 		t.Errorf("ed.Do(%q, pr); ed.dot=%v, want %v", test.e, dot, test.dot)
+	}
+	if test.marks != nil {
+		for m, at := range test.marks {
+			if ed.marks[m] != at {
+				t.Errorf("ed.Do(%q, pr); ed.marks[%c]=%v, want %v",
+					test.e, m, ed.marks[m], at)
+			}
+		}
 	}
 }

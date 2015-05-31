@@ -226,30 +226,6 @@ func pend(ed *Editor, at addr, src runes.Reader) error {
 	return ed.pending.append(ed.buf.seq, ed.who, at, src)
 }
 
-// Mark sets a mark to an address.
-// The mark must be either a lower-case or upper-case letter or dot: [a-zA-Z.].
-// Any other mark is an error.
-// If the mark is . then dot is set to the address.
-// Otherwise the named mark is set to the address.
-func (ed *Editor) Mark(a Address, m rune) error {
-	ed.buf.lock.RLock()
-	defer ed.buf.lock.RUnlock()
-	_, err := mark(ed, a, m)
-	return err
-}
-
-func mark(ed *Editor, a Address, m rune) (addr, error) {
-	if !isMarkRune(m) && m != '.' {
-		return addr{}, errors.New("bad mark: " + string(m))
-	}
-	at, err := a.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	ed.marks[m] = at
-	return at, nil
-}
-
 // Print writes the runes identified by the address to w.
 // Dot is set to the address.
 func (ed *Editor) Print(a Address, w io.Writer) error {
@@ -559,8 +535,7 @@ func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 		if err != nil {
 			return addr{}, err
 		}
-		at, err := mark(ed, a, mk)
-		return at, err
+		return set{a: a, m: mk}.do(ed, w)
 	case 'p':
 		return print(ed, a, w)
 	case '=':
