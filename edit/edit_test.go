@@ -217,6 +217,21 @@ func TestSetEdit(t *testing.T) {
 	}
 }
 
+func TestPrintEdit(t *testing.T) {
+	const s = "Hello, 世界!"
+	tests := []eTest{
+		{e: Print(All), print: "", dot: addr{0, 0}},
+		{init: s, want: s, e: Print(All), print: s, dot: addr{0, 10}},
+		{init: s, want: s, e: Print(End), print: "", dot: addr{10, 10}},
+		{init: s, want: s, e: Print(Regexp("/H/")), print: "H", dot: addr{0, 1}},
+		{init: s, want: s, e: Print(Regexp("/Hello/")), print: "Hello", dot: addr{0, 5}},
+		{init: s, want: s, e: Print(Regexp("/世界/")), print: "世界", dot: addr{7, 9}},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 type eTest struct {
 	init, want, print, err string
 	e                      Edit

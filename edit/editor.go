@@ -226,28 +226,6 @@ func pend(ed *Editor, at addr, src runes.Reader) error {
 	return ed.pending.append(ed.buf.seq, ed.who, at, src)
 }
 
-// Print writes the runes identified by the address to w.
-// Dot is set to the address.
-func (ed *Editor) Print(a Address, w io.Writer) error {
-	ed.buf.lock.RLock()
-	defer ed.buf.lock.RUnlock()
-	_, err := print(ed, a, w)
-	return err
-}
-
-func print(ed *Editor, a Address, w io.Writer) (addr, error) {
-	at, err := a.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	r := runes.LimitReader(ed.buf.runes.Reader(at.from), at.size())
-	if _, err := runes.Copy(runes.UTF8Writer(w), r); err != nil {
-		return addr{}, err
-	}
-	ed.marks['.'] = at
-	return at, nil
-}
-
 // Where returns the rune offsets and line offsets of an address.
 // The from offset is inclusive and to is exclusive.
 // Dot is set to the address.
@@ -537,7 +515,7 @@ func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 		}
 		return set{a: a, m: mk}.do(ed, w)
 	case 'p':
-		return print(ed, a, w)
+		return print{a: a}.do(ed, w)
 	case '=':
 		at, lfrom, lto, err := where(ed, a)
 		if err != nil {

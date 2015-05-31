@@ -192,3 +192,25 @@ func (e set) do(ed *Editor, _ io.Writer) (addr, error) {
 	ed.marks[e.m] = at
 	return ed.marks['.'], nil
 }
+
+type print struct{ a Address }
+
+// Print returns an Edit
+// that prints the string at a to an io.Writer
+// and sets dot to the printed string.
+func Print(a Address) Edit { return print{a: a} }
+
+func (e print) String() string { return e.a.String() + "p" }
+
+func (e print) do(ed *Editor, w io.Writer) (addr, error) {
+	at, err := e.a.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	r := runes.LimitReader(ed.buf.runes.Reader(at.from), at.size())
+	if _, err := runes.Copy(runes.UTF8Writer(w), r); err != nil {
+		return addr{}, err
+	}
+	ed.marks['.'] = at
+	return at, nil
+}
