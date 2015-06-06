@@ -4,6 +4,7 @@ package edit
 
 import (
 	"bytes"
+	"reflect"
 	"regexp"
 	"testing"
 )
@@ -389,6 +390,19 @@ type eTest struct {
 }
 
 func (test eTest) run(t *testing.T) {
+	test.run1(t)
+
+	// Stringify, parse, and re-test the parsed Edit.
+	var err error
+	str := test.e.String()
+	test.e, _, err = Ed([]rune(str))
+	if err != nil {
+		t.Fatalf("Failed to parse %q: %v", str, err)
+	}
+	test.run1(t)
+}
+
+func (test eTest) run1(t *testing.T) {
 	ed := NewEditor(NewBuffer())
 	defer ed.buf.Close()
 	if err := ed.change(All, test.init); err != nil {
@@ -430,6 +444,135 @@ func (test eTest) run(t *testing.T) {
 				t.Errorf("ed.Do(%q, pr); ed.marks[%c]=%v, want %v",
 					test.e, m, ed.marks[m], at)
 			}
+		}
+	}
+}
+
+func TestEd(t *testing.T) {
+	tests := []struct {
+		e, left string
+		want    Edit
+		err     string
+	}{
+		{e: "", want: Set(Dot, '.')},
+		{e: ".", want: Set(Dot, '.')},
+		{e: "  .", want: Set(Dot, '.')},
+		{e: "#0", want: Set(Rune(0), '.')},
+		{e: "#0+1", want: Set(Rune(0).Plus(Line(1)), '.')},
+		{e: " #0 + 1 ", want: Set(Rune(0).Plus(Line(1)), '.')},
+		{e: "#0+1\nc/abc", left: "c/abc", want: Set(Rune(0).Plus(Line(1)), '.')},
+		{e: "/abc\n1c/xyz", left: "1c/xyz", want: Set(Regexp("/abc/"), '.')},
+
+		{e: "c/αβξ", want: Change(Dot, "αβξ")},
+		{e: "c/αβξ/", want: Change(Dot, "αβξ")},
+		{e: "c/αβξ\n", want: Change(Dot, "αβξ")},
+		{e: "c/αβξ/xyz", left: "xyz", want: Change(Dot, "αβξ")},
+		{e: "c/αβξ\nxyz", left: "xyz", want: Change(Dot, "αβξ")},
+		{e: "#1,#2c/αβξ/", want: Change(Rune(1).To(Rune(2)), "αβξ")},
+		{e: " #1 , #2 c/αβξ/", want: Change(Rune(1).To(Rune(2)), "αβξ")},
+		{e: "c/αβξ\\/", want: Change(Dot, "αβξ/")},
+		{e: "c/αβξ\\n", want: Change(Dot, "αβξ\n")},
+		{e: "c\nαβξ\n.\n", want: Change(Dot, "αβξ\n")},
+		{e: "c\nαβξ\n.", want: Change(Dot, "αβξ\n")},
+		{e: "c\nαβξ\n\n.", want: Change(Dot, "αβξ\n\n")},
+
+		{e: "a/αβξ", want: Append(Dot, "αβξ")},
+		{e: "a/αβξ/", want: Append(Dot, "αβξ")},
+		{e: "a/αβξ\n", want: Append(Dot, "αβξ")},
+		{e: "a/αβξ/xyz", left: "xyz", want: Append(Dot, "αβξ")},
+		{e: "a/αβξ\nxyz", left: "xyz", want: Append(Dot, "αβξ")},
+		{e: "#1,#2a/αβξ/", want: Append(Rune(1).To(Rune(2)), "αβξ")},
+		{e: " #1 , #2 a/αβξ/", want: Append(Rune(1).To(Rune(2)), "αβξ")},
+		{e: "a/αβξ\\/", want: Append(Dot, "αβξ/")},
+		{e: "a/αβξ\\n", want: Append(Dot, "αβξ\n")},
+		{e: "a\nαβξ\n.\n", want: Append(Dot, "αβξ\n")},
+		{e: "a\nαβξ\n.", want: Append(Dot, "αβξ\n")},
+		{e: "a\nαβξ\n\n.", want: Append(Dot, "αβξ\n\n")},
+
+		{e: "i/αβξ", want: Insert(Dot, "αβξ")},
+		{e: "i/αβξ/", want: Insert(Dot, "αβξ")},
+		{e: "i/αβξ\n", want: Insert(Dot, "αβξ")},
+		{e: "i/αβξ/xyz", left: "xyz", want: Insert(Dot, "αβξ")},
+		{e: "i/αβξ\nxyz", left: "xyz", want: Insert(Dot, "αβξ")},
+		{e: "#1,#2i/αβξ/", want: Insert(Rune(1).To(Rune(2)), "αβξ")},
+		{e: " #1 , #2 i/αβξ/", want: Insert(Rune(1).To(Rune(2)), "αβξ")},
+		{e: "i/αβξ\\/", want: Insert(Dot, "αβξ/")},
+		{e: "i/αβξ\\n", want: Insert(Dot, "αβξ\n")},
+		{e: "i\nαβξ\n.\n", want: Insert(Dot, "αβξ\n")},
+		{e: "i\nαβξ\n.", want: Insert(Dot, "αβξ\n")},
+		{e: "i\nαβξ\n\n.", want: Insert(Dot, "αβξ\n\n")},
+
+		{e: "d", want: Delete(Dot)},
+		{e: "#1,#2d", want: Delete(Rune(1).To(Rune(2)))},
+		{e: "dxyz", left: "xyz", want: Delete(Dot)},
+		{e: "d\nxyz", left: "xyz", want: Delete(Dot)},
+		{e: "d  \nxyz", left: "xyz", want: Delete(Dot)},
+
+		{e: "m", want: Move(Dot, Dot)},
+		{e: "m/abc/", want: Move(Dot, Regexp("/abc/"))},
+		{e: "/abc/m/def/", want: Move(Regexp("/abc/"), Regexp("/def/"))},
+		{e: "#1+1m$", want: Move(Rune(1).Plus(Line(1)), End)},
+		{e: " #1 + 1 m $", want: Move(Rune(1).Plus(Line(1)), End)},
+		{e: "1m$xyz", left: "xyz", want: Move(Line(1), End)},
+		{e: "1m\n$xyz", left: "$xyz", want: Move(Line(1), Dot)},
+
+		{e: "t", want: Copy(Dot, Dot)},
+		{e: "t/abc/", want: Copy(Dot, Regexp("/abc/"))},
+		{e: "/abc/t/def/", want: Copy(Regexp("/abc/"), Regexp("/def/"))},
+		{e: "#1+1t$", want: Copy(Rune(1).Plus(Line(1)), End)},
+		{e: " #1 + 1 t $", want: Copy(Rune(1).Plus(Line(1)), End)},
+		{e: "1t$xyz", left: "xyz", want: Copy(Line(1), End)},
+		{e: "1t\n$xyz", left: "$xyz", want: Copy(Line(1), Dot)},
+
+		{e: "p", want: Print(Dot)},
+		{e: "pxyz", left: "xyz", want: Print(Dot)},
+		{e: "#1+1p", want: Print(Rune(1).Plus(Line(1)))},
+		{e: " #1 + 1 p", want: Print(Rune(1).Plus(Line(1)))},
+
+		{e: "=", want: WhereLine(Dot)},
+		{e: "=xyz", left: "xyz", want: WhereLine(Dot)},
+		{e: "#1+1=", want: WhereLine(Rune(1).Plus(Line(1)))},
+		{e: " #1 + 1 =", want: WhereLine(Rune(1).Plus(Line(1)))},
+
+		{e: "=#", want: Where(Dot)},
+		{e: "=#xyz", left: "xyz", want: Where(Dot)},
+		{e: "#1+1=#", want: Where(Rune(1).Plus(Line(1)))},
+		{e: " #1 + 1 =#", want: Where(Rune(1).Plus(Line(1)))},
+
+		{e: "s/a/b", want: Sub(Dot, "/a/", "b")},
+		{e: "s;a;b", want: Sub(Dot, ";a;", "b")},
+		{e: "s/a//", want: Sub(Dot, "/a/", "")},
+		{e: "s/a/\n/g", left: "/g", want: Sub(Dot, "/a/", "")},
+		{e: "s/(.*)/a\\1", want: Sub(Dot, "/(.*)/", "a\\1")},
+		{e: ".s/a/b", want: Sub(Dot, "/a/", "b")},
+		{e: "#1+1s/a/b", want: Sub(Rune(1).Plus(Line(1)), "/a/", "b")},
+		{e: " #1 + 1 s/a/b", want: Sub(Rune(1).Plus(Line(1)), "/a/", "b")},
+		{e: " #1 + 1 s/a/b", want: Sub(Rune(1).Plus(Line(1)), "/a/", "b")},
+		{e: "s/a/b/xyz", left: "xyz", want: Sub(Dot, "/a/", "b")},
+		{e: "s/a/b\nxyz", left: "xyz", want: Sub(Dot, "/a/", "b")},
+		{e: "s1/a/b", want: Sub(Dot, "/a/", "b")},
+		{e: "s/a/b/g", want: SubGlobal(Dot, "/a/", "b")},
+		{e: " #1 + 1 s/a/b/g", want: SubGlobal(Rune(1).Plus(Line(1)), "/a/", "b")},
+		{e: "s2/a/b", want: Substitute{A: Dot, RE: "/a/", With: "b", From: 2}},
+		{e: "s2;a;b", want: Substitute{A: Dot, RE: ";a;", With: "b", From: 2}},
+		{e: "s1000/a/b", want: Substitute{A: Dot, RE: "/a/", With: "b", From: 1000}},
+		{e: "s 2 /a/b", want: Substitute{A: Dot, RE: "/a/", With: "b", From: 2}},
+		{e: "s 1000 /a/b/g", want: Substitute{A: Dot, RE: "/a/", With: "b", Global: true, From: 1000}},
+		{e: "s/", err: "missing pattern"},
+		{e: "s//b", err: "missing pattern"},
+		{e: "s/\n/b", err: "missing pattern"},
+	}
+	for _, test := range tests {
+		e, left, err := Ed([]rune(test.e))
+		ok := true
+		if test.err != "" {
+			ok = err != nil && regexp.MustCompile(test.err).MatchString(err.Error())
+		} else {
+			ok = err == nil && reflect.DeepEqual(e, test.want) && string(left) == string(test.left)
+		}
+		if !ok {
+			t.Errorf(`Ed(%q)=%q,%q,%q, want %q,%q,%q`, test.e, e, left, err, test.want, test.left, test.err)
+
 		}
 	}
 }

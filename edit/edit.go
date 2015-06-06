@@ -472,3 +472,279 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 	}
 	return m, rs.err
 }
+
+// Ed parses and returns an Edit and the remaining, unparsed runes.
+//
+// In the following, text surrounded by / represents delimited text.
+// The delimiter can be any character, it need not be /.
+// Trailing delimiters may be elided, but the opening delimiter must be present.
+// In delimited text, \ is an escape; the following character is interpreted literally,
+// except \n which represents a literal newline.
+// Items in {} are optional.
+//
+// The edit language is:
+//	addr
+//		Sets the address of Dot.
+// 	{addr} a/text/
+//	or
+//	{addr} a
+//	lines of text
+//	.
+//		Appends after the addressed text.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the address.
+//	{addr} c
+//	{addr} i
+//		Just like a, but c changes the addressed text
+//		and i inserts before the addressed text.
+//		Dot is set to the address.
+//	{addr} d
+//		Deletes the addressed text.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the address.
+//	{addr} t {addr}
+//	{addr} m {addr}
+//		Copies or moves runes from the first address to after the second.
+//		Dot is set to the newly inserted or moved runes.
+//	{addr} s{n}/regexp/text/{g}
+//		Substitute substitutes text for the first match
+// 		of the regular expression in the addressed range.
+// 		When substituting, a backslash followed by a digit d
+// 		stands for the string that matched the d-th subexpression.
+//		\n is a literal newline.
+//		A number n after s indicates we substitute the Nth match in the
+//		address range. If n == 0 set n = 1.
+// 		If the delimiter after the text is followed by the letter g
+//		then all matches in the address range are substituted.
+//		If a number n and the letter g are both present then the Nth match
+//		and all subsequent matches in the address range are	substituted.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the modified address.
+//	{addr} k {[a-zA-Z]}
+//		Sets the named mark to the address.
+//		If an address is not supplied, dot is used.
+//		If a mark name is not given, dot is set.
+//		Dot is set to the address.
+//	{addr} p
+//		Returns the runes identified by the address.
+//		If an address is not supplied, dot is used.
+// 		It is an error to print more than MaxRunes runes.
+//		Dot is set to the address.
+//	{addr} ={#}
+//		Without '#' returns the line offset(s) of the address.
+//		With '#' returns the rune offsets of the address.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the address.
+func Ed(e []rune) (Edit, []rune, error) {
+	edit, left, err := ed(e)
+	for len(left) > 0 && unicode.IsSpace(left[0]) {
+		var r rune
+		r, left = left[0], left[1:]
+		if r == '\n' {
+			break
+		}
+	}
+	return edit, left, err
+}
+
+func ed(e []rune) (edit Edit, left []rune, err error) {
+	a, e, err := addrOrDot(e)
+	switch {
+	case err != nil:
+		return nil, e, err
+	case len(e) == 0 || e[0] == '\n':
+		return Set(a, '.'), e, nil
+	}
+	switch c, e := e[0], e[1:]; c {
+	case 'a', 'c', 'i':
+		var rs []rune
+		rs, e = parseText(e)
+		switch c {
+		case 'a':
+			return Append(a, string(rs)), e, nil
+		case 'c':
+			return Change(a, string(rs)), e, nil
+		case 'i':
+			return Insert(a, string(rs)), e, nil
+		}
+		panic("unreachable")
+	case 'd':
+		return Delete(a), e, nil
+	case 'k':
+		mk, e, err := parseMarkRune(e)
+		if err != nil {
+			return nil, e, err
+		}
+		return Set(a, mk), e, nil
+	case 'p':
+		return Print(a), e, nil
+	case '=':
+		if len(e) == 0 || e[0] != '#' {
+			return WhereLine(a), e, nil
+		}
+		return Where(a), e[1:], nil
+	case 't', 'm':
+		a1, e, err := addrOrDot(e)
+		if err != nil {
+			return nil, e, err
+		}
+		if c == 't' {
+			return Copy(a, a1), e, nil
+		}
+		return Move(a, a1), e, nil
+	case 's':
+		n, e, err := parseNumber(e)
+		if err != nil {
+			return nil, e, err
+		}
+		exp, e, err := parseRegexp(e)
+		if err != nil {
+			return nil, e, err
+		}
+		if len(exp) < 2 || len(exp) == 2 && exp[0] == exp[1] {
+			// len==1 is just the open delim.
+			// len==2 && exp[0]==exp[1] is just open and close delim.
+			return nil, e, errors.New("missing pattern")
+		}
+		repl, e := parseDelimited(exp[0], e)
+		sub := Substitute{
+			A:    a,
+			RE:   string(exp),
+			With: string(repl),
+			From: n,
+		}
+		if len(e) > 0 && e[0] == 'g' {
+			sub.Global = true
+			e = e[1:]
+		}
+		return sub, e, nil
+	default:
+		return nil, e, errors.New("unknown command: " + string(c))
+	}
+}
+
+func addrOrDot(e []rune) (Address, []rune, error) {
+	a, e, err := parseCompoundAddr(e)
+	switch {
+	case err != nil:
+		return nil, e, err
+	case a == nil:
+		a = Dot
+	}
+	return a, e, err
+}
+
+func parseText(e []rune) ([]rune, []rune) {
+	var i int
+	for i < len(e) && unicode.IsSpace(e[i]) {
+		if e[i] == '\n' {
+			return parseLines(e[i+1:])
+		}
+		i++
+	}
+	if i == len(e) {
+		return nil, e
+	}
+	return parseDelimited(e[i], e[i+1:])
+}
+
+func parseLines(e []rune) ([]rune, []rune) {
+	var i int
+	var nl bool
+	for i = 0; i < len(e); i++ {
+		if nl && e[i] == '.' {
+			switch {
+			case i == len(e)-1:
+				return e[:i], e[i+1:]
+			case i < len(e)-1 && e[i+1] == '\n':
+				return e[:i], e[i+2:]
+			}
+		}
+		nl = e[i] == '\n'
+	}
+	return e, e[i:]
+}
+
+// ParseDelimited returns the runes
+// up to the first unescaped delimiter,
+// raw newline (rune 0xA),
+// or the end of the slice
+// and the remaining, unconsumed runes.
+// A delimiter preceeded by \ is escaped and is non-terminating.
+// The letter n preceeded by \ is a newline literal.
+func parseDelimited(delim rune, e []rune) ([]rune, []rune) {
+	var i int
+	var rs []rune
+	for i = 0; i < len(e); i++ {
+		switch {
+		case e[i] == delim || e[i] == '\n':
+			return rs, e[i+1:]
+		case i < len(e)-1 && e[i] == '\\' && e[i+1] == delim:
+			rs = append(rs, delim)
+			i++
+		case i < len(e)-1 && e[i] == '\\' && e[i+1] == 'n':
+			rs = append(rs, '\n')
+			i++
+		default:
+			rs = append(rs, e[i])
+		}
+	}
+	return rs, nil
+}
+
+func parseMarkRune(e []rune) (rune, []rune, error) {
+	var i int
+	if i < len(e) && isMarkRune(e[i]) {
+		return e[i], e[i+1:], nil
+	} else if i == len(e) {
+		return '.', nil, nil
+	}
+	return ' ', e[i:], errors.New("bad mark: " + string(e[i]))
+}
+
+// parseNumber parses and returns a positive integer. The first returned
+// value is the parsed number, the second is the number of runes parsed.
+func parseNumber(e []rune) (int, []rune, error) {
+	for len(e) > 0 && unicode.IsSpace(e[0]) && e[0] != '\n' {
+		e = e[1:]
+	}
+
+	i := 0
+	n := 1 // by default use the first instance
+	var err error
+	for len(e) > i && unicode.IsDigit(e[i]) {
+		i++
+	}
+	if i != 0 {
+		n, err = strconv.Atoi(string(e[:i]))
+		if err != nil {
+			return 0, e[:], err
+		}
+	}
+	return n, e[i:], nil
+}
+
+func parseRegexp(e []rune) ([]rune, []rune, error) {
+	// re1 doesn't special-case raw newlines.
+	// We need them to terminate the regexp.
+	// So, we split on newline (if any),
+	// parse the first line with re1,
+	// and rejoin the rest of the lines.
+	var rest []rune
+	for i, r := range e {
+		if r == '\n' {
+			e, rest = e[:i], e[i:]
+			break
+		}
+	}
+	for len(e) > 0 && unicode.IsSpace(e[0]) {
+		e = e[1:]
+	}
+
+	re, err := re1.Compile(e, re1.Options{Delimited: true})
+	if err != nil {
+		return nil, e, err
+	}
+	exp := re.Expression()
+	return exp, append(e[len(exp):], rest...), nil
+}
