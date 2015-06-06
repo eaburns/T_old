@@ -201,5 +201,5 @@ func (e entry) data() runes.Reader {
 		panic("data called on the end iterator")
 	}
 	from := e.offs + headerRunes
-	return &runes.LimitedReader{Reader: e.l.buf.Reader(from), N: e.size}
+	return runes.LimitReader(e.l.buf.Reader(from), e.size)
 }

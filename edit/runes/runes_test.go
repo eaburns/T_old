@@ -3,8 +3,10 @@
 package runes
 
 import (
+	"bytes"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -41,7 +43,7 @@ func TestReadAll(t *testing.T) {
 		manyRunes,
 	}
 	for _, test := range tests {
-		r := &SliceReader{test}
+		r := SliceReader(test)
 		rs, err := ReadAll(r)
 		if !reflect.DeepEqual(rs, test) || err != nil {
 			t.Errorf("ReadAll(·)=%q,%v, want %q,<nil>", string(rs), err, string(test))
@@ -50,7 +52,17 @@ func TestReadAll(t *testing.T) {
 }
 
 func TestSliceReader(t *testing.T) {
-	r := &SliceReader{helloWorldTestRunes}
+	r := SliceReader(helloWorldTestRunes)
+	helloWorldReadTests.run(t, r)
+}
+
+func TestStringReader(t *testing.T) {
+	r := StringReader(string(helloWorldTestRunes))
+	helloWorldReadTests.run(t, r)
+}
+
+func TestRunesReader(t *testing.T) {
+	r := RunesReader(strings.NewReader(string(helloWorldTestRunes)))
 	helloWorldReadTests.run(t, r)
 }
 
@@ -60,7 +72,7 @@ func TestLimitedReaderBigReader(t *testing.T) {
 	left := int64(len(helloWorldTestRunes))
 	bigRunes := make([]rune, left*10)
 	copy(bigRunes, helloWorldTestRunes)
-	r := &LimitedReader{Reader: &SliceReader{bigRunes}, N: left}
+	r := LimitReader(SliceReader(bigRunes), left)
 	helloWorldReadTests.run(t, r)
 }
 
@@ -73,7 +85,7 @@ func TestLimitedReaderSmallReader(t *testing.T) {
 	tests := helloWorldReadTests[:len(helloWorldReadTests)-1]
 
 	left := int64(len(helloWorldTestRunes))
-	r := &LimitedReader{Reader: &SliceReader{rs}, N: left}
+	r := LimitReader(SliceReader(rs), left)
 	tests.run(t, r)
 }
 
@@ -99,6 +111,32 @@ func (tests readTests) run(t *testing.T, r Reader) {
 	}
 }
 
+func TestUTF8Writer(t *testing.T) {
+	tests := []struct {
+		writes []string
+		want   string
+	}{
+		{[]string{""}, ""},
+		{[]string{"Hello,", "", " ", "", "World!"}, "Hello, World!"},
+		{[]string{"Hello", ",", " ", "World!"}, "Hello, World!"},
+		{[]string{"Hello", ",", " ", "世界!"}, "Hello, 世界!"},
+	}
+	for _, test := range tests {
+		b := bytes.NewBuffer(nil)
+		w := UTF8Writer(b)
+		for _, write := range test.writes {
+			rs := []rune(write)
+			n, err := w.Write(rs)
+			if n != len(rs) || err != nil {
+				t.Errorf("w.Write(%q)=%d,%v, want %d,nil", test.writes, n, err, len(rs))
+			}
+		}
+		if str := b.String(); str != test.want {
+			t.Errorf("write %#v, want=%q, got %q", test.writes, str, test.want)
+		}
+	}
+}
+
 func TestCopy(t *testing.T) {
 	for _, test := range insertTests {
 		rs := []rune(test.add)
@@ -109,9 +147,10 @@ func TestCopy(t *testing.T) {
 			t.Fatalf("b.Insert(%q, 0)=%v, want nil", rs, err)
 		}
 		srcs := []func() Reader{
-			func() Reader { return &SliceReader{rs} },
+			func() Reader { return StringReader(string(rs)) },
+			func() Reader { return SliceReader(rs) },
 			func() Reader { return bSrc.Reader(0) },
-			func() Reader { return &LimitedReader{Reader: bSrc.Reader(0), N: n} },
+			func() Reader { return LimitReader(bSrc.Reader(0), n) },
 		}
 		// Fast path.
 		for _, src := range srcs {
@@ -145,7 +184,7 @@ func TestCopySmallLimiterReader(t *testing.T) {
 	if err := bSrc.Insert(srcRunes, 0); err != nil {
 		t.Fatalf("b.Insert(%q, 0)=%v, want nil", srcRunes, err)
 	}
-	src := &LimitedReader{Reader: bSrc.Reader(0), N: 1}
+	src := LimitReader(bSrc.Reader(0), 1)
 
 	bDst := NewBuffer(testBlockSize)
 	defer bDst.Close()
@@ -165,8 +204,8 @@ func testCopy(t *testing.T, test insertTest, bDst *Buffer, dst Writer, src Reade
 	if test.err != "" {
 		return
 	}
-	if s := readAll(bDst); s != test.want || err != nil {
-		t.Errorf("Copy(%#v, %#v); readAll(·)=%q,%v, want %q,nil",
+	if s := bDst.String(); s != test.want || err != nil {
+		t.Errorf("Copy(%#v, %#v); dst.String()=%q,%v, want %q,nil",
 			dst, src, s, err, test.want)
 		return
 	}

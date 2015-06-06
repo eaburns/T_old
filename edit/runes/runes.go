@@ -7,6 +7,7 @@ package runes
 import (
 	"bytes"
 	"io"
+	"unicode/utf8"
 )
 
 // MinRead is the minimum rune buffer size
@@ -36,45 +37,105 @@ type ReaderFrom interface {
 	ReadFrom(Reader) (int64, error)
 }
 
-// LimitedReader wraps a Reader,
-// limiting the number of runes read.
-// When the limit is reached, io.EOF is returned.
-type LimitedReader struct {
-	Reader
-	// N is the the number of bytes to read.
-	// It should not be changed after calling Read.
-	N int64
-	n int64
+type utf8Writer struct{ w io.Writer }
+
+// UTF8Writer returns a Writer that writes UTF8 to w.
+func UTF8Writer(w io.Writer) Writer { return utf8Writer{w} }
+
+func (w utf8Writer) Write(p []rune) (int, error) {
+	for i, r := range p {
+		var e [utf8.UTFMax]byte
+		sz := utf8.EncodeRune(e[:], r)
+		switch n, err := w.w.Write(e[:sz]); {
+		case n < sz:
+			return i, err
+		case err != nil:
+			return i + 1, err
+		}
+	}
+	return len(p), nil
 }
 
-func (r *LimitedReader) Read(p []rune) (int, error) {
-	if r.n >= r.N {
+type limitedReader struct {
+	r        Reader
+	n, limit int64
+}
+
+// LimitReader returns a Reader that reads no more than n runes from r.
+func LimitReader(r Reader, n int64) Reader { return &limitedReader{r: r, limit: n} }
+
+func (r *limitedReader) Read(p []rune) (int, error) {
+	if r.n >= r.limit {
 		return 0, io.EOF
 	}
 	n := len(p)
-	if max := r.N - r.n; max < int64(n) {
+	if max := r.limit - r.n; max < int64(n) {
 		n = int(max)
 	}
-	m, err := r.Reader.Read(p[:n])
+	m, err := r.r.Read(p[:n])
 	r.n += int64(m)
 	return m, err
 }
 
-// A SliceReader is a Reader
-// that reads from a rune slice.
-type SliceReader struct {
-	Rs []rune
+type stringReader struct {
+	s string
 }
 
-func (r *SliceReader) readSize() int64 { return int64(len(r.Rs)) }
+// StringReader returns a Reader that reads runes from a string.
+func StringReader(s string) Reader { return &stringReader{s} }
 
-func (r *SliceReader) Read(p []rune) (int, error) {
-	if len(r.Rs) == 0 {
+// Len returns the number of runes in the unread portion of the string.
+func (r *stringReader) Len() int64 { return int64(utf8.RuneCountInString(r.s)) }
+
+func (r *stringReader) Read(p []rune) (int, error) {
+	for i := range p {
+		if len(r.s) == 0 {
+			return i, io.EOF
+		}
+		var w int
+		p[i], w = utf8.DecodeRuneInString(r.s)
+		r.s = r.s[w:]
+	}
+	return len(p), nil
+}
+
+type sliceReader struct {
+	rs []rune
+}
+
+// SliceReader returns a Reader that reads runes from a slice.
+func SliceReader(rs []rune) Reader { return &sliceReader{rs} }
+
+// EmptyReader returns a Reader that is empty.
+// All calls to read return 0, io.EOF.
+func EmptyReader() Reader { return &sliceReader{} }
+
+// Len returns the number of runes in the unread portion of the slice.
+func (r *sliceReader) Len() int64 { return int64(len(r.rs)) }
+
+func (r *sliceReader) Read(p []rune) (int, error) {
+	if len(r.rs) == 0 {
 		return 0, io.EOF
 	}
-	n := copy(p, r.Rs)
-	r.Rs = r.Rs[n:]
+	n := copy(p, r.rs)
+	r.rs = r.rs[n:]
 	return n, nil
+}
+
+type runesReader struct{ r io.RuneReader }
+
+// RunesReader returns a Reader that reads from an io.RuneReader.
+func RunesReader(r io.RuneReader) Reader { return runesReader{r} }
+
+func (r runesReader) Read(p []rune) (int, error) {
+	for i := range p {
+		ru, _, err := r.r.ReadRune()
+		if err != nil {
+			return i, err
+		}
+		p[i] = ru
+	}
+	return len(p), nil
 }
 
 // ReadAll reads runes from the reader

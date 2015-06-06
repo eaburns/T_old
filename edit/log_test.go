@@ -177,7 +177,7 @@ func checkEntry(t *testing.T, i int, entries []testEntry, e entry) {
 func initTestLog(t *testing.T, entries []testEntry) *log {
 	l := newLog()
 	for _, e := range entries {
-		r := &runes.SliceReader{Rs: []rune(e.str)}
+		r := runes.StringReader(e.str)
 		if err := l.append(e.seq, e.who, e.at, r); err != nil {
 			t.Fatalf("l.append(%v, %v, %q)=%v", e.seq, e.at, e.str, err)
 		}

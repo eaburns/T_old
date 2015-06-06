@@ -3,12 +3,24 @@
 package edit
 
 import (
+	"bytes"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/eaburns/T/edit/runes"
 	"github.com/eaburns/T/re1"
 )
+
+// String returns a string containing the entire editor contents.
+func (ed *Editor) String() string {
+	rs, err := runes.ReadAll(ed.buf.runes.Reader(0))
+	if err != nil {
+		panic(err)
+	}
+	return string(rs)
+}
 
 func TestRetry(t *testing.T) {
 	ed := NewEditor(NewBuffer())
@@ -20,14 +32,13 @@ func TestRetry(t *testing.T) {
 			// Simulate concurrent changes, necessitating retries.
 			ed.buf.seq++
 		}
-		return change(ed, All, []rune(str))
+		return change(ed, All, runes.StringReader(str))
 	}
 	if err := ed.do(ch); err != nil {
 		t.Fatalf("ed.do(ch)=%v, want nil", err)
 	}
-	rs, err := ed.Print(All)
-	if s := string(rs); s != str || err != nil {
-		t.Errorf("ed.Print(All)=%q,%v, want %q,nil\n", s, err, str)
+	if s := ed.String(); s != str {
+		t.Errorf("ed.String()=%q, want %q,nil\n", s, str)
 	}
 }
 
@@ -47,7 +58,8 @@ func TestMark(t *testing.T) {
 	for _, test := range tests {
 		ed := NewEditor(NewBuffer())
 		defer ed.Close()
-		if err := ed.Append(Line(0), []rune(test.init)); err != nil {
+		r := strings.NewReader(test.init)
+		if err := ed.Change(Line(0).Plus(Rune(0)), r); err != nil {
 			t.Fatalf("ed.Append(0, %q)=%v, want nil", test.init, err)
 		}
 		if err := ed.Mark(test.addr, test.mark); err != nil {
@@ -86,39 +98,13 @@ func (test *whereTest) run(t *testing.T) {
 	ed := NewEditor(NewBuffer())
 	defer ed.Close()
 
-	if err := ed.Append(All, []rune(test.init)); err != nil {
+	if err := ed.Change(All, strings.NewReader(test.init)); err != nil {
 		t.Fatalf("ed.Append(All, %q)=%v, want nil", test.init, err)
 	}
-	rfrom, rto, lfrom, lto, err := ed.Where(test.addr)
-	if rfrom != test.rfrom || rto != test.rto || lfrom != test.lfrom || lto != test.lto || err != nil {
-		t.Errorf("ed.Where(%q)=%d,%d,%d,%d,%v, want %d,%d,%d,%d,nil",
-			test.addr, rfrom, rto, lfrom, lto, err, test.rfrom, test.rto, test.lfrom, test.lto)
-	}
-}
-
-func TestAppend(t *testing.T) {
-	const str = "Hello, 世界!"
-	tests := []changeTest{
-		{init: str, addr: "#0", add: "XYZ", want: "XYZHello, 世界!", dot: addr{0, 3}},
-		{init: str, addr: "$", add: "XYZ", want: "Hello, 世界!XYZ", dot: addr{10, 13}},
-		{init: str, addr: "#1", add: "XYZ", want: "HXYZello, 世界!", dot: addr{1, 4}},
-		{init: str, addr: "#0,#1", add: "XYZ", want: "HXYZello, 世界!", dot: addr{1, 4}},
-	}
-	for _, test := range tests {
-		test.run((*Editor).Append, "Append", t)
-	}
-}
-
-func TestInsert(t *testing.T) {
-	const str = "Hello, 世界!"
-	tests := []changeTest{
-		{init: str, addr: "#0", add: "XYZ", want: "XYZHello, 世界!", dot: addr{0, 3}},
-		{init: str, addr: "$", add: "XYZ", want: "Hello, 世界!XYZ", dot: addr{10, 13}},
-		{init: str, addr: "#1", add: "XYZ", want: "HXYZello, 世界!", dot: addr{1, 4}},
-		{init: str, addr: "#0,#1", add: "XYZ", want: "XYZHello, 世界!", dot: addr{0, 3}},
-	}
-	for _, test := range tests {
-		test.run((*Editor).Insert, "Insert", t)
+	at, lfrom, lto, err := ed.Where(test.addr)
+	if at.from != test.rfrom || at.to != test.rto || lfrom != test.lfrom || lto != test.lto || err != nil {
+		t.Errorf("ed.Where(%q)=%v,%d,%d,%v, want %d,%d,%d,%d,nil",
+			test.addr, at, lfrom, lto, err, test.rfrom, test.rto, test.lfrom, test.lto)
 	}
 }
 
@@ -132,7 +118,7 @@ func TestChange(t *testing.T) {
 		{init: str, addr: "#1,$-#1", add: "XYZ", want: "HXYZ!", dot: addr{1, 4}},
 	}
 	for _, test := range tests {
-		test.run((*Editor).Change, "Change", t)
+		test.run(t)
 	}
 }
 
@@ -141,11 +127,11 @@ type changeTest struct {
 	dot                   addr
 }
 
-func (test changeTest) run(f func(*Editor, Address, []rune) error, name string, t *testing.T) {
+func (test changeTest) run(t *testing.T) {
 	ed := NewEditor(NewBuffer())
 	defer ed.Close()
 	defer ed.buf.Close()
-	if err := ed.Append(Rune(0), []rune(test.init)); err != nil {
+	if err := ed.Change(All, strings.NewReader(test.init)); err != nil {
 		t.Fatalf("%v, init failed", test)
 	}
 	addr, _, err := Addr([]rune(test.addr))
@@ -153,15 +139,14 @@ func (test changeTest) run(f func(*Editor, Address, []rune) error, name string, 
 		t.Fatalf("%#v: bad address: %s", test, test.addr)
 		return
 	}
-	if err := f(ed, addr, []rune(test.add)); err != nil {
-		t.Fatalf("%#v: %s(%v, %v)=%v, want nil", test, name, test.addr, test.add, err)
+	if err := ed.Change(addr, strings.NewReader(test.add)); err != nil {
+		t.Fatalf("%#v: Change(%v, %v)=%v, want nil", test, test.addr, test.add, err)
 	}
 	if ed.marks['.'] != test.dot {
 		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
 	}
-	rs, err := ed.Print(All)
-	if s := string(rs); s != test.want || err != nil {
-		t.Errorf("%#v: string=%q, want %q\n", test, s, test.want)
+	if s := ed.String(); s != test.want {
+		t.Errorf("ed.String()=%q, want %q,nil\n", s, test.want)
 	}
 }
 
@@ -232,7 +217,7 @@ func (test copyMoveTest) run(f func(ed *Editor, src, dst Address) error, name st
 	ed := NewEditor(NewBuffer())
 	defer ed.Close()
 	defer ed.buf.Close()
-	if err := ed.Append(Rune(0), []rune(test.init)); err != nil {
+	if err := ed.Change(All, strings.NewReader(test.init)); err != nil {
 		t.Fatalf("%v, init failed", test)
 	}
 	if err = f(ed, src, dst); !errMatch(test.err, err) {
@@ -244,9 +229,8 @@ func (test copyMoveTest) run(f func(ed *Editor, src, dst Address) error, name st
 	if ed.marks['.'] != test.dot {
 		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
 	}
-	rs, err := ed.Print(All)
-	if s := string(rs); s != test.want || err != nil {
-		t.Errorf("%#v: string=%q, want %q\n", test, s, test.want)
+	if s := ed.String(); s != test.want {
+		t.Errorf("ed.String()=%q, want %q,nil\n", s, test.want)
 	}
 }
 
@@ -369,7 +353,7 @@ func (test subTest) run(t *testing.T) {
 	ed := NewEditor(NewBuffer())
 	defer ed.Close()
 	defer ed.buf.Close()
-	if err := ed.Append(Rune(0), []rune(test.init)); err != nil {
+	if err := ed.Change(All, strings.NewReader(test.init)); err != nil {
 		t.Fatalf("%#v, init failed", test)
 	}
 	addr, _, err := Addr([]rune(test.addr))
@@ -387,9 +371,8 @@ func (test subTest) run(t *testing.T) {
 	if ed.marks['.'] != test.dot {
 		t.Errorf("%#v: dot=%v, want %v\n", test, ed.marks['.'], test.dot)
 	}
-	rs, err := ed.Print(All)
-	if s := string(rs); s != test.want || err != nil {
-		t.Errorf("%#v: string=%q, want %q\n", test, s, test.want)
+	if s := ed.String(); s != test.want {
+		t.Errorf("ed.String()=%q, want %q,nil\n", s, test.want)
 	}
 }
 
@@ -649,8 +632,8 @@ func TestEditorEditWhere(t *testing.T) {
 			{edit: "a/Hello, World!", want: "Hello, World!"},
 			{edit: "=#", print: "#0,#13", want: "Hello, World!"},
 			{edit: "/e.*/=#", print: "#1,#13", want: "Hello, World!"},
-			{edit: "0=#", print: "#0,#0", want: "Hello, World!"},
-			{edit: "$=#", print: "#13,#13", want: "Hello, World!"},
+			{edit: "0=#", print: "#0", want: "Hello, World!"},
+			{edit: "$=#", print: "#13", want: "Hello, World!"},
 		},
 	}
 	for _, test := range tests {
@@ -851,19 +834,14 @@ func (test editTest) run(t *testing.T) {
 		defer eds[i].Close()
 	}
 	for i, c := range test {
-		t.Logf("%q\n", c.edit)
-		pr, err := eds[c.who].Edit([]rune(c.edit))
-		if pr := string(pr); pr != c.print || err != nil {
+		w := bytes.NewBuffer(nil)
+		err := eds[c.who].Edit([]rune(c.edit), w)
+		if pr := w.String(); pr != c.print || err != nil {
 			t.Errorf("%v, %d, Edit(%v)=%q,%v, want %q,nil", test, i,
 				strconv.Quote(c.edit), pr, err, c.print)
 			continue
 		}
-		rs, err := b.runes.Read(int(b.runes.Size()), 0)
-		if err != nil {
-			t.Errorf("%v, %d, read failed=%v\n", test, i, err)
-			continue
-		}
-		if s := string(rs); s != c.want {
+		if s := eds[c.who].String(); s != c.want {
 			t.Errorf("%v, %d: string=%v, want %v\n",
 				test, i, strconv.Quote(s), strconv.Quote(c.want))
 			continue
