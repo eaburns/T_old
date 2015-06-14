@@ -239,7 +239,7 @@ func mark(ed *Editor, a Address, m rune) (addr, error) {
 	if !isMarkRune(m) && m != '.' {
 		return addr{}, errors.New("bad mark: " + string(m))
 	}
-	at, err := a.addr(ed)
+	at, err := a.where(ed)
 	if err != nil {
 		return addr{}, err
 	}
@@ -257,7 +257,7 @@ func (ed *Editor) Print(a Address, w io.Writer) error {
 }
 
 func print(ed *Editor, a Address, w io.Writer) (addr, error) {
-	at, err := a.addr(ed)
+	at, err := a.where(ed)
 	if err != nil {
 		return addr{}, err
 	}
@@ -279,7 +279,7 @@ func (ed *Editor) Where(a Address) (at addr, lfrom, lto int64, err error) {
 }
 
 func where(ed *Editor, a Address) (at addr, lfrom, lto int64, err error) {
-	if at, err = a.addr(ed); err != nil {
+	if at, err = a.where(ed); err != nil {
 		return addr{}, 0, 0, err
 	}
 	var i int64
@@ -318,7 +318,7 @@ func (ed *Editor) Change(a Address, r io.RuneReader) error {
 }
 
 func change(ed *Editor, a Address, r runes.Reader) (addr, error) {
-	at, err := a.addr(ed)
+	at, err := a.where(ed)
 	if err != nil {
 		return addr{}, err
 	}
@@ -333,11 +333,11 @@ func (ed *Editor) Copy(src, dst Address) error {
 }
 
 func cpy(ed *Editor, src, dst Address) (addr, error) {
-	s, err := src.addr(ed)
+	s, err := src.where(ed)
 	if err != nil {
 		return addr{}, err
 	}
-	d, err := dst.addr(ed)
+	d, err := dst.where(ed)
 	if err != nil {
 		return addr{}, err
 	}
@@ -356,11 +356,11 @@ func (ed *Editor) Move(src, dst Address) error {
 }
 
 func move(ed *Editor, src, dst Address) (addr, error) {
-	s, err := src.addr(ed)
+	s, err := src.where(ed)
 	if err != nil {
 		return addr{}, err
 	}
-	d, err := dst.addr(ed)
+	d, err := dst.where(ed)
 	if err != nil {
 		return addr{}, err
 	}
@@ -411,7 +411,7 @@ func sub(ed *Editor, a Address, re *re1.Regexp, repl []rune, g bool, n int) (add
 	if n < 0 {
 		return addr{}, errors.New("match number out of range: " + strconv.Itoa(n))
 	}
-	at, err := a.addr(ed)
+	at, err := a.where(ed)
 	if err != nil {
 		return addr{}, err
 	}
@@ -617,7 +617,7 @@ func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 	case a == nil:
 		a = Dot
 	case len(cmd) == n:
-		at, err := a.addr(ed)
+		at, err := a.where(ed)
 		if err != nil {
 			return addr{}, err
 		}

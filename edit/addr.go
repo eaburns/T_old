@@ -42,8 +42,8 @@ type Address interface {
 	// of the argument address evaluated in reverse
 	// from the start of the receiver.
 	Minus(SimpleAddress) Address
-	addr(*Editor) (addr, error)
-	addrFrom(from int64, ed *Editor) (addr, error)
+	where(*Editor) (addr, error)
+	whereFrom(from int64, ed *Editor) (addr, error)
 }
 
 // A addr identifies a substring within a buffer
@@ -107,18 +107,18 @@ func (a compoundAddr) String() string {
 	return a.a1.String() + string(a.op) + a.a2.String()
 }
 
-func (a compoundAddr) addr(ed *Editor) (addr, error) {
-	return a.addrFrom(0, ed)
+func (a compoundAddr) where(ed *Editor) (addr, error) {
+	return a.whereFrom(0, ed)
 }
 
-func (a compoundAddr) addrFrom(from int64, ed *Editor) (addr, error) {
-	a1, err := a.a1.addrFrom(from, ed)
+func (a compoundAddr) whereFrom(from int64, ed *Editor) (addr, error) {
+	a1, err := a.a1.whereFrom(from, ed)
 	if err != nil {
 		return addr{}, err
 	}
 	switch a.op {
 	case ',':
-		a2, err := a.a2.addrFrom(from, ed)
+		a2, err := a.a2.whereFrom(from, ed)
 		if err != nil {
 			return addr{}, err
 		}
@@ -126,7 +126,7 @@ func (a compoundAddr) addrFrom(from int64, ed *Editor) (addr, error) {
 	case ';':
 		origDot := ed.marks['.']
 		ed.marks['.'] = a1
-		a2, err := a.a2.addrFrom(a1.to, ed)
+		a2, err := a.a2.whereFrom(a1.to, ed)
 		if err != nil {
 			ed.marks['.'] = origDot // Restore dot on error.
 			return addr{}, err
@@ -163,20 +163,20 @@ func (a addAddr) String() string {
 	return a.a1.String() + string(a.op) + a.a2.String()
 }
 
-func (a addAddr) addr(ed *Editor) (addr, error) {
-	return a.addrFrom(0, ed)
+func (a addAddr) where(ed *Editor) (addr, error) {
+	return a.whereFrom(0, ed)
 }
 
-func (a addAddr) addrFrom(from int64, ed *Editor) (addr, error) {
-	a1, err := a.a1.addrFrom(from, ed)
+func (a addAddr) whereFrom(from int64, ed *Editor) (addr, error) {
+	a1, err := a.a1.whereFrom(from, ed)
 	if err != nil {
 		return addr{}, err
 	}
 	switch a.op {
 	case '+':
-		return a.a2.addrFrom(a1.to, ed)
+		return a.a2.whereFrom(a1.to, ed)
 	case '-':
-		return a.a2.reverse().addrFrom(a1.from, ed)
+		return a.a2.reverse().whereFrom(a1.from, ed)
 	default:
 		panic("bad additive address")
 	}
@@ -190,7 +190,7 @@ type SimpleAddress interface {
 }
 
 type simpAddrImpl interface {
-	addrFrom(from int64, ed *Editor) (addr, error)
+	whereFrom(from int64, ed *Editor) (addr, error)
 	String() string
 	reverse() SimpleAddress
 }
@@ -215,15 +215,15 @@ func (a simpleAddr) Minus(a2 SimpleAddress) Address {
 	return addAddr{op: '-', a1: a, a2: a2}
 }
 
-func (a simpleAddr) addr(ed *Editor) (addr, error) {
-	return a.addrFrom(0, ed)
+func (a simpleAddr) where(ed *Editor) (addr, error) {
+	return a.whereFrom(0, ed)
 }
 
 type dotAddr struct{}
 
 func (dotAddr) String() string { return "." }
 
-func (dotAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
+func (dotAddr) whereFrom(_ int64, ed *Editor) (addr, error) {
 	a := ed.marks['.']
 	if a.from < 0 || a.to < a.from || a.to > ed.buf.size() {
 		panic("bad dot")
@@ -237,7 +237,7 @@ type endAddr struct{}
 
 func (endAddr) String() string { return "$" }
 
-func (endAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
+func (endAddr) whereFrom(_ int64, ed *Editor) (addr, error) {
 	return addr{from: ed.buf.size(), to: ed.buf.size()}, nil
 }
 
@@ -252,7 +252,7 @@ func Mark(r rune) SimpleAddress { return simpleAddr{markAddr(r)} }
 
 func (m markAddr) String() string { return "'" + string(rune(m)) }
 
-func (m markAddr) addrFrom(_ int64, ed *Editor) (addr, error) {
+func (m markAddr) whereFrom(_ int64, ed *Editor) (addr, error) {
 	a := ed.marks[rune(m)]
 	if a.from < 0 || a.to < a.from || a.to > ed.buf.size() {
 		panic("bad mark")
@@ -280,7 +280,7 @@ func (n runeAddr) String() string {
 	return "#" + strconv.FormatInt(int64(n), 10)
 }
 
-func (n runeAddr) addrFrom(from int64, ed *Editor) (addr, error) {
+func (n runeAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	m := from + int64(n)
 	if m < 0 || m > ed.buf.size() {
 		return addr{}, errors.New("rune address out of range")
@@ -312,7 +312,7 @@ func (l lineAddr) String() string {
 	return n
 }
 
-func (l lineAddr) addrFrom(from int64, ed *Editor) (addr, error) {
+func (l lineAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	if l.neg {
 		return l.rev(from, ed)
 	}
@@ -463,7 +463,7 @@ func (rs *reverse) Rune(i int64) rune {
 	return rs.forward.Rune(rs.Size() - i - 1)
 }
 
-func (r reAddr) addrFrom(from int64, ed *Editor) (a addr, err error) {
+func (r reAddr) whereFrom(from int64, ed *Editor) (a addr, err error) {
 	re, err := re1.Compile([]rune(r.re), re1.Options{Delimited: true, Reverse: r.rev})
 	if err != nil {
 		return a, err
