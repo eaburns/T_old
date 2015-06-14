@@ -275,7 +275,7 @@ func (test addressTest) run(t *testing.T) {
 		ed.marks = test.marks
 	}
 	ed.marks['.'] = test.dot // Reset dot to the test dot.
-	a, err := test.addr.addrFrom(test.dot.to, ed)
+	a, err := test.addr.whereFrom(test.dot.to, ed)
 	var errStr string
 	if err != nil {
 		errStr = err.Error()
@@ -550,7 +550,7 @@ func TestIOErrors(t *testing.T) {
 
 		// All subsequent reads will be errors.
 		f.error = errors.New("read error")
-		if a, err := addr.addr(ed); err != f.error {
+		if a, err := addr.where(ed); err != f.error {
 			t.Errorf("Addr(%q).addr()=%v,%v, want addr{},%q", test, a, err, f.error)
 		}
 	}
