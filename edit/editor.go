@@ -684,7 +684,7 @@ func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 		}
 		exp := re.Expression()
 		cmd = cmd[len(exp):]
-		repl := parseDelimited(exp[0], true, cmd)
+		repl := parseDelimited(exp[0], cmd)
 		g := len(repl) < len(cmd)-1 && cmd[len(repl)+1] == 'g'
 		at, err := sub(ed, a, re, repl, g, n)
 		return at, err
@@ -708,41 +708,53 @@ func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
 	}
 }
 
-func parseText(cmd []rune) []rune {
-	switch {
-	case len(cmd) > 0 && cmd[0] == '\n':
-		return parseLines(cmd)
-	case len(cmd) > 0:
-		return parseDelimited(cmd[0], false, cmd[1:])
-	default:
+func parseText(e []rune) []rune {
+	var i int
+	for i < len(e) && unicode.IsSpace(e[i]) {
+		if e[i] == '\n' {
+			return parseLines(e[i+1:])
+		}
+		i++
+	}
+	if i == len(e) {
 		return nil
 	}
+	return parseDelimited(e[i], e[i+1:])
 }
 
-func parseLines(cmd []rune) []rune {
-	var rs []rune
-	for i := 1; i < len(cmd); i++ {
-		rs = append(rs, cmd[i])
-		if i < len(cmd)-1 && cmd[i] == '\n' && cmd[i+1] == '.' {
-			break
+func parseLines(e []rune) []rune {
+	var i int
+	var nl bool
+	for i = 0; i < len(e); i++ {
+		if nl && e[i] == '.' && (i == len(e)-1 || i < len(e)-1 && e[i+1] == '\n') {
+			return e[:i]
 		}
+		nl = e[i] == '\n'
 	}
-	return rs
+	return e
 }
 
-func parseDelimited(d rune, digits bool, cmd []rune) []rune {
+// ParseDelimited returns the runes
+// up to the first unescaped delimiter,
+// or the end of the slice.
+// A delimiter preceeded by \ is escaped and is non-terminating.
+// The letter n preceeded by \ is a newline literal.
+func parseDelimited(delim rune, e []rune) []rune {
+	var i int
 	var rs []rune
-	for i := 0; i < len(cmd) && cmd[i] != d; i++ {
-		if cmd[i] == '\\' && i < len(cmd)-1 {
-			if digits && unicode.IsDigit(cmd[i+1]) {
-				rs = append(rs, '\\')
-			}
+	for i = 0; i < len(e); i++ {
+		switch {
+		case e[i] == delim:
+			return rs
+		case i < len(e)-1 && e[i] == '\\' && e[i+1] == delim:
+			rs = append(rs, delim)
 			i++
-			if cmd[i] == 'n' {
-				cmd[i] = '\n'
-			}
+		case i < len(e)-1 && e[i] == '\\' && e[i+1] == 'n':
+			rs = append(rs, '\n')
+			i++
+		default:
+			rs = append(rs, e[i])
 		}
-		rs = append(rs, cmd[i])
 	}
 	return rs
 }
