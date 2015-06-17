@@ -1,19 +1,13 @@
 // Copyright © 2015, The T Authors.
 
-// Package edit provides sam-style editing of rune buffers.
-// See sam(1) for an overview: http://swtch.com/plan9port/man/man1/sam.html.
 package edit
 
 import (
 	"errors"
-	"fmt"
 	"io"
-	"strconv"
 	"sync"
-	"unicode"
 
 	"github.com/eaburns/T/edit/runes"
-	"github.com/eaburns/T/re1"
 )
 
 // MaxRunes is the maximum number of runes to read into memory.
@@ -108,6 +102,22 @@ func (ed *Editor) Close() error {
 		}
 	}
 	return errors.New("already closed")
+}
+
+// Where returns rune offsets of the address.
+func (ed *Editor) Where(a Address) (addr, error) {
+	ed.buf.lock.RLock()
+	defer ed.buf.lock.RUnlock()
+	at, err := a.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+	return at, err
+}
+
+// Do performs an Edit on the Editor's Buffer.
+func (ed *Editor) Do(e Edit, w io.Writer) error {
+	return ed.do(func() (addr, error) { return e.do(ed, w) })
 }
 
 // Do applies changes to an Editor's Buffer.
@@ -223,568 +233,25 @@ func pend(ed *Editor, at addr, src runes.Reader) error {
 	return ed.pending.append(ed.buf.seq, ed.who, at, src)
 }
 
-// Mark sets a mark to an address.
-// The mark must be either a lower-case or upper-case letter or dot: [a-zA-Z.].
-// Any other mark is an error.
-// If the mark is . then dot is set to the address.
-// Otherwise the named mark is set to the address.
-func (ed *Editor) Mark(a Address, m rune) error {
-	ed.buf.lock.RLock()
-	defer ed.buf.lock.RUnlock()
-	_, err := mark(ed, a, m)
-	return err
-}
-
-func mark(ed *Editor, a Address, m rune) (addr, error) {
-	if !isMarkRune(m) && m != '.' {
-		return addr{}, errors.New("bad mark: " + string(m))
-	}
-	at, err := a.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	ed.marks[m] = at
-	return at, nil
-}
-
-// Print writes the runes identified by the address to w.
-// Dot is set to the address.
-func (ed *Editor) Print(a Address, w io.Writer) error {
-	ed.buf.lock.RLock()
-	defer ed.buf.lock.RUnlock()
-	_, err := print(ed, a, w)
-	return err
-}
-
-func print(ed *Editor, a Address, w io.Writer) (addr, error) {
-	at, err := a.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	r := runes.LimitReader(ed.buf.runes.Reader(at.from), at.size())
-	if _, err := runes.Copy(runes.UTF8Writer(w), r); err != nil {
-		return addr{}, err
-	}
-	ed.marks['.'] = at
-	return at, nil
-}
-
-// Where returns the rune offsets and line offsets of an address.
-// The from offset is inclusive and to is exclusive.
-// Dot is set to the address.
-func (ed *Editor) Where(a Address) (at addr, lfrom, lto int64, err error) {
-	ed.buf.lock.RLock()
-	defer ed.buf.lock.RUnlock()
-	return where(ed, a)
-}
-
-func where(ed *Editor, a Address) (at addr, lfrom, lto int64, err error) {
-	if at, err = a.where(ed); err != nil {
-		return addr{}, 0, 0, err
-	}
+func (ed *Editor) lines(at addr) (l0, l1 int64, err error) {
 	var i int64
-	lfrom = 1 // line numbers are 1 based.
+	l0 = int64(1) // line numbers are 1 based.
 	for ; i < at.from; i++ {
 		r, err := ed.buf.rune(i)
 		if err != nil {
-			return addr{}, 0, 0, err
+			return 0, 0, err
 		} else if r == '\n' {
-			lfrom++
+			l0++
 		}
 	}
-	lto = lfrom
+	l1 = l0
 	for ; i < at.to; i++ {
 		r, err := ed.buf.rune(i)
 		if err != nil {
-			return addr{}, 0, 0, err
+			return 0, 0, err
 		} else if r == '\n' && i < at.to-1 {
-			lto++
+			l1++
 		}
 	}
-	ed.marks['.'] = at
-	return
-}
-
-// Change reads runes from r until end of file
-// and changing the Address to the runes read.
-// On success, dot is set to the changed runes.
-//
-// Change can be used to insert, append, and delete:
-// 	Change(a.Minus(Rune(0)), r) // Insert
-// 	Change(a.Plus(Rune(0)), r) // Append
-// 	Change(a, runes.EmptyReader()) // Delete
-func (ed *Editor) Change(a Address, r io.RuneReader) error {
-	return ed.do(func() (addr, error) { return change(ed, a, runes.RunesReader(r)) })
-}
-
-func change(ed *Editor, a Address, r runes.Reader) (addr, error) {
-	at, err := a.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	return at, pend(ed, at, r)
-}
-
-// Copy copies the runes from the source address
-// after the destination address.
-// Dot is set to the copied runes.
-func (ed *Editor) Copy(src, dst Address) error {
-	return ed.do(func() (addr, error) { return cpy(ed, src, dst) })
-}
-
-func cpy(ed *Editor, src, dst Address) (addr, error) {
-	s, err := src.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	d, err := dst.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	d.from = d.to
-	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
-	return d, pend(ed, d, r)
-}
-
-// Move moves the runes from the source address
-// to after the destination address.
-// Dot is set to the copied runes.
-// It is an error the end of the destination
-// to be within the source.
-func (ed *Editor) Move(src, dst Address) error {
-	return ed.do(func() (addr, error) { return move(ed, src, dst) })
-}
-
-func move(ed *Editor, src, dst Address) (addr, error) {
-	s, err := src.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	d, err := dst.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	d.from = d.to
-
-	if d.from > s.from && d.from < s.to {
-		return addr{}, errors.New("addresses overlap")
-	}
-
-	if d.from >= s.to {
-		// Moving to after the source. Delete the source first.
-		if err := pend(ed, s, runes.EmptyReader()); err != nil {
-			return addr{}, err
-		}
-	}
-	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
-	if err := pend(ed, d, r); err != nil {
-		return addr{}, err
-	}
-	if d.from <= s.from {
-		// Moving to before the source. Delete the source second.
-		if err := pend(ed, s, runes.EmptyReader()); err != nil {
-			return addr{}, err
-		}
-	}
-	return d, nil
-}
-
-// Substitute substitutes text for the first match
-// of the regular expression in the addressed range.
-// When substituting, a backslash followed by a digit d
-// stands for the string that matched the d-th subexpression.
-// It is an error if such a subexpression has more than MaxRunes.
-// \n is a literal newline.
-// If g is true then all matches in the address range are substituted.
-// Dot is set to the modified address.
-func (ed *Editor) Substitute(a Address, re *re1.Regexp, repl []rune, g bool) error {
-	return ed.do(func() (addr, error) { return sub(ed, a, re, repl, g, 1) })
-}
-
-// SubstituteFrom is the same as Substitute but with an added option,
-// n, which will skip the first n-1 matches.
-func (ed *Editor) SubstituteFrom(a Address, re *re1.Regexp, repl []rune, g bool, n int) error {
-	return ed.do(func() (addr, error) { return sub(ed, a, re, repl, g, n) })
-}
-
-func sub(ed *Editor, a Address, re *re1.Regexp, repl []rune, g bool, n int) (addr, error) {
-	if n < 0 {
-		return addr{}, errors.New("match number out of range: " + strconv.Itoa(n))
-	}
-	at, err := a.where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-
-	from := at.from
-	for {
-		m, err := subSingle(ed, addr{from, at.to}, re, repl, n)
-		if err != nil {
-			return addr{}, err
-		}
-		if !g || m == nil || m[0][1] == at.to {
-			break
-		}
-		from = m[0][1]
-		n = 1 // reset n to 1, so that on future iterations of this loop we get the next instance.
-	}
-	return at, nil
-}
-
-// SubSingle substitutes the Nth match of the regular expression
-// with the replacement specifier.
-func subSingle(ed *Editor, at addr, re *re1.Regexp, repl []rune, n int) ([][2]int64, error) {
-	m, err := nthMatch(ed, at, re, n)
-	if err != nil || m == nil {
-		return m, err
-	}
-	rs, err := replRunes(ed, m, repl)
-	if err != nil {
-		return nil, err
-	}
-	at = addr{m[0][0], m[0][1]}
-	return m, pend(ed, at, runes.SliceReader(rs))
-}
-
-// nthMatch skips past the first n-1 matches of the regular expression
-func nthMatch(ed *Editor, at addr, re *re1.Regexp, n int) ([][2]int64, error) {
-	var err error
-	var m [][2]int64
-	if n == 0 {
-		n = 1
-	}
-	for i := 0; i < n; i++ {
-		m, err = match(ed, at, re)
-		if err != nil || m == nil {
-			return nil, err
-		}
-		at.from = m[0][1]
-	}
-	return m, err
-}
-
-// ReplRunes returns the runes that replace a matched regexp.
-func replRunes(ed *Editor, m [][2]int64, repl []rune) ([]rune, error) {
-	var rs []rune
-	for i := 0; i < len(repl); i++ {
-		d := escDigit(repl[i:])
-		if d < 0 {
-			rs = append(rs, repl[i])
-			continue
-		}
-		sub, err := subExprMatch(ed, m, d)
-		if err != nil {
-			return nil, err
-		}
-		rs = append(rs, sub...)
-		i++
-	}
-	return rs, nil
-}
-
-// EscDigit returns the digit from \[0-9]
-// or -1 if the text does not represent an escaped digit.
-func escDigit(sub []rune) int {
-	if len(sub) >= 2 && sub[0] == '\\' && unicode.IsDigit(sub[1]) {
-		return int(sub[1] - '0')
-	}
-	return -1
-}
-
-// SubExprMatch returns the runes of a matched subexpression.
-func subExprMatch(ed *Editor, m [][2]int64, i int) ([]rune, error) {
-	if i < 0 || i >= len(m) {
-		return []rune{}, nil
-	}
-	n := m[i][1] - m[i][0]
-	if n > MaxRunes {
-		return nil, errors.New("subexpression too big")
-	}
-	rs, err := ed.buf.runes.Read(int(n), m[i][0])
-	if err != nil {
-		return nil, err
-	}
-	return rs, nil
-}
-
-type runeSlice struct {
-	buf *runes.Buffer
-	addr
-	err error
-}
-
-func (rs *runeSlice) Size() int64 { return rs.size() }
-
-func (rs *runeSlice) Rune(i int64) rune {
-	switch {
-	case i < 0 || i >= rs.size():
-		panic("index out of bounds")
-	case rs.err != nil:
-		return -1
-	}
-	r, err := rs.buf.Rune(rs.from + i)
-	if err != nil {
-		rs.err = err
-		return -1
-	}
-	return r
-}
-
-// Match returns the results of matching a regular experssion
-// within an address range in an Editor.
-func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
-	rs := &runeSlice{buf: ed.buf.runes, addr: at}
-	m := re.Match(rs, 0)
-	for i := range m {
-		m[i][0] += at.from
-		m[i][1] += at.from
-	}
-	return m, rs.err
-}
-
-// Edit parses a command and performs its edit on the buffer.
-// Commands that output, such as p and =, write their output to the writer.
-//
-// In the following, text surrounded by / represents delimited text.
-// The delimiter can be any character, it need not be /.
-// Trailing delimiters may be elided, but the opening delimiter must be present.
-// In delimited text, \ is an escape; the following character is interpreted literally,
-// except \n which represents a literal newline.
-// Items in {} are optional.
-//
-// Commands are:
-//	addr
-//		Sets the address of Dot.
-// 	{addr} a/text/
-//	or
-//	{addr} a
-//	lines of text
-//	.
-//		Appends after the addressed text.
-//		If an address is not supplied, dot is used.
-//		Dot is set to the address.
-//	{addr} c
-//	{addr} i
-//		Just like a, but c changes the addressed text
-//		and i inserts before the addressed text.
-//		Dot is set to the address.
-//	{addr} d
-//		Deletes the addressed text.
-//		If an address is not supplied, dot is used.
-//		Dot is set to the address.
-//	{addr} t {addr}
-//	{addr} m {addr}
-//		Copies or moves runes from the first address to after the second.
-//		Dot is set to the newly inserted or moved runes.
-//	{addr} s{n}/regexp/text/{g}
-//		Substitute substitutes text for the first match
-// 		of the regular expression in the addressed range.
-// 		When substituting, a backslash followed by a digit d
-// 		stands for the string that matched the d-th subexpression.
-//		\n is a literal newline.
-//		A number n after s indicates we substitute the Nth match in the
-//		address range. If n == 0 set n = 1.
-// 		If the delimiter after the text is followed by the letter g
-//		then all matches in the address range are substituted.
-//		If a number n and the letter g are both present then the Nth match
-//		and all subsequent matches in the address range are	substituted.
-//		If an address is not supplied, dot is used.
-//		Dot is set to the modified address.
-//	{addr} k {[a-zA-Z]}
-//		Sets the named mark to the address.
-//		If an address is not supplied, dot is used.
-//		If a mark name is not given, dot is set.
-//		Dot is set to the address.
-//	{addr} p
-//		Returns the runes identified by the address.
-//		If an address is not supplied, dot is used.
-// 		It is an error to print more than MaxRunes runes.
-//		Dot is set to the address.
-//	{addr} ={#}
-//		Without '#' returns the line offset(s) of the address.
-//		With '#' returns the rune offsets of the address.
-//		If an address is not supplied, dot is used.
-//		Dot is set to the address.
-func (ed *Editor) Edit(cmd []rune, w io.Writer) error {
-	return ed.do(func() (at addr, err error) { return edit(ed, cmd, w) })
-}
-
-func edit(ed *Editor, cmd []rune, w io.Writer) (addr, error) {
-	a, n, err := Addr(cmd)
-	switch {
-	case err != nil:
-		return addr{}, err
-	case a == nil:
-		a = Dot
-	case len(cmd) == n:
-		at, err := a.where(ed)
-		if err != nil {
-			return addr{}, err
-		}
-		ed.marks['.'] = at
-		return at, err
-	default:
-		cmd = cmd[n:]
-	}
-	switch c := cmd[0]; c {
-	case 'a':
-		r := runes.SliceReader(parseText(cmd[1:]))
-		at, err := change(ed, a.Plus(Rune(0)), r)
-		return at, err
-	case 'c':
-		r := runes.SliceReader(parseText(cmd[1:]))
-		at, err := change(ed, a, r)
-		return at, err
-	case 'i':
-		r := runes.SliceReader(parseText(cmd[1:]))
-		at, err := change(ed, a.Minus(Rune(0)), r)
-		return at, err
-	case 'd':
-		at, err := change(ed, a, runes.EmptyReader())
-		return at, err
-	case 'k':
-		mk, err := parseMarkRune(cmd[1:])
-		if err != nil {
-			return addr{}, err
-		}
-		at, err := mark(ed, a, mk)
-		return at, err
-	case 'p':
-		return print(ed, a, w)
-	case '=':
-		at, lfrom, lto, err := where(ed, a)
-		if err != nil {
-			return addr{}, err
-		}
-		if len(cmd) == 1 || cmd[1] != '#' {
-			if lfrom == lto {
-				_, err = fmt.Fprintf(w, "%d", lfrom)
-			} else {
-				_, err = fmt.Fprintf(w, "%d,%d", lfrom, lto)
-			}
-		} else {
-			if at.size() == 0 {
-				_, err = fmt.Fprintf(w, "#%d", at.from)
-			} else {
-				_, err = fmt.Fprintf(w, "#%d,#%d", at.from, at.to)
-			}
-		}
-		if err != nil {
-			return addr{}, err
-		}
-		return at, nil
-	case 's':
-		n, cmd, err := parseNumber(cmd[1:])
-		if err != nil {
-			return addr{}, err
-		}
-		re, err := re1.Compile(cmd[:], re1.Options{Delimited: true})
-		if err != nil {
-			return addr{}, err
-		}
-		exp := re.Expression()
-		cmd = cmd[len(exp):]
-		repl := parseDelimited(exp[0], cmd)
-		g := len(repl) < len(cmd)-1 && cmd[len(repl)+1] == 'g'
-		at, err := sub(ed, a, re, repl, g, n)
-		return at, err
-	case 't', 'm':
-		a1, _, err := Addr(cmd[1:])
-		switch {
-		case err != nil:
-			return addr{}, err
-		case a1 == nil:
-			a1 = Dot
-		}
-		var at addr
-		if c == 't' {
-			at, err = cpy(ed, a, a1)
-		} else {
-			at, err = move(ed, a, a1)
-		}
-		return at, err
-	default:
-		return addr{}, errors.New("unknown command: " + string(c))
-	}
-}
-
-func parseText(e []rune) []rune {
-	var i int
-	for i < len(e) && unicode.IsSpace(e[i]) {
-		if e[i] == '\n' {
-			return parseLines(e[i+1:])
-		}
-		i++
-	}
-	if i == len(e) {
-		return nil
-	}
-	return parseDelimited(e[i], e[i+1:])
-}
-
-func parseLines(e []rune) []rune {
-	var i int
-	var nl bool
-	for i = 0; i < len(e); i++ {
-		if nl && e[i] == '.' && (i == len(e)-1 || i < len(e)-1 && e[i+1] == '\n') {
-			return e[:i]
-		}
-		nl = e[i] == '\n'
-	}
-	return e
-}
-
-// ParseDelimited returns the runes
-// up to the first unescaped delimiter,
-// or the end of the slice.
-// A delimiter preceeded by \ is escaped and is non-terminating.
-// The letter n preceeded by \ is a newline literal.
-func parseDelimited(delim rune, e []rune) []rune {
-	var i int
-	var rs []rune
-	for i = 0; i < len(e); i++ {
-		switch {
-		case e[i] == delim:
-			return rs
-		case i < len(e)-1 && e[i] == '\\' && e[i+1] == delim:
-			rs = append(rs, delim)
-			i++
-		case i < len(e)-1 && e[i] == '\\' && e[i+1] == 'n':
-			rs = append(rs, '\n')
-			i++
-		default:
-			rs = append(rs, e[i])
-		}
-	}
-	return rs
-}
-
-func parseMarkRune(cmd []rune) (rune, error) {
-	var i int
-	for ; i < len(cmd) && unicode.IsSpace(cmd[i]); i++ {
-	}
-	if i < len(cmd) && isMarkRune(cmd[i]) {
-		return cmd[i], nil
-	} else if i == len(cmd) {
-		return '.', nil
-	}
-	return ' ', errors.New("bad mark: " + string(cmd[i]))
-}
-
-// parseNumber parses and returns a positive integer. The first returned
-// value is the parsed number, the second is the number of runes parsed.
-func parseNumber(cmd []rune) (int, []rune, error) {
-	i := 0
-	n := 1 // by default use the first instance
-	var err error
-	for len(cmd) > i && unicode.IsDigit(cmd[i]) {
-		i++
-	}
-	if i != 0 {
-		n, err = strconv.Atoi(string(cmd[:i]))
-		if err != nil {
-			return 0, cmd[:], err
-		}
-	}
-	return n, cmd[i:], nil
+	return l0, l1, nil
 }

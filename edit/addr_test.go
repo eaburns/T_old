@@ -5,6 +5,7 @@ package edit
 import (
 	"errors"
 	"math"
+	"reflect"
 	"regexp"
 	"strconv"
 	"testing"
@@ -294,121 +295,131 @@ func rng(from, to int64) addr { return addr{from: from, to: to} }
 
 func TestAddr(t *testing.T) {
 	tests := []struct {
-		addr string
-		n    int
-		want Address
-		err  string
+		a, left string
+		want    Address
+		err     string
 	}{
-		{addr: "", n: 0, want: nil},
-		{addr: " ", n: 1, want: nil},
-		{addr: "\t\t", n: 2, want: nil},
+		{a: "", want: nil},
+		{a: " ", want: nil},
+		{a: "\t\t", want: nil},
+		{a: "\t\n\txyz", left: "\txyz", want: nil},
+		{a: "\n#1", left: "#1", want: nil},
 
-		{addr: "#0", n: 2, want: Rune(0)},
-		{addr: "#1", n: 2, want: Rune(1)},
-		{addr: "#", n: 1, want: Rune(1)},
-		{addr: "#12345", n: 6, want: Rune(12345)},
-		{addr: "#12345xyz", n: 6, want: Rune(12345)},
-		{addr: " #12345xyz", n: 7, want: Rune(12345)},
-		{addr: "#" + strconv.Itoa(math.MaxInt64) + "0", err: "out of range"},
+		{a: "#0", want: Rune(0)},
+		{a: "#1", want: Rune(1)},
+		{a: "#", want: Rune(1)},
+		{a: "#12345", want: Rune(12345)},
+		{a: "#12345xyz", left: "xyz", want: Rune(12345)},
+		{a: " #12345xyz", left: "xyz", want: Rune(12345)},
+		{a: " #1\t\n\txyz", left: "\txyz", want: Rune(1)},
+		{a: "#" + strconv.Itoa(math.MaxInt64) + "0", err: "out of range"},
 
-		{addr: "0", n: 1, want: Line(0)},
-		{addr: "1", n: 1, want: Line(1)},
-		{addr: "12345", n: 5, want: Line(12345)},
-		{addr: "12345xyz", n: 5, want: Line(12345)},
-		{addr: " 12345xyz", n: 6, want: Line(12345)},
-		{addr: strconv.Itoa(math.MaxInt64) + "0", err: "out of range"},
+		{a: "0", want: Line(0)},
+		{a: "1", want: Line(1)},
+		{a: "12345", want: Line(12345)},
+		{a: "12345xyz", left: "xyz", want: Line(12345)},
+		{a: " 12345xyz", left: "xyz", want: Line(12345)},
+		{a: " 1\t\n\txyz", left: "\txyz", want: Line(1)},
+		{a: strconv.Itoa(math.MaxInt64) + "0", err: "out of range"},
 
-		{addr: "/", n: 1, want: Regexp("/")},
-		{addr: "//", n: 2, want: Regexp("//")},
-		{addr: "?", n: 1, want: Regexp("?")},
-		{addr: "??", n: 2, want: Regexp("??")},
-		{addr: "/abcdef", n: 7, want: Regexp("/abcdef")},
-		{addr: "/abc/def", n: 5, want: Regexp("/abc/")},
-		{addr: "/abc def", n: 8, want: Regexp("/abc def")},
-		{addr: "?abcdef", n: 7, want: Regexp("?abcdef")},
-		{addr: "?abc?def", n: 5, want: Regexp("?abc?")},
-		{addr: "?abc def", n: 8, want: Regexp("?abc def")},
-		{addr: " ?abc def", n: 9, want: Regexp("?abc def")},
-		{addr: "/()", err: "operand"},
+		{a: "/", want: Regexp("/")},
+		{a: "//", want: Regexp("//")},
+		{a: "?", want: Regexp("?")},
+		{a: "??", want: Regexp("??")},
+		{a: "/abcdef", want: Regexp("/abcdef")},
+		{a: "/abc/def", left: "def", want: Regexp("/abc/")},
+		{a: "/abc def", want: Regexp("/abc def")},
+		{a: "/abc def\nxyz", left: "xyz", want: Regexp("/abc def/")},
+		{a: "?abcdef", want: Regexp("?abcdef")},
+		{a: "?abc?def", left: "def", want: Regexp("?abc?")},
+		{a: "?abc def", want: Regexp("?abc def")},
+		{a: " ?abc def", want: Regexp("?abc def")},
+		{a: "?abc def\nxyz", left: "xyz", want: Regexp("?abc def?")},
+		{a: "/()", err: "operand"},
 
-		{addr: "$", n: 1, want: End},
-		{addr: " $", n: 2, want: End},
+		{a: "$", want: End},
+		{a: " $", want: End},
+		{a: " $\t", want: End},
 
-		{addr: ".", n: 1, want: Dot},
-		{addr: " .", n: 2, want: Dot},
+		{a: ".", want: Dot},
+		{a: " .", want: Dot},
+		{a: " .\t", want: Dot},
 
-		{addr: "'m", n: 2, want: Mark('m')},
-		{addr: " 'z", n: 3, want: Mark('z')},
-		{addr: " ' a", n: 4, want: Mark('a')},
-		{addr: "'☺", err: "bad mark"},
-		{addr: "' ☺", err: "bad mark"},
-		{addr: "'", err: "bad mark"},
+		{a: "'m", want: Mark('m')},
+		{a: " 'z", want: Mark('z')},
+		{a: " ' a", want: Mark('a')},
+		{a: " ' a\t", want: Mark('a')},
+		{a: "'\na", err: "bad mark"},
+		{a: "'☺", err: "bad mark"},
+		{a: "' ☺", err: "bad mark"},
+		{a: "'", err: "bad mark"},
 
-		{addr: "+", n: 1, want: Dot.Plus(Line(1))},
-		{addr: "+xyz", n: 1, want: Dot.Plus(Line(1))},
-		{addr: "+5", n: 2, want: Dot.Plus(Line(5))},
-		{addr: "5+", n: 2, want: Line(5).Plus(Line(1))},
-		{addr: "5+6", n: 3, want: Line(5).Plus(Line(6))},
-		{addr: " 5 + 6", n: 6, want: Line(5).Plus(Line(6))},
-		{addr: "-", n: 1, want: Dot.Minus(Line(1))},
-		{addr: "-xyz", n: 1, want: Dot.Minus(Line(1))},
-		{addr: "-5", n: 2, want: Dot.Minus(Line(5))},
-		{addr: "5-", n: 2, want: Line(5).Minus(Line(1))},
-		{addr: "5-6", n: 3, want: Line(5).Minus(Line(6))},
-		{addr: " 5 - 6", n: 6, want: Line(5).Minus(Line(6))},
-		{addr: ".+#5", n: 4, want: Dot.Plus(Rune(5))},
-		{addr: "$-#5", n: 4, want: End.Minus(Rune(5))},
-		{addr: "$ - #5 + #3", n: 11, want: End.Minus(Rune(5)).Plus(Rune(3))},
-		{addr: "+-", n: 2, want: Dot.Plus(Line(1)).Minus(Line(1))},
-		{addr: " + - ", n: 5, want: Dot.Plus(Line(1)).Minus(Line(1))},
-		{addr: " - + ", n: 5, want: Dot.Minus(Line(1)).Plus(Line(1))},
-		{addr: "/abc/+++---", n: 11, want: Regexp("/abc/").Plus(Line(1)).Plus(Line(1)).Plus(Line(1)).Minus(Line(1)).Minus(Line(1)).Minus(Line(1))},
+		{a: "+", want: Dot.Plus(Line(1))},
+		{a: "+\n2", left: "2", want: Dot.Plus(Line(1))},
+		{a: "+xyz", left: "xyz", want: Dot.Plus(Line(1))},
+		{a: "+5", want: Dot.Plus(Line(5))},
+		{a: "5+", want: Line(5).Plus(Line(1))},
+		{a: "5+6", want: Line(5).Plus(Line(6))},
+		{a: " 5 + 6", want: Line(5).Plus(Line(6))},
+		{a: "-", want: Dot.Minus(Line(1))},
+		{a: "-xyz", left: "xyz", want: Dot.Minus(Line(1))},
+		{a: "-5", want: Dot.Minus(Line(5))},
+		{a: "5-", want: Line(5).Minus(Line(1))},
+		{a: "5-6", want: Line(5).Minus(Line(6))},
+		{a: " 5 - 6", want: Line(5).Minus(Line(6))},
+		{a: ".+#5", want: Dot.Plus(Rune(5))},
+		{a: "$-#5", want: End.Minus(Rune(5))},
+		{a: "$ - #5 + #3", want: End.Minus(Rune(5)).Plus(Rune(3))},
+		{a: "+-", want: Dot.Plus(Line(1)).Minus(Line(1))},
+		{a: " + - ", want: Dot.Plus(Line(1)).Minus(Line(1))},
+		{a: " - + ", want: Dot.Minus(Line(1)).Plus(Line(1))},
+		{a: "/abc/+++---", want: Regexp("/abc/").Plus(Line(1)).Plus(Line(1)).Plus(Line(1)).Minus(Line(1)).Minus(Line(1)).Minus(Line(1))},
 
-		{addr: ",", n: 1, want: Line(0).To(End)},
-		{addr: ",xyz", n: 1, want: Line(0).To(End)},
-		{addr: " , ", n: 3, want: Line(0).To(End)},
-		{addr: ",1", n: 2, want: Line(0).To(Line(1))},
-		{addr: "1,", n: 2, want: Line(1).To(End)},
-		{addr: "0,$", n: 3, want: Line(0).To(End)},
-		{addr: ".,$", n: 3, want: Dot.To(End)},
-		{addr: "1,2", n: 3, want: Line(1).To(Line(2))},
-		{addr: " 1 , 2 ", n: 7, want: Line(1).To(Line(2))},
-		{addr: ",-#5", n: 4, want: Line(0).To(Dot.Minus(Rune(5)))},
-		{addr: " , - #5", n: 7, want: Line(0).To(Dot.Minus(Rune(5)))},
-		{addr: ";", n: 1, want: Line(0).Then(End)},
-		{addr: ";xyz", n: 1, want: Line(0).Then(End)},
-		{addr: " ; ", n: 3, want: Line(0).Then(End)},
-		{addr: ";1", n: 2, want: Line(0).Then(Line(1))},
-		{addr: "1;", n: 2, want: Line(1).Then(End)},
-		{addr: "0;$", n: 3, want: Line(0).Then(End)},
-		{addr: ".;$", n: 3, want: Dot.Then(End)},
-		{addr: "1;2", n: 3, want: Line(1).Then(Line(2))},
-		{addr: " 1 ; 2 ", n: 7, want: Line(1).Then(Line(2))},
-		{addr: ";-#5", n: 4, want: Line(0).Then(Dot.Minus(Rune(5)))},
-		{addr: " ; - #5 ", n: 8, want: Line(0).Then(Dot.Minus(Rune(5)))},
-		{addr: ";,", n: 2, want: Line(0).Then(Line(0).To(End))},
-		{addr: " ; , ", n: 5, want: Line(0).Then(Line(0).To(End))},
+		{a: ",", want: Line(0).To(End)},
+		{a: ",xyz", left: "xyz", want: Line(0).To(End)},
+		{a: " , ", want: Line(0).To(End)},
+		{a: ",\n1", left: "1", want: Line(0).To(End)},
+		{a: ",1", want: Line(0).To(Line(1))},
+		{a: "1,", want: Line(1).To(End)},
+		{a: "0,$", want: Line(0).To(End)},
+		{a: ".,$", want: Dot.To(End)},
+		{a: "1,2", want: Line(1).To(Line(2))},
+		{a: " 1 , 2 ", want: Line(1).To(Line(2))},
+		{a: ",-#5", want: Line(0).To(Dot.Minus(Rune(5)))},
+		{a: " , - #5", want: Line(0).To(Dot.Minus(Rune(5)))},
+		{a: ";", want: Line(0).Then(End)},
+		{a: ";xyz", left: "xyz", want: Line(0).Then(End)},
+		{a: " ; ", want: Line(0).Then(End)},
+		{a: " ;\n1", left: "1", want: Line(0).Then(End)},
+		{a: ";1", want: Line(0).Then(Line(1))},
+		{a: "1;", want: Line(1).Then(End)},
+		{a: "0;$", want: Line(0).Then(End)},
+		{a: ".;$", want: Dot.Then(End)},
+		{a: "1;2", want: Line(1).Then(Line(2))},
+		{a: " 1 ; 2 ", want: Line(1).Then(Line(2))},
+		{a: ";-#5", want: Line(0).Then(Dot.Minus(Rune(5)))},
+		{a: " ; - #5 ", want: Line(0).Then(Dot.Minus(Rune(5)))},
+		{a: ";,", want: Line(0).Then(Line(0).To(End))},
+		{a: " ; , ", want: Line(0).Then(Line(0).To(End))},
 
 		// Implicit +.
-		{addr: "1#2", n: 3, want: Line(1).Plus(Rune(2))},
-		{addr: "#2 1", n: 4, want: Rune(2).Plus(Line(1))},
-		{addr: "1/abc", n: 5, want: Line(1).Plus(Regexp("/abc"))},
-		{addr: "/abc/1", n: 6, want: Regexp("/abc/").Plus(Line(1))},
-		{addr: "?abc?1", n: 6, want: Regexp("?abc?").Plus(Line(1))},
-		{addr: "$?abc", n: 5, want: End.Plus(Regexp("?abc"))},
+		{a: "1#2", want: Line(1).Plus(Rune(2))},
+		{a: "#2 1", want: Rune(2).Plus(Line(1))},
+		{a: "1/abc", want: Line(1).Plus(Regexp("/abc"))},
+		{a: "/abc/1", want: Regexp("/abc/").Plus(Line(1))},
+		{a: "?abc?1", want: Regexp("?abc?").Plus(Line(1))},
+		{a: "$?abc", want: End.Plus(Regexp("?abc"))},
 	}
 	for _, test := range tests {
-		got, n, err := Addr([]rune(test.addr))
-		var errStr string
-		if err != nil {
-			errStr = err.Error()
+		a, left, err := Addr([]rune(test.a))
+		ok := true
+		if test.err != "" {
+			ok = err != nil && regexp.MustCompile(test.err).MatchString(err.Error())
+		} else {
+			ok = err == nil && reflect.DeepEqual(a, test.want) && string(left) == string(test.left)
 		}
-		if got != test.want ||
-			(test.err == "" && test.n != n) ||
-			(test.err == "" && errStr != "") ||
-			(test.err != "" && !regexp.MustCompile(test.err).MatchString(errStr)) {
-			t.Errorf(`Addr(%q)=%v,%d,%v, want %v,%d,%v`,
-				test.addr, got, n, err, test.want, test.n, test.err)
+		if !ok {
+			t.Errorf(`Addr(%q)=%q,%q,%q, want %q,%q,%q`, test.a, a, left, err, test.want, test.left, test.err)
 		}
 	}
 }
@@ -534,10 +545,9 @@ func TestIOErrors(t *testing.T) {
 		"/Hello/;/World",
 	}
 	for _, test := range tests {
-		addr, n, err := Addr([]rune(test))
-		if err != nil || n != len([]rune(test)) {
-			t.Fatalf("Addr(%q)=%q,%q%q want _,%d,nil",
-				test, addr, n, err, len([]rune(test)))
+		addr, left, err := Addr([]rune(test))
+		if err != nil || len(left) != 0 {
+			t.Fatalf("Addr(%q)=%q,{},%v want _,{},nil", test, addr, err)
 		}
 		f := &errReaderAt{nil}
 		r := runes.NewBufferReaderWriterAt(1, f)
