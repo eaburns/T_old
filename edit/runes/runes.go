@@ -17,7 +17,9 @@ const MinRead = bytes.MinRead
 // Reader wraps the basic Read method.
 // It behaves like io.Reader
 // but it accepts a slice of runes
-// instead of a slice of bytes.
+// instead of a slice of bytes,
+// and returns the number of runes read
+// instead of the number of bytes read.
 type Reader interface {
 	Read([]rune) (int, error)
 }
@@ -158,7 +160,7 @@ func ReadAll(r Reader) ([]rune, error) {
 }
 
 // Copy copies from src into dst until either EOF is reached or an error occurs.
-// It returns the number of bytes written or the first error encountered, if any.
+// It returns the number of runes written or the first error encountered, if any.
 //
 // A successful Copy returns err == nil, not err == io.EOF.
 //
