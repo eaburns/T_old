@@ -104,6 +104,35 @@ func (ed *Editor) Close() error {
 	return errors.New("already closed")
 }
 
+// WriterTo returns an io.WriterTo
+// that, when it's WriteTo method is called,
+// atomically evaluates the address,
+// writes the addressed runes to an io.Writer,
+// and sets dot to the address.
+func (ed *Editor) WriterTo(a Address) io.WriterTo { return writerTo{a: a, ed: ed} }
+
+type writerTo struct {
+	a  Address
+	ed *Editor
+}
+
+func (wt writerTo) WriteTo(w io.Writer) (int64, error) {
+	cw := countingWriter{w: w}
+	err := wt.ed.Do(Print(wt.a), &cw)
+	return cw.n, err
+}
+
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (cw *countingWriter) Write(p []byte) (int, error) {
+	n, err := cw.w.Write(p)
+	cw.n += int64(n)
+	return n, err
+}
+
 // Where returns rune offsets of the address.
 func (ed *Editor) Where(a Address) (addr, error) {
 	ed.buf.Lock()

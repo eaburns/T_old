@@ -72,6 +72,48 @@ func TestWhere(t *testing.T) {
 	}
 }
 
+func TestWriterTo(t *testing.T) {
+	tests := []struct {
+		init, want string
+		a          Address
+		dot        addr
+	}{
+		{init: "", a: All, want: "", dot: addr{}},
+		{init: "", a: End, want: "", dot: addr{}},
+		{init: "", a: Rune(0), want: "", dot: addr{}},
+		{init: "Hello, 世界", a: All, want: "Hello, 世界", dot: addr{0, 9}},
+		{init: "Hello, 世界", a: Regexp("/Hello/"), want: "Hello", dot: addr{0, 5}},
+		{init: "Hello, 世界", a: End, want: "", dot: addr{9, 9}},
+		{init: "Hello, 世界", a: Rune(0), want: "", dot: addr{}},
+		{init: "a\nb\nc\n", a: Line(0), want: "", dot: addr{}},
+		{init: "a\nb\nc\n", a: Line(1), want: "a\n", dot: addr{0, 2}},
+		{init: "a\nb\nc\n", a: Line(2), want: "b\n", dot: addr{2, 4}},
+		{init: "a\nb\nc\n", a: Line(3), want: "c\n", dot: addr{4, 6}},
+	}
+	for _, test := range tests {
+		ed := NewEditor(NewBuffer())
+		defer ed.buf.Close()
+		if err := ed.change(All, test.init); err != nil {
+			t.Errorf("failed to init %#v: %v", test, err)
+			continue
+		}
+
+		b := bytes.NewBuffer(nil)
+		n, err := ed.WriterTo(test.a).WriteTo(b)
+		str := b.String()
+		if n != int64(len(str)) || err != nil {
+			t.Errorf("ed.WriterTo(%q).WriteTo(b)=%d,%v, want %d,<nil>", test.a, n, err, len(str))
+			continue
+		}
+		if str != test.want {
+			t.Errorf("ed.WriterTo(%q).WriteTo(b); b.String()=%q, want %q", test.a, str, test.want)
+		}
+		if dot := ed.marks['.']; dot != test.dot {
+			t.Errorf("ed.WriterTo(%q).WriteTo(b); ed.marks['.']=%v, want %v", test.a, dot, test.dot)
+		}
+	}
+}
+
 func TestEditorDoPendingError(t *testing.T) {
 	ed := NewEditor(NewBuffer())
 	defer ed.buf.Close()
