@@ -3,6 +3,7 @@
 package edit
 
 import (
+	"bufio"
 	"errors"
 	"io"
 	"sync"
@@ -102,6 +103,49 @@ func (ed *Editor) Close() error {
 		}
 	}
 	return errors.New("already closed")
+}
+
+// ReaderFrom returns an io.ReaderFrom
+// that, when it's ReadFrom method is called,
+// atomically evaluates the address,
+// changes the addressed runes
+// to those read from the io.Reader,
+// and sets dot to the newly changed runes.
+func (ed *Editor) ReaderFrom(a Address) io.ReaderFrom { return readerFrom{a: a, ed: ed} }
+
+type readerFrom struct {
+	a  Address
+	ed *Editor
+}
+
+func (rf readerFrom) ReadFrom(r io.Reader) (int64, error) {
+	cr := newCountingRuneReader(r)
+	err := rf.ed.do(func() (addr, error) {
+		at, err := rf.a.where(rf.ed)
+		if err != nil {
+			return addr{}, err
+		}
+		return at, pend(rf.ed, at, runes.RunesReader(cr))
+	})
+	return cr.n, err
+}
+
+type countingRuneReader struct {
+	rr io.RuneReader
+	n  int64
+}
+
+func newCountingRuneReader(r io.Reader) *countingRuneReader {
+	if rr, ok := r.(io.RuneReader); ok {
+		return &countingRuneReader{rr: rr}
+	}
+	return &countingRuneReader{rr: bufio.NewReader(r)}
+}
+
+func (cr *countingRuneReader) ReadRune() (rune, int, error) {
+	r, n, err := cr.rr.ReadRune()
+	cr.n += int64(n)
+	return r, n, err
 }
 
 // WriterTo returns an io.WriterTo

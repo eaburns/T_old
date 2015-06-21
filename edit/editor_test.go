@@ -5,6 +5,7 @@ package edit
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/eaburns/T/edit/runes"
@@ -110,6 +111,46 @@ func TestWriterTo(t *testing.T) {
 		}
 		if dot := ed.marks['.']; dot != test.dot {
 			t.Errorf("ed.WriterTo(%q).WriteTo(b); ed.marks['.']=%v, want %v", test.a, dot, test.dot)
+		}
+	}
+}
+
+func TestReaderFrom(t *testing.T) {
+	tests := []struct {
+		init, read, want string
+		a                Address
+		dot              addr
+	}{
+		{init: "", a: All, read: "", want: "", dot: addr{}},
+		{init: "", a: All, read: "αβξ", want: "αβξ", dot: addr{0, 3}},
+		{init: "Hello, 世界", a: Line(0), read: "", want: "Hello, 世界", dot: addr{}},
+		{init: "Hello, 世界", a: End, read: "", want: "Hello, 世界", dot: addr{9, 9}},
+		{init: "Hello, 世界", a: All, read: "", want: "", dot: addr{0, 0}},
+		{init: "Hello, 世界", a: All, read: "αβξ", want: "αβξ", dot: addr{0, 3}},
+		{init: "Hello, 世界", a: Regexp("/世界/"), read: "World", want: "Hello, World", dot: addr{7, 12}},
+		{init: "a\nb\nc\n", a: Line(0), read: "z\n", want: "z\na\nb\nc\n", dot: addr{0, 2}},
+		{init: "a\nb\nc\n", a: Line(1), read: "z\n", want: "z\nb\nc\n", dot: addr{0, 2}},
+		{init: "a\nb\nc\n", a: Line(2), read: "z\n", want: "a\nz\nc\n", dot: addr{2, 4}},
+		{init: "a\nb\nc\n", a: Line(3), read: "z\n", want: "a\nb\nz\n", dot: addr{4, 6}},
+	}
+	for _, test := range tests {
+		ed := NewEditor(NewBuffer())
+		defer ed.buf.Close()
+		if err := ed.change(All, test.init); err != nil {
+			t.Errorf("failed to init %#v: %v", test, err)
+			continue
+		}
+
+		n, err := ed.ReaderFrom(test.a).ReadFrom(strings.NewReader(test.read))
+		if n != int64(len(test.read)) || err != nil {
+			t.Errorf("ed.ReaderFrom(%q).ReadFrom(%q)=%d,%v, want %d,<nil>", test.a, test.read, n, err, len(test.read))
+			continue
+		}
+		if str := ed.String(); str != test.want {
+			t.Errorf("ed.ReaderFrom(%q).ReadFrom(%q); b.String()=%q, want %q", test.a, test.read, str, test.want)
+		}
+		if dot := ed.marks['.']; dot != test.dot {
+			t.Errorf("ed.ReaderFrom(%q).ReadFrom(%q); ed.marks['.']=%v, want %v", test.a, test.read, dot, test.dot)
 		}
 	}
 }
