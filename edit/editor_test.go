@@ -4,6 +4,7 @@ package edit
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/eaburns/T/edit/runes"
@@ -68,5 +69,55 @@ func TestWhere(t *testing.T) {
 		if at != test.at || err != nil {
 			t.Errorf("ed.Where(%q)=%v,%v, want %v,<nil>", test.a, at, err, test.at)
 		}
+	}
+}
+
+func TestEditorDoPendingError(t *testing.T) {
+	ed := NewEditor(NewBuffer())
+	defer ed.buf.Close()
+	maddr := addr{5, 10}
+	ed.marks['m'] = maddr
+
+	testErr := errors.New("test error")
+	err := ed.do(func() (addr, error) {
+		// Change a mark, it should be restored to its origin.
+		m := ed.marks['m']
+		m.to += 10
+		m.from += 20
+		ed.marks['m'] = m
+		return addr{}, testErr
+	})
+	if err != testErr {
+		t.Errorf("ed.do(…)=%v, want %v", err, testErr)
+	}
+	if ed.marks['m'] != maddr {
+		t.Errorf("ed.marks['m']=%v, want %v", ed.marks['m'], maddr)
+	}
+}
+
+func TestEditorDoOutOfSequence(t *testing.T) {
+	ed := NewEditor(NewBuffer())
+	defer ed.buf.Close()
+	const init = "Hello, 世界"
+	if err := ed.change(All, init); err != nil {
+		t.Fatalf("failed to init: %v", err)
+	}
+	maddr := addr{5, 10}
+	ed.marks['m'] = maddr
+
+	err := ed.do(func() (addr, error) {
+		if err := pend(ed, addr{10, 20}, runes.EmptyReader()); err != nil {
+			panic(err)
+		}
+		if err := pend(ed, addr{0, 10}, runes.EmptyReader()); err != nil {
+			panic(err)
+		}
+		return addr{0, 20}, nil
+	})
+	if err == nil {
+		t.Error("ed.do({out-of-sequence})=<nil>, want error")
+	}
+	if ed.marks['m'] != maddr {
+		t.Errorf("ed.marks['m']=%v, want %v", ed.marks['m'], maddr)
 	}
 }
