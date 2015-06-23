@@ -3,6 +3,7 @@
 package edit
 
 import (
+	"bufio"
 	"errors"
 	"io"
 	"sync"
@@ -15,7 +16,7 @@ const MaxRunes = 4096
 
 // A Buffer is an editable rune buffer.
 type Buffer struct {
-	lock     sync.RWMutex
+	sync.Mutex
 	runes    *runes.Buffer
 	eds      []*Editor
 	seq, who int32
@@ -31,19 +32,19 @@ func newBuffer(rs *runes.Buffer) *Buffer { return &Buffer{runes: rs} }
 // Close closes the Buffer.
 // After Close is called, the Buffer is no longer editable.
 func (buf *Buffer) Close() error {
-	buf.lock.Lock()
-	defer buf.lock.Unlock()
+	buf.Lock()
+	defer buf.Unlock()
 	return buf.runes.Close()
 }
 
 // Size returns the number of runes in the Buffer.
 //
-// This method must be called with the RLock held.
+// This method must be called with the Lock held.
 func (buf *Buffer) size() int64 { return buf.runes.Size() }
 
 // Rune returns the ith rune in the Buffer.
 //
-// This method must be called with the RLock held.
+// This method must be called with the Lock held.
 func (buf *Buffer) rune(i int64) (rune, error) { return buf.runes.Rune(i) }
 
 // Change changes the string identified by at
@@ -76,8 +77,8 @@ type Editor struct {
 
 // NewEditor returns an Editor that edits the given buffer.
 func NewEditor(buf *Buffer) *Editor {
-	buf.lock.Lock()
-	defer buf.lock.Unlock()
+	buf.Lock()
+	defer buf.Unlock()
 	ed := &Editor{
 		buf:     buf,
 		who:     buf.who,
@@ -91,8 +92,8 @@ func NewEditor(buf *Buffer) *Editor {
 
 // Close closes the editor.
 func (ed *Editor) Close() error {
-	ed.buf.lock.Lock()
-	defer ed.buf.lock.Unlock()
+	ed.buf.Lock()
+	defer ed.buf.Unlock()
 
 	eds := ed.buf.eds
 	for i := range eds {
@@ -104,10 +105,82 @@ func (ed *Editor) Close() error {
 	return errors.New("already closed")
 }
 
+// ReaderFrom returns an io.ReaderFrom
+// that, when it's ReadFrom method is called,
+// atomically evaluates the address,
+// changes the addressed runes
+// to those read from the io.Reader,
+// and sets dot to the newly changed runes.
+func (ed *Editor) ReaderFrom(a Address) io.ReaderFrom { return readerFrom{a: a, ed: ed} }
+
+type readerFrom struct {
+	a  Address
+	ed *Editor
+}
+
+func (rf readerFrom) ReadFrom(r io.Reader) (int64, error) {
+	cr := newCountingRuneReader(r)
+	err := rf.ed.do(func() (addr, error) {
+		at, err := rf.a.where(rf.ed)
+		if err != nil {
+			return addr{}, err
+		}
+		return at, pend(rf.ed, at, runes.RunesReader(cr))
+	})
+	return cr.n, err
+}
+
+type countingRuneReader struct {
+	rr io.RuneReader
+	n  int64
+}
+
+func newCountingRuneReader(r io.Reader) *countingRuneReader {
+	if rr, ok := r.(io.RuneReader); ok {
+		return &countingRuneReader{rr: rr}
+	}
+	return &countingRuneReader{rr: bufio.NewReader(r)}
+}
+
+func (cr *countingRuneReader) ReadRune() (rune, int, error) {
+	r, n, err := cr.rr.ReadRune()
+	cr.n += int64(n)
+	return r, n, err
+}
+
+// WriterTo returns an io.WriterTo
+// that, when it's WriteTo method is called,
+// atomically evaluates the address,
+// writes the addressed runes to an io.Writer,
+// and sets dot to the address.
+func (ed *Editor) WriterTo(a Address) io.WriterTo { return writerTo{a: a, ed: ed} }
+
+type writerTo struct {
+	a  Address
+	ed *Editor
+}
+
+func (wt writerTo) WriteTo(w io.Writer) (int64, error) {
+	cw := countingWriter{w: w}
+	err := wt.ed.Do(Print(wt.a), &cw)
+	return cw.n, err
+}
+
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (cw *countingWriter) Write(p []byte) (int, error) {
+	n, err := cw.w.Write(p)
+	cw.n += int64(n)
+	return n, err
+}
+
 // Where returns rune offsets of the address.
 func (ed *Editor) Where(a Address) (addr, error) {
-	ed.buf.lock.RLock()
-	defer ed.buf.lock.RUnlock()
+	ed.buf.Lock()
+	defer ed.buf.Unlock()
 	at, err := a.where(ed)
 	if err != nil {
 		return addr{}, err
@@ -125,71 +198,52 @@ func (ed *Editor) Do(e Edit, w io.Writer) error {
 // Changes are applied in two phases:
 // Phase one logs the changes without modifying the Buffer.
 // Phase two applies the changes to the Buffer.
-// If the Buffer is modified between phases one and two,
-// no changes are applied, and the proceedure restarts
-// from phase one.
+// The two phases occur with the buffer Lock held.
 //
 // The f function performs phase one.
-// It is called with the Buffer's RLock held
-// and the Editor's pending log cleared.
-// f appends the desired changes to the Editor's pending log
-// and returns the address over which they were computed.
-// The returned address is used to compute and set dot
-// after the change is applied.
-// In the face of retries, f is called multiple times,
-// so it must be idempotent.
+// It is called with the Editor's pending log cleared.
+// It will typically append changes to the Editor's pending log
+// and/or modify the Editor's marks.
+// In the case of an error, the marks are restored
+// to their values before any changes were made.
+//
+// The f function must return the address
+// over which changes were computed.
+// This address is used to compute and set dot
+// after the changes are applied.
 func (ed *Editor) do(f func() (addr, error)) error {
-	var marks map[rune]addr
-	defer func() { ed.marks = marks }()
-retry:
-	marks = make(map[rune]addr, len(ed.marks))
+	ed.buf.Lock()
+	defer ed.buf.Unlock()
+
+	marks0 := make(map[rune]addr, len(ed.marks))
 	for r, a := range ed.marks {
-		marks[r] = a
+		marks0[r] = a
 	}
-	seq, at, err := pendChanges(ed, f)
+	defer func() { ed.marks = marks0 }()
+
+	if err := ed.pending.clear(); err != nil {
+		return err
+	}
+	at, err := f()
 	if err != nil {
 		return err
 	}
+
 	if at, err = fixAddrs(at, ed.pending); err != nil {
 		return err
 	}
-	switch retry, err := applyChanges(ed, seq); {
-	case err != nil:
-		return err
-	case retry:
-		goto retry
-	}
-	ed.marks['.'] = at
-	marks = ed.marks
-	return err
-}
 
-func pendChanges(ed *Editor, f func() (addr, error)) (int32, addr, error) {
-	if err := ed.pending.clear(); err != nil {
-		return 0, addr{}, err
-	}
-
-	ed.buf.lock.RLock()
-	defer ed.buf.lock.RUnlock()
-	seq := ed.buf.seq
-	at, err := f()
-	return seq, at, err
-}
-
-func applyChanges(ed *Editor, seq int32) (bool, error) {
-	ed.buf.lock.Lock()
-	defer ed.buf.lock.Unlock()
-	if ed.buf.seq != seq {
-		return true, nil
-	}
 	for e := logFirst(ed.pending); !e.end(); e = e.next() {
 		if err := ed.buf.change(e.at, e.data()); err != nil {
 			// TODO(eaburns): Very bad; what should we do?
-			return false, err
+			return err
 		}
 	}
+
 	ed.buf.seq++
-	return false, nil
+	ed.marks['.'] = at
+	marks0 = ed.marks
+	return err
 }
 
 func fixAddrs(at addr, l *log) (addr, error) {
