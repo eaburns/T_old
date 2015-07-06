@@ -5,9 +5,12 @@
 package edit
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"strconv"
 	"unicode"
 	"unicode/utf8"
@@ -473,6 +476,120 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 	return m, rs.err
 }
 
+type pipe struct {
+	cmd      string
+	a        Address
+	to, from bool
+}
+
+// Pipe returns an Edit
+// that sends the string at an address
+// to the standard input of a command
+// and replaces the string
+// with the command's standard output.
+// If the command outputs to standard error,
+// that is written to the io.Writer
+// supplied to Editor.Do.
+//
+// The command is executed through the shell
+// as an argument to "-c".
+// The shell is either the value of
+// the SHELL environment variable
+// or DefaultShell if SHELL is unset.
+func Pipe(a Address, cmd string) Edit {
+	return pipe{cmd: cmd, a: a, to: true, from: true}
+}
+
+// PipeTo returns an Edit like Pipe,
+// but the standard output of the command
+// is written to the writer,
+// and does not overwrite the address a.
+func PipeTo(a Address, cmd string) Edit {
+	return pipe{cmd: cmd, a: a, to: true}
+}
+
+// PipeFrom returns an Edit like Pipe,
+// but the standard input of the command
+// is connected to an empty reader.
+func PipeFrom(a Address, cmd string) Edit {
+	return pipe{cmd: cmd, a: a, from: true}
+}
+
+func (e pipe) String() string {
+	pipe := "|"
+	if !e.to {
+		pipe = "<"
+	} else if !e.from {
+		pipe = ">"
+	}
+	return e.a.String() + pipe + escNewlines(e.cmd) + "\n"
+}
+
+func escNewlines(s string) string {
+	var esc string
+	for _, r := range s {
+		if r == '\n' {
+			esc += `\n`
+		} else {
+			esc += string(r)
+		}
+	}
+	return esc
+}
+
+// DefaultShell is the default shell
+// which is used to execute commands
+// if the SHELL environment variable
+// is not set.
+const DefaultShell = "/bin/sh"
+
+func shell() string {
+	if sh := os.Getenv("SHELL"); sh != "" {
+		return sh
+	}
+	return DefaultShell
+}
+
+func (e pipe) do(ed *Editor, w io.Writer) (addr, error) {
+	at, err := e.a.where(ed)
+	if err != nil {
+		return addr{}, err
+	}
+
+	cmd := exec.Command(shell(), "-c", e.cmd)
+	cmd.Stderr = w
+
+	if e.to {
+		r := ed.buf.runes.Reader(at.from)
+		r = runes.LimitReader(r, at.size())
+		cmd.Stdin = runes.UTF8Reader(r)
+	}
+
+	if !e.from {
+		cmd.Stdout = w
+		if err := cmd.Run(); err != nil {
+			return addr{}, err
+		}
+		return at, nil
+	}
+
+	r, err := cmd.StdoutPipe()
+	if err != nil {
+		return addr{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		return addr{}, err
+	}
+	pendErr := pend(ed, at, runes.RunesReader(bufio.NewReader(r)))
+	if err = cmd.Wait(); err != nil {
+		return addr{}, err
+	}
+	if pendErr != nil {
+		return addr{}, pendErr
+	}
+	return at, nil
+}
+
 // Ed parses and returns an Edit and the remaining, unparsed runes.
 //
 // In the following, text surrounded by / represents delimited text.
@@ -535,6 +652,25 @@ func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
 //		With '#' returns the rune offsets of the address.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
+//	{addr} | cmd
+//	{addr} < cmd
+//	{addr} > cmd
+//		| pipes the addressed string to standard input
+//		of a shell command and overwrites the address
+//		by the standard output of the command.
+//		< and > are like |,
+//		but < only overwrites with the command's standard output,
+//		and > only pipes to the command's standard input.
+//		If an address is not supplied, dot is used.
+//		Dot is set to the address.
+//
+//	 	The command is passed as the argument of -c
+//		to the shell in the SHELL environment variable.
+//		If SHELL is unset, the value of DefaultShell is used.
+//
+//		Parsing of cmd is termiated by
+//		either a newline or the end of input.
+//		Within cmd, \n is interpreted as a newline literal.
 func Ed(e []rune) (Edit, []rune, error) {
 	edit, left, err := ed(e)
 	for len(left) > 0 && unicode.IsSpace(left[0]) {
@@ -618,6 +754,15 @@ func ed(e []rune) (edit Edit, left []rune, err error) {
 			e = e[1:]
 		}
 		return sub, e, nil
+	case '|':
+		cmd, e := parseCmd(e)
+		return Pipe(a, cmd), e, nil
+	case '>':
+		cmd, e := parseCmd(e)
+		return PipeTo(a, cmd), e, nil
+	case '<':
+		cmd, e := parseCmd(e)
+		return PipeFrom(a, cmd), e, nil
 	default:
 		return nil, e, errors.New("unknown command: " + string(c))
 	}
@@ -747,4 +892,24 @@ func parseRegexp(e []rune) ([]rune, []rune, error) {
 	}
 	exp := re.Expression()
 	return exp, append(e[len(exp):], rest...), nil
+}
+
+func parseCmd(e []rune) (string, []rune) {
+	var cmd string
+	for len(e) > 0 && unicode.IsSpace(e[0]) && e[0] != '\n' {
+		e = e[1:]
+	}
+	for len(e) > 0 {
+		var r rune
+		switch r, e = e[0], e[1:]; {
+		case r == '\\' && len(e) > 0 && e[0] == 'n':
+			cmd += "\n"
+			e = e[1:]
+		case r == '\n':
+			return cmd, e
+		default:
+			cmd += string(r)
+		}
+	}
+	return cmd, e
 }
