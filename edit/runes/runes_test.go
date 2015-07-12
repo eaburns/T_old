@@ -111,6 +111,72 @@ func (tests readTests) run(t *testing.T, r Reader) {
 	}
 }
 
+func TestUTF8Reader(t *testing.T) {
+	type want struct {
+		n    int
+		want string
+	}
+	tests := []struct {
+		runes string
+		reads []want
+	}{
+		{"", []want{}},
+		{"abc", []want{{1, "a"}, {1, "b"}, {1, "c"}}},
+		{"abc", []want{{1, "a"}, {2, "bc"}}},
+		{"abc", []want{{3, "abc"}}},
+		{"abc", []want{{2, "ab"}, {1, "c"}}},
+		{"abc", []want{{4, "abc"}}},
+		{"abc", []want{{1024, "abc"}}},
+		{"abc", []want{{0, ""}, {1024, "abc"}}},
+		{"αβξ", []want{{2, "α"}, {2, "β"}, {2, "ξ"}}},
+		{"αβξ", []want{
+			{2, "α"},
+			{2, "β"},
+			{1, "\xce"}, {1, "\xbe"}, // ξ
+		}},
+		{"αβξ", []want{
+			{2, "α"},
+			{1, "\xce"}, {1, "\xb2"}, // β
+			{1, "\xce"}, {1, "\xbe"}, // ξ
+		}},
+		{"αβξ", []want{
+			{1, "\xce"}, {1, "\xb1"}, // α
+			{1, "\xce"}, {1, "\xb2"}, // β
+			{1, "\xce"}, {1, "\xbe"}, // ξ
+		}},
+		{"αβξ", []want{
+			{4, "αβ"},
+			{1, "\xce"}, {1, "\xbe"}, // ξ
+		}},
+		{"αβξ", []want{
+			{3, "α\xce"}, {1, "\xb2"},
+			{1, "\xce"}, {1, "\xbe"}, // ξ
+		}},
+		{"αβξ", []want{
+			{3, "α\xce"}, {2, "\xb2\xce"}, {1, "\xbe"},
+		}},
+		{"αβξ", []want{
+			{3, "α\xce"}, {3, "\xb2ξ"},
+		}},
+	}
+	for _, test := range tests {
+		r := UTF8Reader(StringReader(test.runes))
+		for _, read := range test.reads {
+			p := make([]byte, read.n)
+			n, err := r.Read(p)
+			if got := string(p[:n]); err != nil || got != read.want {
+				t.Errorf("r.Read({len=%d})=%d,%v,p=%q, want %d,nil,p=%q",
+					len(p), n, err, got, len(read.want), read.want)
+				break
+			}
+		}
+		n, err := r.Read(make([]byte, 1))
+		if err != io.EOF {
+			t.Errorf("r.Read({len=1})=%d,%v, want 0,io.EOF", n, err)
+		}
+	}
+}
+
 func TestUTF8Writer(t *testing.T) {
 	tests := []struct {
 		writes []string
