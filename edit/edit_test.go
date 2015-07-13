@@ -418,8 +418,8 @@ func (test eTest) run1(t *testing.T) {
 			t.Errorf("ed.Do(%q, b)=nil, want %v", test.e, test.err)
 			return
 		}
-		if ok, err := regexp.MatchString(test.err, err.Error()); err != nil {
-			panic(err)
+		if ok, reErr := regexp.MatchString(test.err, err.Error()); reErr != nil {
+			panic(reErr)
 		} else if !ok {
 			t.Errorf("ed.Do(%q, b)=%v, want matching %q", test.e, err, test.err)
 		}
