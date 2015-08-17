@@ -151,27 +151,27 @@ func (test *insertTest) initBuffer(t *testing.T, b *Buffer) {
 func TestInsert(t *testing.T) {
 	for _, test := range insertTests {
 		b := NewBuffer(testBlockSize)
-		defer b.Close()
 		test.initBuffer(t, b)
 		err := b.Insert([]rune(test.add), test.at)
 		if !errMatch(test.err, err) {
 			t.Errorf("%+v add failed: insert(%v, %v)=%v, want %v", test, test.add, test.at, err, test.err)
-			continue
+			goto next
 		}
 		if test.err != "" {
-			continue
+			goto next
 		}
 		if s := b.String(); s != test.want || err != nil {
 			t.Errorf("%+v read failed: b.String()=%v, want %v,nil", test, s, test.want)
-			continue
+			goto next
 		}
+	next:
+		b.Close()
 	}
 }
 
 func TestReaderFromSlowPath(t *testing.T) {
 	for _, test := range insertTests {
 		b := NewBuffer(testBlockSize)
-		defer b.Close()
 		test.initBuffer(t, b)
 		r := testReader{StringReader(test.add)}
 		n, err := b.ReaderFrom(test.at).ReadFrom(r)
@@ -179,14 +179,17 @@ func TestReaderFromSlowPath(t *testing.T) {
 		if !errMatch(test.err, err) || (n != int64(len(add)) && test.err == "") {
 			t.Errorf("%+v add failed: ReaderFrom(%q).ReadFrom{%v})=%v,%v, want %v,%v",
 				test, test.add, test.at, n, err, len(test.add), test.err)
+			goto next
 		}
 		if test.err != "" {
-			continue
+			goto next
 		}
 		if s := b.String(); s != test.want || err != nil {
 			t.Errorf("%+v read failed: b.String()=%v, want %v,nil", test, s, test.want)
-			continue
+			goto next
 		}
+	next:
+		b.Close()
 	}
 }
 
@@ -270,19 +273,20 @@ func TestDelete(t *testing.T) {
 	}
 	for _, test := range tests {
 		b := makeTestBytes(t)
-		defer b.Close()
 
 		err := b.Delete(test.n, test.at)
 		if !errMatch(test.err, err) {
 			t.Errorf("delete(%v, %v)=%v, want %v", test.n, test.at, err, test.err)
-			continue
+			goto next
 		}
 		if test.err != "" {
-			continue
+			goto next
 		}
 		if s := b.String(); s != test.want || err != nil {
 			t.Errorf("%+v read failed: b.String()=%v want %v,nil", test, s, test.want)
 		}
+	next:
+		b.Close()
 	}
 }
 
