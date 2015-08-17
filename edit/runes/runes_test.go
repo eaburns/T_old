@@ -155,16 +155,16 @@ func TestCopy(t *testing.T) {
 		// Fast path.
 		for _, src := range srcs {
 			bDst := NewBuffer(testBlockSize)
-			defer bDst.Close()
 			test.initBuffer(t, bDst)
 			testCopy(t, test, bDst, bDst.Writer(test.at), src())
+			bDst.Close()
 		}
 		// Slow path.
 		for _, src := range srcs {
 			bDst := NewBuffer(testBlockSize)
-			defer bDst.Close()
 			test.initBuffer(t, bDst)
 			testCopy(t, test, bDst, testWriter{bDst.Writer(test.at)}, src())
+			bDst.Close()
 		}
 	}
 }
