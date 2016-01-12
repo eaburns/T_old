@@ -382,6 +382,79 @@ func TestSubstituteEdit(t *testing.T) {
 	}
 }
 
+func TestPipeFromEdit(t *testing.T) {
+	const (
+		s    = "Hello\n世界!"
+		echo = "echo -n '" + s + "'"
+	)
+	tests := []eTest{
+		{e: PipeFrom(End, "false"), err: "exit status 1"},
+		{e: PipeFrom(End, "echo -n stderr 1>&2"), print: "stderr"},
+		{init: "", e: PipeFrom(All, echo), want: s, dot: addr{0, 9}},
+		{init: "ab", e: PipeFrom(Line(0), echo), want: s + "ab", dot: addr{0, 9}},
+		{init: "ab", e: PipeFrom(End, echo), want: "ab" + s, dot: addr{2, 11}},
+		{init: "ab", e: PipeFrom(Rune(1), echo), want: "a" + s + "b", dot: addr{1, 10}},
+		{e: PipeFrom(All, "   echo -n hi"), want: "hi", dot: addr{0, 2}},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestPipeToEdit(t *testing.T) {
+	const s = "Hello\n世界!"
+	tests := []eTest{
+		{e: PipeTo(End, "false"), err: "exit status 1"},
+		{e: PipeTo(End, "echo -n stdout"), print: "stdout"},
+		{e: PipeTo(End, "echo -n stderr 1>&2"), print: "stderr"},
+		{init: s, e: PipeTo(End, "cat"), want: s, dot: addr{9, 9}},
+		{init: s, e: PipeTo(Line(0), "cat"), want: s, dot: addr{0, 0}},
+		{init: s, e: PipeTo(All, "cat"), want: s, print: s, dot: addr{0, 9}},
+		{init: s, e: PipeTo(Line(1), "cat"), want: s, print: "Hello\n", dot: addr{0, 6}},
+		{init: s, e: PipeTo(Line(2), "cat"), want: s, print: "世界!", dot: addr{6, 9}},
+		{init: "hi", e: PipeTo(All, "   cat"), want: "hi", print: "hi", dot: addr{0, 2}},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestPipeEdit(t *testing.T) {
+	const s = "Hello\n世界!"
+	tests := []eTest{
+		{e: Pipe(End, "false"), err: "exit status 1"},
+		{e: Pipe(End, "echo -n stderr 1>&2"), print: "stderr"},
+
+		{
+			init: s,
+			e:    Pipe(All, "sed s/世界/World/"),
+			want: "Hello\nWorld!",
+			dot:  addr{0, 12},
+		},
+		{
+			init: s,
+			e:    Pipe(Line(1), "sed s/世界/World/"),
+			want: s,
+			dot:  addr{0, 6},
+		},
+		{
+			init: s,
+			e:    Pipe(Line(2), "sed s/世界/World/"),
+			want: "Hello\nWorld!",
+			dot:  addr{6, 12},
+		},
+		{
+			init: s,
+			e: Pipe(All, "  	sed s/世界/World/"),
+			want: "Hello\nWorld!",
+			dot:  addr{0, 12},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 type eTest struct {
 	init, want, print, err string
 	e                      Edit
@@ -561,6 +634,45 @@ func TestEd(t *testing.T) {
 		{e: "s/", err: "missing pattern"},
 		{e: "s//b", err: "missing pattern"},
 		{e: "s/\n/b", err: "missing pattern"},
+
+		{e: "|cmd", want: Pipe(Dot, "cmd")},
+		{e: "|	   cmd", want: Pipe(Dot, "cmd")},
+		{e: "|cmd\nleft", left: "left", want: Pipe(Dot, "cmd")},
+		{e: "|	   cmd\nleft", left: "left", want: Pipe(Dot, "cmd")},
+		{e: "|cmd\\nleft", want: Pipe(Dot, "cmd\nleft")},
+		{e: "|	   cmd\\nleft", want: Pipe(Dot, "cmd\nleft")},
+		{e: "  	|cmd", want: Pipe(Dot, "cmd")},
+		{e: ",|cmd", want: Pipe(All, "cmd")},
+		{e: "$|cmd", want: Pipe(End, "cmd")},
+		{e: ",	  |cmd", want: Pipe(All, "cmd")},
+		{e: "  	,	  |cmd", want: Pipe(All, "cmd")},
+		{e: ",+3|cmd", want: Pipe(Line(0).To(Dot.Plus(Line(3))), "cmd")},
+
+		{e: ">cmd", want: PipeTo(Dot, "cmd")},
+		{e: ">	   cmd", want: PipeTo(Dot, "cmd")},
+		{e: ">cmd\nleft", left: "left", want: PipeTo(Dot, "cmd")},
+		{e: ">	   cmd\nleft", left: "left", want: PipeTo(Dot, "cmd")},
+		{e: ">cmd\\nleft", want: PipeTo(Dot, "cmd\nleft")},
+		{e: ">	   cmd\\nleft", want: PipeTo(Dot, "cmd\nleft")},
+		{e: "  	>cmd", want: PipeTo(Dot, "cmd")},
+		{e: ",>cmd", want: PipeTo(All, "cmd")},
+		{e: "$>cmd", want: PipeTo(End, "cmd")},
+		{e: ",	  >cmd", want: PipeTo(All, "cmd")},
+		{e: "  	,	  >cmd", want: PipeTo(All, "cmd")},
+		{e: ",+3>cmd", want: PipeTo(Line(0).To(Dot.Plus(Line(3))), "cmd")},
+
+		{e: "<cmd", want: PipeFrom(Dot, "cmd")},
+		{e: "<	   cmd", want: PipeFrom(Dot, "cmd")},
+		{e: "<cmd\nleft", left: "left", want: PipeFrom(Dot, "cmd")},
+		{e: "<	   cmd\nleft", left: "left", want: PipeFrom(Dot, "cmd")},
+		{e: "<cmd\\nleft", want: PipeFrom(Dot, "cmd\nleft")},
+		{e: "<	   cmd\\nleft", want: PipeFrom(Dot, "cmd\nleft")},
+		{e: "  	<cmd", want: PipeFrom(Dot, "cmd")},
+		{e: ",<cmd", want: PipeFrom(All, "cmd")},
+		{e: "$<cmd", want: PipeFrom(End, "cmd")},
+		{e: ",	  <cmd", want: PipeFrom(All, "cmd")},
+		{e: "  	,	  <cmd", want: PipeFrom(All, "cmd")},
+		{e: ",+3<cmd", want: PipeFrom(Line(0).To(Dot.Plus(Line(3))), "cmd")},
 	}
 	for _, test := range tests {
 		e, left, err := Ed([]rune(test.e))

@@ -39,6 +39,43 @@ type ReaderFrom interface {
 	ReadFrom(Reader) (int64, error)
 }
 
+type utf8Reader struct {
+	r   Reader
+	buf *bytes.Buffer
+}
+
+// UTF8Reader returns a buffering io.Reader that reads UTF8 from r.
+func UTF8Reader(r Reader) io.Reader {
+	return utf8Reader{r: r, buf: bytes.NewBuffer(nil)}
+}
+
+func (r utf8Reader) Read(p []byte) (int, error) {
+	if err := r.fill(len(p)); err != nil {
+		return 0, err
+	}
+	return r.buf.Read(p)
+}
+
+func (r utf8Reader) fill(min int) error {
+	if r.buf.Len() > 0 {
+		return nil
+	}
+	if min < MinRead {
+		min = MinRead
+	}
+	rs := make([]rune, min)
+	n, err := r.r.Read(rs)
+	for i := 0; i < n; i++ {
+		if _, err := r.buf.WriteRune(rs[i]); err != nil {
+			return err
+		}
+	}
+	if err != nil && err != io.EOF {
+		return err
+	}
+	return nil
+}
+
 type utf8Writer struct{ w io.Writer }
 
 // UTF8Writer returns a Writer that writes UTF8 to w.
