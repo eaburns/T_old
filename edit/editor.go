@@ -17,9 +17,9 @@ const MaxRunes = 4096
 // A Buffer is an editable rune buffer.
 type Buffer struct {
 	sync.Mutex
-	runes    *runes.Buffer
-	eds      []*Editor
-	seq, who int32
+	runes *runes.Buffer
+	eds   []*Editor
+	seq   int32
 }
 
 // NewBuffer returns a new, empty Buffer.
@@ -81,11 +81,9 @@ func NewEditor(buf *Buffer) *Editor {
 	defer buf.Unlock()
 	ed := &Editor{
 		buf:     buf,
-		who:     buf.who,
 		marks:   make(map[rune]addr),
 		pending: newLog(),
 	}
-	buf.who++
 	buf.eds = append(buf.eds, ed)
 	return ed
 }
@@ -284,7 +282,7 @@ func inSequence(l *log) bool {
 }
 
 func pend(ed *Editor, at addr, src runes.Reader) error {
-	return ed.pending.append(ed.buf.seq, ed.who, at, src)
+	return ed.pending.append(ed.buf.seq, at, src)
 }
 
 func (ed *Editor) lines(at addr) (l0, l1 int64, err error) {

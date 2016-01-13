@@ -43,12 +43,9 @@ type header struct {
 	// Seq is a sequence number that uniqely identifies
 	// the edit that made this change.
 	seq int32
-	// Who is a unique identifier
-	// of the Editor that made the change.
-	who int32
 }
 
-const headerRunes = 10
+const headerRunes = 9
 
 func (h *header) marshal() []rune {
 	var rs [headerRunes]int32
@@ -61,7 +58,6 @@ func (h *header) marshal() []rune {
 	rs[6] = int32(h.size >> 32)
 	rs[7] = int32(h.size & 0xFFFFFFFF)
 	rs[8] = h.seq
-	rs[9] = h.who
 	return rs[:]
 }
 
@@ -74,10 +70,9 @@ func (h *header) unmarshal(data []rune) {
 	h.at.to = int64(data[4])<<32 | int64(data[5])
 	h.size = int64(data[6])<<32 | int64(data[7])
 	h.seq = data[8]
-	h.who = data[9]
 }
 
-func (l *log) append(seq, who int32, at addr, src runes.Reader) error {
+func (l *log) append(seq int32, at addr, src runes.Reader) error {
 	prev := l.last
 	l.last = l.buf.Size()
 	n, err := runes.Copy(l.buf.Writer(l.last), src)
@@ -90,7 +85,6 @@ func (l *log) append(seq, who int32, at addr, src runes.Reader) error {
 		at:   at,
 		size: n,
 		seq:  seq,
-		who:  who,
 	}
 	return l.buf.Insert(h.marshal(), l.last)
 }

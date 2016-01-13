@@ -28,7 +28,7 @@ func TestEntryEmpty(t *testing.T) {
 
 func TestEntryWrap(t *testing.T) {
 	entries := []testEntry{
-		{seq: 0, who: 0, at: addr{0, 0}, str: "Hello, World!"},
+		{seq: 0, at: addr{0, 0}, str: "Hello, World!"},
 	}
 	l := initTestLog(t, entries)
 	defer l.close()
@@ -53,10 +53,10 @@ func TestEntryWrap(t *testing.T) {
 
 func TestEntryBackAndForth(t *testing.T) {
 	entries := []testEntry{
-		{seq: 0, who: 0, at: addr{0, 0}, str: "Hello, World!"},
-		{seq: 1, who: 0, at: addr{0, 5}, str: "Foo, Bar, Baz"},
-		{seq: 1, who: 0, at: addr{8, 10}, str: "Ms. Pepper"},
-		{seq: 2, who: 1, at: addr{20, 50}, str: "Hello, 世界"},
+		{seq: 0, at: addr{0, 0}, str: "Hello, World!"},
+		{seq: 1, at: addr{0, 5}, str: "Foo, Bar, Baz"},
+		{seq: 1, at: addr{8, 10}, str: "Ms. Pepper"},
+		{seq: 2, at: addr{20, 50}, str: "Hello, 世界"},
 	}
 	l := initTestLog(t, entries)
 	defer l.close()
@@ -84,10 +84,10 @@ func TestEntryBackAndForth(t *testing.T) {
 
 func TestLogAt(t *testing.T) {
 	entries := []testEntry{
-		{seq: 0, who: 0, at: addr{0, 0}, str: "Hello, World!"},
-		{seq: 1, who: 0, at: addr{0, 5}, str: "Foo, Bar, Baz"},
-		{seq: 1, who: 0, at: addr{8, 10}, str: "Ms. Pepper"},
-		{seq: 2, who: 1, at: addr{20, 50}, str: "Hello, 世界"},
+		{seq: 0, at: addr{0, 0}, str: "Hello, World!"},
+		{seq: 1, at: addr{0, 5}, str: "Foo, Bar, Baz"},
+		{seq: 1, at: addr{8, 10}, str: "Ms. Pepper"},
+		{seq: 2, at: addr{20, 50}, str: "Hello, 世界"},
 	}
 	l := initTestLog(t, entries)
 	defer l.close()
@@ -109,10 +109,10 @@ func TestLogAt(t *testing.T) {
 
 func TestEntryError(t *testing.T) {
 	entries := []testEntry{
-		{seq: 0, who: 0, at: addr{0, 0}, str: "Hello, World!"},
-		{seq: 1, who: 2, at: addr{0, 5}, str: "Foo, Bar, Baz"},
-		{seq: 1, who: 2, at: addr{8, 10}, str: "Ms. Pepper"},
-		{seq: 2, who: 1, at: addr{20, 50}, str: "Hello, 世界"},
+		{seq: 0, at: addr{0, 0}, str: "Hello, World!"},
+		{seq: 1, at: addr{0, 5}, str: "Foo, Bar, Baz"},
+		{seq: 1, at: addr{8, 10}, str: "Ms. Pepper"},
+		{seq: 2, at: addr{20, 50}, str: "Hello, 世界"},
 	}
 	l := initTestLog(t, entries)
 	defer l.close()
@@ -128,22 +128,20 @@ func TestEntryError(t *testing.T) {
 
 func TestEntryStore(t *testing.T) {
 	entries := []testEntry{
-		{seq: 0, who: 0, at: addr{0, 0}, str: "Hello, World!"},
-		{seq: 1, who: 2, at: addr{0, 5}, str: "Foo, Bar, Baz"},
-		{seq: 1, who: 2, at: addr{8, 10}, str: "Ms. Pepper"},
-		{seq: 2, who: 1, at: addr{20, 50}, str: "Hello, 世界"},
+		{seq: 0, at: addr{0, 0}, str: "Hello, World!"},
+		{seq: 1, at: addr{0, 5}, str: "Foo, Bar, Baz"},
+		{seq: 1, at: addr{8, 10}, str: "Ms. Pepper"},
+		{seq: 2, at: addr{20, 50}, str: "Hello, 世界"},
 	}
 	l := initTestLog(t, entries)
 
 	// Modify an entry.
 	e1 := logFirst(l).next()
-	e1.who = 123
 	if err := e1.store(); err != nil {
 		t.Fatalf("e1.store()=%v, want nil", err)
 	}
 
 	// Check that the entry is modified and others are not.
-	entries[1].who = 123
 	e := logFirst(l)
 	for i := range entries {
 		checkEntry(t, i, entries, e)
@@ -152,9 +150,9 @@ func TestEntryStore(t *testing.T) {
 }
 
 type testEntry struct {
-	seq, who int32
-	at       addr
-	str      string
+	seq int32
+	at  addr
+	str string
 }
 
 func checkEntry(t *testing.T, i int, entries []testEntry, e entry) {
@@ -164,9 +162,6 @@ func checkEntry(t *testing.T, i int, entries []testEntry, e entry) {
 	}
 	if e.seq != te.seq {
 		t.Fatalf("entry %d: e.h.seq=%v, want %v\n", i, e.seq, te.seq)
-	}
-	if e.who != te.who {
-		t.Fatalf("entry %d: e.h.who=%v, want %v\n", i, e.who, te.who)
 	}
 	if e.at != te.at {
 		t.Fatalf("entry %d: e.h.at=%v, want %v\n", i, e.at, te.at)
@@ -178,7 +173,7 @@ func initTestLog(t *testing.T, entries []testEntry) *log {
 	l := newLog()
 	for _, e := range entries {
 		r := runes.StringReader(e.str)
-		if err := l.append(e.seq, e.who, e.at, r); err != nil {
+		if err := l.append(e.seq, e.at, r); err != nil {
 			t.Fatalf("l.append(%v, %v, %q)=%v", e.seq, e.at, e.str, err)
 		}
 	}
