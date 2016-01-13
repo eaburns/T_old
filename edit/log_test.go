@@ -149,6 +149,49 @@ func TestEntryStore(t *testing.T) {
 	}
 }
 
+func TestEntryPop(t *testing.T) {
+	entries := []testEntry{
+		{seq: 0, str: "Hello, World"},
+		{seq: 1, str: "☹☺"},
+		{seq: 1, str: "---"},
+		{seq: 1, str: "aeu"},
+		{seq: 2, str: "Testing 123"},
+	}
+	l := initTestLog(t, entries)
+
+	seq2 := logLast(l)
+	if err := seq2.pop(); err != nil {
+		t.Fatalf("seq2.pop()=%v, want nil", err)
+	}
+	// {seq: 1, str: "aeu"}
+	checkEntry(t, len(entries)-2, entries, logLast(l))
+
+	seq1 := logLast(l).prev().prev()
+	// {seq: 1, str: "☹☺"}
+	checkEntry(t, 1, entries, seq1)
+	if err := seq1.pop(); err != nil {
+		t.Fatalf("seq1.pop()=%v, want nil", err)
+	}
+	// {seq: 0, str: "Hello, World"}
+	checkEntry(t, 0, entries, logLast(l))
+
+	seq0 := logLast(l)
+	if err := seq0.pop(); err != nil {
+		t.Fatalf("seq0.pop()=%v, want nil", err)
+	}
+	if !logLast(l).end() {
+		t.Fatal("popped last entry, log is not empty")
+	}
+
+	end := logLast(l)
+	if err := end.pop(); err != nil {
+		t.Fatalf("end.pop()=%v, want nil", err)
+	}
+	if !logLast(l).end() {
+		t.Fatal("popped end entry, log is not empty")
+	}
+}
+
 type testEntry struct {
 	seq int32
 	at  addr

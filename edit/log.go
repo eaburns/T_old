@@ -197,3 +197,18 @@ func (e entry) data() runes.Reader {
 	from := e.offs + headerRunes
 	return runes.LimitReader(e.l.buf.Reader(from), e.size)
 }
+
+// Pop removes this entry and all following it from the log.
+// Popping the end entry is a no-op.
+func (e entry) pop() error {
+	if e.end() {
+		return nil
+	}
+	l := e.l
+	if p := e.prev(); p.end() {
+		l.last = 0
+	} else {
+		l.last = p.offs
+	}
+	return e.l.buf.Delete(l.buf.Size()-e.offs, e.offs)
+}
