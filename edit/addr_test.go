@@ -301,6 +301,10 @@ func TestAddr(t *testing.T) {
 	}{
 		{a: "", want: nil},
 		{a: " ", want: nil},
+		{a: "u", want: nil, left: "u"},
+		{a: " u", want: nil, left: "u"},
+		{a: "r", want: nil, left: "r"},
+		{a: " r", want: nil, left: "r"},
 		{a: "\t\t", want: nil},
 		{a: "\t\n\txyz", left: "\txyz", want: nil},
 		{a: "\n#1", left: "#1", want: nil},

@@ -590,6 +590,46 @@ func (e pipe) do(ed *Editor, w io.Writer) (addr, error) {
 	return at, nil
 }
 
+type undo int
+
+// Undo returns an Edit
+// that undoes the n most recent changes
+// made to the buffer,
+// and sets dot to the address
+// covering the last undone change.
+func Undo(n int) Edit { return undo(n) }
+
+func (e undo) String() string {
+	str := strconv.Itoa(int(e))
+	if e <= 0 {
+		panic("bad undo: " + str)
+	}
+	return "u" + str
+}
+
+// Undo is special-cased by Editor.Do.
+func (e undo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
+
+type redo int
+
+// Redo returns an Edit
+// that redoes the n most recent changes
+// undone by an Undo edit,
+// and sets dot to the address
+// covering the last redone change.
+func Redo(n int) Edit { return redo(n) }
+
+func (e redo) String() string {
+	str := strconv.Itoa(int(e))
+	if e <= 0 {
+		panic("bad redo: " + str)
+	}
+	return "r" + str
+}
+
+// Redo is special-cased by Editor.Do.
+func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
+
 // Ed parses and returns an Edit and the remaining, unparsed runes.
 //
 // In the following, text surrounded by / represents delimited text.
@@ -671,6 +711,18 @@ func (e pipe) do(ed *Editor, w io.Writer) (addr, error) {
 //		Parsing of cmd is termiated by
 //		either a newline or the end of input.
 //		Within cmd, \n is interpreted as a newline literal.
+//	u{n}
+//		Undoes the n most recent changes
+// 		made to the buffer by any editor.
+//		If n is not specified, it defaults to 1.
+//		Dot is set to the address covering
+// 		the last undone change.
+//	r{n}
+//		Redoes the n most recent changes
+//		undone by any editor.
+//		If n is not specified, it defaults to 1.
+//		Dot is set to the address covering
+// 		the last redone change.
 func Ed(e []rune) (Edit, []rune, error) {
 	edit, left, err := ed(e)
 	for len(left) > 0 && unicode.IsSpace(left[0]) {
@@ -684,11 +736,31 @@ func Ed(e []rune) (Edit, []rune, error) {
 }
 
 func ed(e []rune) (edit Edit, left []rune, err error) {
-	a, e, err := addrOrDot(e)
+	a, e, err := parseCompoundAddr(e)
 	switch {
 	case err != nil:
 		return nil, e, err
-	case len(e) == 0 || e[0] == '\n':
+	case a == nil && len(e) > 0:
+		switch e[0] {
+		case 'u':
+			n, e, err := parseNumber(e[1:])
+			if err != nil {
+				return nil, e, err
+			}
+			return Undo(n), e, nil
+
+		case 'r':
+			n, e, err := parseNumber(e[1:])
+			if err != nil {
+				return nil, e, err
+			}
+			return Redo(n), e, nil
+		}
+		fallthrough
+	case a == nil:
+		a = Dot
+	}
+	if len(e) == 0 || e[0] == '\n' {
 		return Set(a, '.'), e, nil
 	}
 	switch c, e := e[0], e[1:]; c {
@@ -847,15 +919,18 @@ func parseMarkRune(e []rune) (rune, []rune, error) {
 	return ' ', e[i:], errors.New("bad mark: " + string(e[i]))
 }
 
-// parseNumber parses and returns a positive integer. The first returned
-// value is the parsed number, the second is the number of runes parsed.
+// ParseNumber parses and returns a positive integer.
+// The first returned value is the number,
+// the second is the number of runes parsed.
+// If there is no error and 0 runes are parsed,
+// the number returned is 1.
 func parseNumber(e []rune) (int, []rune, error) {
 	for len(e) > 0 && unicode.IsSpace(e[0]) && e[0] != '\n' {
 		e = e[1:]
 	}
 
 	i := 0
-	n := 1 // by default use the first instance
+	n := 1 // by default return 1
 	var err error
 	for len(e) > i && unicode.IsDigit(e[i]) {
 		i++
