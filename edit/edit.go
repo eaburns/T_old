@@ -1,7 +1,132 @@
 // Copyright © 2015, The T Authors.
 
-// Package edit provides sam-style editing of rune buffers.
-// See sam(1) for an overview: http://swtch.com/plan9port/man/man1/sam.html.
+// Package edit provides a language and functions for editing buffers of runes.
+// This package is heavily inspired by the text editor Sam.
+// In fact, the edit language of this package
+// is a dialect of the edit language of Sam.
+// So, for background, see the sam(1) manual page:
+// http://swtch.com/plan9port/man/man1/sam.html.
+//
+// This package has four primary types: Buffer, Editor, Address, and Edit.
+// These are described in detail below.
+//
+// Buffer
+//
+// Buffers are infinite-capacity, disk-backed, buffers of runes.
+// New buffers, created with the NewBuffer function, are empty.
+// The only operation that can be done directly to a buffer is closing it
+// with the Buffer.Close method.
+// All other operations are done using an Editor.
+//
+// Editor
+//
+// Editors view and modify buffers.
+// Multiple Editors may operate on a single Buffer concurrently.
+// However, each Editor maintains its own state.
+// This state includes both 'dot'
+// (which is what T calls the position of the cursor)
+// and 'marks' (which are like bookmarks into a Buffer).
+//
+// One common use of an Editor is to call its Do.
+// The Do method performs an Edit, which changes the Buffer,
+// typically at a particular Address.
+// Editors can also allow for streaming changes to be made.
+// Streaming changes update the contents at an Address in the Buffer
+// using the data read from an io.Reader.
+// Likewise Editors can provide a streaming view of the Buffer
+// by writing the contents at an Address to an io.Writer.
+//
+// Address
+//
+// Addresses identify a substring of runes within a buffer.
+// They can be constructed in two different ways.
+//
+// The first way is by parsing a string in T's address language.
+// This is intended for handling addresses from user input.
+// An Address, specified by the user, can be parsed using the Addr function.
+// The return value is the Address,
+// the left over characters that weren't part of the parsed Address,
+// and any errors encountered while parsing.
+//
+// For example:
+// 	addr, leftOver, err := Addr([]rune("1+#3,/the/+8"))
+//
+// For details about the address language,
+// see the document on the Addr function below.
+//
+// The second ways is by using function and method calls.
+// This is intended for creating Addresses programmatically or in source code.
+// The functions and methods make it difficult to create an invalid address.
+// Errors creating addresses this way
+// are typically reported by the compiler
+// at compile-time.
+//
+// For example:
+//	addr := Line(1).Plus(Rune(3)).To(Regexp("/the/").Plus(Line(8)))
+//
+// Edit
+//
+// Edits describe an operation that an Editor can perform on a Buffer.
+// Like with Addresses, they can be constructed in two different ways.
+//
+// The first way is by parsing a string in T's edit language.
+// This is intended for handling edits from user input.
+// It goes hand-in-hand with the address language.
+// In fact, the address language is a subset of the edit language.
+// An Edit, specified by the user, can be parsed using the Ed function.
+// The return value is the Edit,
+// the left over characters that weren't part of the parsed Edit,
+// and any errors encountered while parsing.
+//
+// Here's an example:
+//	edit, leftOver, err := Ed("1+#3,/the/+8 c/new text/")
+//
+// For details about the edit language,
+// see the document on the Ed function below.
+//
+// The second way is by using function calls.
+// This is intended for creating Edits programmatically or in source code.
+// Like with Addresses, this technique makes it harder to create an invalid edit,
+// and errors can be reported at compile-time.
+//
+// Here's example:
+// 	addr := Line(1).Plus(Rune(3)).To(Regexp("/the/").Plus(Line(8)))
+//	edit := Change(addr, "new text")
+//
+// Once created,
+// regardless of whether by parsing the edit language or using functions,
+// Edits can be applied using Editor.Do as described above.
+// The Do method can either
+// change the contents of the buffer,
+// change the Editor's state based on the contents of the buffer,
+// print runes from the buffer or information about the buffer to an io.Writer,
+// or a mix of the above.
+//
+// Here are a few examples:
+// 	ed := NewEditor(NewBuffer())
+//	// Discards any printed output, of which there is none from the Insert Edit.
+//	ed.Do(Insert(End, "Hello, World!"), ioutil.Discard)
+//	// Prints the runes within the given address to standard output.
+//	ed.Do(Print(Rune(1).To(Rune(10)), os.Stdout)
+//	// Substitutes "World" with "世界". Nothing is printed.
+//	ed.Do(Sub("/World/", "世界"), ioutil.Discard)
+//	// Prints the address of dot, the cursor, to standard output.
+//	ed.Do(Where(Dot), os.Stdout)
+//
+// A note on regular expressions
+//
+// T has its own regular expression implementation,
+// documented here:
+// https://godoc.org/github.com/eaburns/T/re1.
+// It is very similar to Plan9 and Sam regular expressions.
+//
+// The Go regexp package is very good, why not use it?
+// Simply put, it's API doesn't support all operations
+// required for T's address language.
+// In particular, implementing wrapping would be inefficient
+// using its RunesReader-based functions.
+// Instead, we decided to implement a very simple regexp language
+// — the same one (almost) used by Sam and Acme.
 package edit
 
 import (
