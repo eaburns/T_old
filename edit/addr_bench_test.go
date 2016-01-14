@@ -1,4 +1,5 @@
 // Copyright © 2015, The T Authors.
+
 // Copied from go/test/bench/go1/regexp_test.go,
 // which has the following notice:
 //
