@@ -7,10 +7,10 @@ The current incarnation of T
 is just a text editing library.
 It implements a dialect of the Sam language.
 This language is used for
-editing buffers of unicode characters
-which, like the Go programming langage in which it is written,
+editing buffers of Unicode characters
+which, like the Go programming language in which it is written,
 T calls runes.
-(See https://godoc.org/github.com/eaburns/T/edit for more info.)
+See https://godoc.org/github.com/eaburns/T/edit for more info.
 
 In the future,
 T will use this library
