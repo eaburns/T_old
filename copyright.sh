@@ -7,7 +7,7 @@ for f in $(find . -name \*.go); do
 		continue
 	fi
 	mv $f ${f}~
-	echo "// Copyright © 2015, The T Authors.\n" > $f
+	echo "// Copyright © 2016, The T Authors.\n" > $f
 	cat ${f}~ >> $f	
 	rm ${f}~
 done
