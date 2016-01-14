@@ -42,7 +42,17 @@ func newBuffer(rs *runes.Buffer) *Buffer {
 func (buf *Buffer) Close() error {
 	buf.Lock()
 	defer buf.Unlock()
-	return buf.runes.Close()
+	errs := []error{
+		buf.runes.Close(),
+		buf.undo.close(),
+		buf.redo.close(),
+	}
+	for _, e := range errs {
+		if e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 // Size returns the number of runes in the Buffer.
