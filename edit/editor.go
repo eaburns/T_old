@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"errors"
 	"io"
+	"os"
 	"sync"
 
 	"github.com/eaburns/T/edit/runes"
@@ -17,9 +18,10 @@ const MaxRunes = 4096
 // A Buffer is an editable rune buffer.
 type Buffer struct {
 	sync.Mutex
-	runes    *runes.Buffer
-	eds      []*Editor
-	seq, who int32
+	runes      *runes.Buffer
+	eds        []*Editor
+	seq        int32
+	undo, redo *log
 }
 
 // NewBuffer returns a new, empty Buffer.
@@ -27,7 +29,13 @@ func NewBuffer() *Buffer {
 	return newBuffer(runes.NewBuffer(1 << 12))
 }
 
-func newBuffer(rs *runes.Buffer) *Buffer { return &Buffer{runes: rs} }
+func newBuffer(rs *runes.Buffer) *Buffer {
+	return &Buffer{
+		runes: rs,
+		undo:  newLog(),
+		redo:  newLog(),
+	}
+}
 
 // Close closes the Buffer.
 // After Close is called, the Buffer is no longer editable.
@@ -81,11 +89,9 @@ func NewEditor(buf *Buffer) *Editor {
 	defer buf.Unlock()
 	ed := &Editor{
 		buf:     buf,
-		who:     buf.who,
 		marks:   make(map[rune]addr),
 		pending: newLog(),
 	}
-	buf.who++
 	buf.eds = append(buf.eds, ed)
 	return ed
 }
@@ -190,7 +196,14 @@ func (ed *Editor) Where(a Address) (addr, error) {
 
 // Do performs an Edit on the Editor's Buffer.
 func (ed *Editor) Do(e Edit, w io.Writer) error {
-	return ed.do(func() (addr, error) { return e.do(ed, w) })
+	switch e := e.(type) {
+	case undo:
+		return ed.undoRedo(int(e), ed.undo1)
+	case redo:
+		return ed.undoRedo(int(e), ed.redo1)
+	default:
+		return ed.do(func() (addr, error) { return e.do(ed, w) })
+	}
 }
 
 // Do applies changes to an Editor's Buffer.
@@ -233,7 +246,18 @@ func (ed *Editor) do(f func() (addr, error)) error {
 		return err
 	}
 
+	if err := ed.buf.redo.clear(); err != nil {
+		return err
+	}
+
 	for e := logFirst(ed.pending); !e.end(); e = e.next() {
+		undoAt := addr{from: e.at.from, to: e.at.from + e.size}
+		undoSrc := ed.buf.runes.Reader(e.at.from)
+		undoSrc = runes.LimitReader(undoSrc, e.at.size())
+		if err := ed.buf.undo.append(ed.buf.seq, undoAt, undoSrc); err != nil {
+			return err
+		}
+
 		if err := ed.buf.change(e.at, e.data()); err != nil {
 			// TODO(eaburns): Very bad; what should we do?
 			return err
@@ -284,7 +308,126 @@ func inSequence(l *log) bool {
 }
 
 func pend(ed *Editor, at addr, src runes.Reader) error {
-	return ed.pending.append(ed.buf.seq, ed.who, at, src)
+	return ed.pending.append(ed.buf.seq, at, src)
+}
+
+func (ed *Editor) undoRedo(n int, undoRedo1 func() (addr, error)) (err error) {
+	ed.buf.Lock()
+	defer ed.buf.Unlock()
+
+	if n <= 0 {
+		return os.ErrInvalid
+	}
+
+	marks0 := make(map[rune]addr, len(ed.marks))
+	for r, a := range ed.marks {
+		marks0[r] = a
+	}
+	defer func() { ed.marks = marks0 }()
+
+	for i := 0; i < n; i++ {
+		dot, err := undoRedo1()
+		if err != nil {
+			return err
+		}
+		ed.marks['.'] = dot
+	}
+
+	ed.buf.seq++
+	marks0 = ed.marks
+	return nil
+}
+
+// Undo1 undoes the most recent
+// sequence of changes.
+// A sequence of changes is one in which
+// all changes have the same seq.
+// It returns the address that covers
+// all changes in the sequence.
+// If nothing is undone, dot is returned.
+func (ed *Editor) undo1() (addr, error) {
+	e := logLast(ed.buf.undo)
+	if e.end() {
+		return ed.marks['.'], nil
+	}
+	for {
+		prev := e.prev()
+		if prev.end() || prev.seq != e.seq {
+			break
+		}
+		e = prev
+	}
+
+	all := addr{from: ed.buf.size() + 1, to: -1}
+	start := e
+	for !e.end() {
+		redoAt := addr{from: e.at.from, to: e.at.from + e.size}
+		redoSrc := ed.buf.runes.Reader(e.at.from)
+		redoSrc = runes.LimitReader(redoSrc, e.at.size())
+		if err := ed.buf.redo.append(ed.buf.seq, redoAt, redoSrc); err != nil {
+			return addr{}, err
+		}
+
+		// There is no need to call all.update,
+		// because changes always apply
+		// in sequence of increasing addresses.
+		if e.at.from < all.from {
+			all.from = e.at.from
+		}
+		if to := e.at.from + e.size; to > all.to {
+			all.to = to
+		}
+
+		if err := ed.buf.change(e.at, e.data()); err != nil {
+			return addr{}, err
+		}
+		e = e.next()
+	}
+	return all, start.pop()
+}
+
+// Redo1 redoes the most recent
+// sequence of changes.
+// A sequence of changes is one in which
+// all changes have the same seq.
+// It returns the address that covers
+// all changes in the sequence.
+// If nothing is undone, dot is returned.
+func (ed *Editor) redo1() (addr, error) {
+	e := logLast(ed.buf.redo)
+	if e.end() {
+		return ed.marks['.'], nil
+	}
+
+	all := addr{from: ed.buf.size() + 1, to: -1}
+	for {
+		undoAt := addr{from: e.at.from, to: e.at.from + e.size}
+		undoSrc := ed.buf.runes.Reader(e.at.from)
+		undoSrc = runes.LimitReader(undoSrc, e.at.size())
+		if err := ed.buf.undo.append(ed.buf.seq, undoAt, undoSrc); err != nil {
+			return addr{}, err
+		}
+
+		// There is no need to call all.update,
+		// because changes always apply
+		// in sequence of increasing addresses.
+		if e.at.from < all.from {
+			all.from = e.at.from
+		}
+		if to := e.at.from + e.size; to > all.to {
+			all.to = to
+		}
+
+		if err := ed.buf.change(e.at, e.data()); err != nil {
+			return addr{}, err
+		}
+		if p := e.prev(); p.end() || p.seq != e.seq {
+			break
+		} else {
+			e = p
+		}
+	}
+	return all, e.pop()
 }
 
 func (ed *Editor) lines(at addr) (l0, l1 int64, err error) {

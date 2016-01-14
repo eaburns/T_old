@@ -4,6 +4,8 @@ package edit
 
 import (
 	"bytes"
+	"io/ioutil"
+	"os"
 	"reflect"
 	"regexp"
 	"testing"
@@ -521,6 +523,279 @@ func (test eTest) run1(t *testing.T) {
 	}
 }
 
+func dotAt(from, to int64) map[rune]addr {
+	return map[rune]addr{'.': addr{from, to}}
+}
+
+func TestUndoEdit(t *testing.T) {
+	tests := []undoTest{
+		{
+			name: "undo -1",
+			e:    Undo(-1),
+			err:  os.ErrInvalid,
+		},
+		{
+			name: "empty undo 1",
+			e:    Undo(1),
+			want: "",
+		},
+		{
+			name: "empty undo 100",
+			e:    Undo(100),
+			want: "",
+		},
+		{
+			name:  "1 append, undo 1",
+			init:  []Edit{Append(End, "abc")},
+			e:     Undo(1),
+			want:  "",
+			marks: dotAt(0, 0),
+		},
+		{
+			name:  "2 appends, undo 1",
+			init:  []Edit{Append(End, "abc"), Append(End, "xyz")},
+			e:     Undo(1),
+			want:  "abc",
+			marks: dotAt(3, 3),
+		},
+		{
+			name:  "2 appends, undo 2",
+			init:  []Edit{Append(End, "abc"), Append(End, "xyz")},
+			e:     Undo(2),
+			want:  "",
+			marks: dotAt(0, 0),
+		},
+		{
+			name:  "2 appends, undo 3",
+			init:  []Edit{Append(End, "abc"), Append(End, "xyz")},
+			e:     Undo(3),
+			want:  "",
+			marks: dotAt(0, 0),
+		},
+		{
+			name:  "1 delete, undo 1",
+			init:  []Edit{Append(End, "abc"), Delete(All)},
+			e:     Undo(1),
+			want:  "abc",
+			marks: dotAt(0, 3),
+		},
+		{
+			name: "2 deletes, undo 1",
+			init: []Edit{
+				Append(End, "abc"),
+				Delete(Rune(2).To(End)),
+				Delete(Rune(1).To(End)),
+			},
+			e:     Undo(1),
+			want:  "ab",
+			marks: dotAt(1, 2),
+		},
+		{
+			name: "2 deletes, undo 2",
+			init: []Edit{
+				Append(End, "abc"),
+				Delete(Rune(2).To(End)),
+				Delete(Rune(1).To(End)),
+			},
+			e:     Undo(2),
+			want:  "abc",
+			marks: dotAt(2, 3),
+		},
+		{
+			name: "delete middle, undo",
+			init: []Edit{
+				Append(End, "abc"),
+				Delete(Rune(1).To(Rune(2))),
+			},
+			e:     Undo(1),
+			want:  "abc",
+			marks: dotAt(1, 2),
+		},
+		{
+			name: "multi-change undo",
+			init: []Edit{
+				Append(End, "a.a.a"),
+				SubGlobal(All, "/[.]/", "z"),
+			},
+			e:     Undo(1),
+			want:  "a.a.a",
+			marks: dotAt(1, 4),
+		},
+		{
+			name: "undo maintains marks",
+			init: []Edit{
+				Append(End, "abcXXX"),
+				Set(Regexp("/XXX"), 'm'),
+				Delete(Regexp("/b")),
+			},
+			e:    Undo(1),
+			want: "abcXXX",
+			marks: map[rune]addr{
+				'.': addr{1, 2},
+				'm': addr{3, 6},
+			},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestRedoEdit(t *testing.T) {
+	tests := []undoTest{
+		{
+			name: "redo -1",
+			e:    Redo(-1),
+			err:  os.ErrInvalid,
+		},
+		{
+			name: "empty redo 1",
+			init: []Edit{Append(End, "abc")},
+			e:    Redo(1),
+			want: "abc",
+		},
+		{
+			name: "empty redo 100",
+			init: []Edit{Append(End, "abc")},
+			e:    Redo(100),
+			want: "abc",
+		},
+		{
+			name:  "undo 1 append redo 1",
+			init:  []Edit{Append(End, "abc"), Undo(1)},
+			e:     Redo(1),
+			want:  "abc",
+			marks: dotAt(0, 3),
+		},
+		{
+			name:  "undo 1 append redo 2",
+			init:  []Edit{Append(End, "abc"), Undo(1)},
+			e:     Redo(2),
+			want:  "abc",
+			marks: dotAt(0, 3),
+		},
+		{
+			name:  "undo 2 appends redo 1",
+			init:  []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(2)},
+			e:     Redo(1),
+			want:  "abcxyz",
+			marks: dotAt(0, 6),
+		},
+		{
+			name:  "undo undo appends redo 1",
+			init:  []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(1), Undo(1)},
+			e:     Redo(1),
+			want:  "abc",
+			marks: dotAt(0, 3),
+		},
+		{
+			name: "multi-change redo",
+			init: []Edit{
+				Append(End, "a.a.a"),
+				SubGlobal(All, "/[.]/", "z"),
+				Undo(1),
+			},
+			e:     Redo(1),
+			want:  "azaza",
+			marks: dotAt(1, 4),
+		},
+		{
+			name: "redo maintains marks",
+			init: []Edit{
+				Append(End, "abcXXX"),
+				Set(Regexp("/XXX"), 'm'),
+				Delete(Regexp("/b")),
+				Undo(1),
+			},
+			e:    Redo(1),
+			want: "acXXX",
+			marks: map[rune]addr{
+				'.': addr{1, 1},
+				'm': addr{2, 5},
+			},
+		},
+		{
+			name: "append append undo undo redo undo redo",
+			init: []Edit{
+				Append(End, "abc"),
+				Append(End, "xyz"),
+				Undo(1),
+				Redo(1),
+				Undo(1),
+			},
+			e:     Redo(1),
+			want:  "abcxyz",
+			marks: dotAt(3, 6),
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+type undoTest struct {
+	name  string
+	init  []Edit
+	e     Edit
+	want  string
+	err   error
+	marks map[rune]addr
+}
+
+func (test *undoTest) run(t *testing.T) {
+	test.run1(t)
+
+	if test.err == os.ErrInvalid {
+		// If the Edit is bogus (undo/redo n ≤ 0), its .String() panics.
+		return
+	}
+
+	// Stringify, parse, and re-test the parsed Edit.
+	var err error
+	str := test.e.String()
+	test.e, _, err = Ed([]rune(str))
+	if err != nil {
+		t.Fatalf("Failed to parse %q: %v", str, err)
+	}
+	test.name = test.name + " parsed from [" + str + "]"
+	test.run1(t)
+}
+
+func (test *undoTest) run1(t *testing.T) {
+	ed := NewEditor(NewBuffer())
+	defer ed.buf.Close()
+
+	for _, e := range test.init {
+		if err := ed.Do(e, ioutil.Discard); err != nil {
+			t.Fatalf("%s init ed.Do(%q, _)=%v, want nil", test.name, e, err)
+		}
+	}
+
+	err := ed.Do(test.e, ioutil.Discard)
+
+	if test.err != nil {
+		if err == nil || test.err.Error() != err.Error() {
+			t.Fatalf("%s ed.Do(%q, _)=%v, want %q", test.name, test.e, err, test.err)
+		}
+		return
+	}
+
+	if err != nil {
+		t.Fatalf("%s ed.Do(%q, _)=%v, want nil", test.name, test.e, err)
+	}
+
+	if s := ed.String(); s != test.want {
+		t.Errorf("%s ed.Do(%q, _) leaves %q, want %q", test.name, test.e, s, test.want)
+	}
+	if test.marks != nil {
+		for m, want := range test.marks {
+			if got := ed.marks[m]; got != want {
+				t.Errorf("%s mark %c=%v, want %v", test.name, m, got, want)
+			}
+		}
+	}
+}
+
 func TestEd(t *testing.T) {
 	tests := []struct {
 		e, left string
@@ -673,6 +948,19 @@ func TestEd(t *testing.T) {
 		{e: ",	  <cmd", want: PipeFrom(All, "cmd")},
 		{e: "  	,	  <cmd", want: PipeFrom(All, "cmd")},
 		{e: ",+3<cmd", want: PipeFrom(Line(0).To(Dot.Plus(Line(3))), "cmd")},
+
+		{e: "u", want: Undo(1)},
+		{e: " u", want: Undo(1)},
+		{e: "u1", want: Undo(1)},
+		{e: " u1", want: Undo(1)},
+		{e: "u100", want: Undo(100)},
+		{e: " u100", want: Undo(100)},
+		{e: "r", want: Redo(1)},
+		{e: " r", want: Redo(1)},
+		{e: "r1", want: Redo(1)},
+		{e: " r1", want: Redo(1)},
+		{e: "r100", want: Redo(100)},
+		{e: " r100", want: Redo(100)},
 	}
 	for _, test := range tests {
 		e, left, err := Ed([]rune(test.e))
