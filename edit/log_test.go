@@ -134,6 +134,7 @@ func TestEntryStore(t *testing.T) {
 		{seq: 2, at: addr{20, 50}, str: "Hello, 世界"},
 	}
 	l := initTestLog(t, entries)
+	defer l.close()
 
 	// Modify an entry.
 	e1 := logFirst(l).next()
@@ -158,6 +159,7 @@ func TestEntryPop(t *testing.T) {
 		{seq: 2, str: "Testing 123"},
 	}
 	l := initTestLog(t, entries)
+	defer l.close()
 
 	seq2 := logLast(l)
 	if err := seq2.pop(); err != nil {

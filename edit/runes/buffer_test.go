@@ -227,6 +227,7 @@ func TestReaderFromFastPathShortReads(t *testing.T) {
 	src := &testShortReader{rs: rs, maxRead: len(rs) / 4}
 
 	dst := NewBuffer(testBlockSize * 2)
+	defer dst.Close()
 	n, err := dst.ReaderFrom(0).ReadFrom(src)
 	if n != int64(len(rs)) || err != nil {
 		t.Fatalf("dst.ReaderFrom(0).ReadFrom(src.Reader(0))=%d,%v, want %d,nil", n, err, len(rs))

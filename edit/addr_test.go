@@ -556,7 +556,7 @@ func TestIOErrors(t *testing.T) {
 		f := &errReaderAt{nil}
 		r := runes.NewBufferReaderWriterAt(1, f)
 		ed := NewEditor(newBuffer(r))
-		defer ed.Close()
+		defer ed.buf.Close()
 
 		if err := ed.buf.runes.Insert(rs, 0); err != nil {
 			t.Fatalf("ed.buf.runes.Insert(%v, 0)=%v, want nil", strconv.Quote(string(rs)), err)

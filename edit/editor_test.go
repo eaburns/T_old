@@ -26,7 +26,7 @@ func (ed *Editor) change(a Address, s string) error {
 
 func TestRetry(t *testing.T) {
 	ed := NewEditor(NewBuffer())
-	defer ed.Close()
+	defer ed.buf.Close()
 
 	const str = "Hello, 世界!"
 	ch := func() (addr, error) {
