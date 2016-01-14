@@ -344,6 +344,16 @@ func TestSubstituteEdit(t *testing.T) {
 			want: "abcdefghi ghi def abc", dot: addr{0, 21},
 		},
 		{
+			init: "...===...",
+			e:    Substitute{A: All, RE: "/(=*)/", With: `---\1---`},
+			want: "------...===...", dot: addr{0, 15},
+		},
+		{
+			init: "...===...",
+			e:    Substitute{A: All, RE: "/(=+)/", With: `---\1---`},
+			want: "...---===---...", dot: addr{0, 15},
+		},
+		{
 			init: "abc",
 			e:    Substitute{A: All, RE: "/abc/", With: `\1`},
 			want: "", dot: addr{0, 0},
