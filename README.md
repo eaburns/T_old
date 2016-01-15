@@ -1,3 +1,7 @@
+[![Build Status](https://travis-ci.org/eaburns/T.svg?branch=master)](https://travis-ci.org/eaburns/T)
+[![Coverage Status](https://coveralls.io/repos/eaburns/T/badge.svg?branch=master&service=github)](https://coveralls.io/github/eaburns/T?branch=master)
+[![GoDoc](https://godoc.org/github.com/eaburns/T?status.svg)](https://godoc.org/github.com/eaburns/T)
+
 T is a text editor
 inspired by the Acme and Sam
 editors of the [Plan9](http://plan9.bell-labs.com/plan9/) operating system
