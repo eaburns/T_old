@@ -183,7 +183,9 @@ func (a addAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 }
 
 // A SimpleAddress identifies a substring within a buffer.
-// SimpleAddresses can be composed to form composite addresses.
+// SimpleAddresses can be composed
+// using the methods of the Address interface
+// to form more-complex, composite addresses.
 type SimpleAddress interface {
 	Address
 	reverse() SimpleAddress
