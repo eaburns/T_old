@@ -37,12 +37,25 @@ func newBuffer(rs *runes.Buffer) *Buffer {
 	}
 }
 
-// Close closes the Buffer.
+// Close closes the Buffer and any Editors editing it.
 // After Close is called, the Buffer is no longer editable.
 func (buf *Buffer) Close() error {
 	buf.Lock()
 	defer buf.Unlock()
-	return buf.runes.Close()
+	errs := []error{
+		buf.runes.Close(),
+		buf.undo.close(),
+		buf.redo.close(),
+	}
+	for len(buf.eds) > 0 {
+		errs = append(errs, buf.eds[0].close())
+	}
+	for _, e := range errs {
+		if e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 // Size returns the number of runes in the Buffer.
@@ -100,11 +113,13 @@ func NewEditor(buf *Buffer) *Editor {
 func (ed *Editor) Close() error {
 	ed.buf.Lock()
 	defer ed.buf.Unlock()
+	return ed.close()
+}
 
-	eds := ed.buf.eds
-	for i := range eds {
-		if eds[i] == ed {
-			ed.buf.eds = append(eds[:i], eds[:i+1]...)
+func (ed *Editor) close() error {
+	for i := range ed.buf.eds {
+		if ed.buf.eds[i] == ed {
+			ed.buf.eds = append(ed.buf.eds[:i], ed.buf.eds[i+1:]...)
 			return ed.pending.close()
 		}
 	}
