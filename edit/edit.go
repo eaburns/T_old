@@ -4,7 +4,7 @@
 // This package is heavily inspired by the text editor Sam.
 // In fact, the edit language of this package
 // is a dialect of the edit language of Sam.
-// So, for background, see the sam(1) manual page:
+// For background, see the sam(1) manual page:
 // http://swtch.com/plan9port/man/man1/sam.html.
 //
 // This package has four primary types: Buffer, Editor, Address, and Edit.
@@ -13,14 +13,14 @@
 // Buffer
 //
 // Buffers are infinite-capacity, disk-backed, buffers of runes.
-// New buffers, created with the NewBuffer function, are empty.
-// The only operation that can be done directly to a buffer is closing it
+// New Buffers, created with the NewBuffer function, are empty.
+// The only operation that can be done directly to a Buffer is closing it
 // with the Buffer.Close method.
 // All other operations are done using an Editor.
 //
 // Editor
 //
-// Editors view and modify buffers.
+// Editors view and modify Buffers.
 // Multiple Editors may operate on a single Buffer concurrently.
 // However, each Editor maintains its own state.
 // This state includes both 'dot'
@@ -28,9 +28,10 @@
 // and 'marks' (which are like bookmarks into a Buffer).
 //
 // One common use of an Editor is to call its Do.
-// The Do method performs an Edit, which changes the Buffer,
+// The Do method performs an Edit,
+// which views or changes the Buffer,
 // typically at a particular Address.
-// Editors can also allow for streaming changes to be made.
+// Editors can also make streaming changes.
 // Streaming changes update the contents at an Address in the Buffer
 // using the data read from an io.Reader.
 // Likewise Editors can provide a streaming view of the Buffer
@@ -54,7 +55,7 @@
 // For details about the address language,
 // see the document on the Addr function below.
 //
-// The second ways is by using function and method calls.
+// The second way is by using function and method calls.
 // This is intended for creating Addresses programmatically or in source code.
 // The functions and methods make it difficult to create an invalid address.
 // Errors creating addresses this way
@@ -97,9 +98,9 @@
 // regardless of whether by parsing the edit language or using functions,
 // Edits can be applied using Editor.Do as described above.
 // The Do method can either
-// change the contents of the buffer,
-// change the Editor's state based on the contents of the buffer,
-// print runes from the buffer or information about the buffer to an io.Writer,
+// change the contents of the Buffer,
+// change the Editor's state based on the contents of the Buffer,
+// print runes from the Buffer or information about the Buffer to an io.Writer,
 // or a mix of the above.
 //
 // Here are a few examples:
