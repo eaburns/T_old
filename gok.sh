@@ -3,7 +3,7 @@
 # Verifies that go code passes go fmt, go vet, golint, and go test.
 #
 
-o=$(tempfile)
+o=$(mktemp tmp.XXXXXXXXXX)
 
 fail() {
 	echo Failed
