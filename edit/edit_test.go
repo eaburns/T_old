@@ -395,6 +395,9 @@ func TestSubstituteEdit(t *testing.T) {
 }
 
 func TestPipeFromEdit(t *testing.T) {
+	if err := os.Setenv("SHELL", DefaultShell); err != nil {
+		t.Fatal(err)
+	}
 	const (
 		s    = "Hello\n世界!"
 		echo = "echo -n '" + s + "'"
@@ -414,6 +417,9 @@ func TestPipeFromEdit(t *testing.T) {
 }
 
 func TestPipeToEdit(t *testing.T) {
+	if err := os.Setenv("SHELL", DefaultShell); err != nil {
+		t.Fatal(err)
+	}
 	const s = "Hello\n世界!"
 	tests := []eTest{
 		{e: PipeTo(End, "false"), err: "exit status 1"},
@@ -432,6 +438,9 @@ func TestPipeToEdit(t *testing.T) {
 }
 
 func TestPipeEdit(t *testing.T) {
+	if err := os.Setenv("SHELL", DefaultShell); err != nil {
+		t.Fatal(err)
+	}
 	const s = "Hello\n世界!"
 	tests := []eTest{
 		{e: Pipe(End, "false"), err: "exit status 1"},
