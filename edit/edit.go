@@ -296,24 +296,18 @@ type set struct {
 
 // Set returns an Edit
 // that sets the dot or mark m to a.
-// The mark m must be either
-// a lower-case or upper-case letter or dot: [a-zA-Z.].
-// Any other rune is an error.
-// If the mark is . then dot is set to a,
-// otherwise the named mark is set to a.
-func Set(a Address, m rune) Edit { return set{a: a, m: m} }
-
-func (e set) String() string {
-	if e.m == '.' {
-		return e.a.String() + "k"
+// The mark m can by any rune.
+// If the mark is . or whitespace then dot is set to a.
+func Set(a Address, m rune) Edit {
+	if unicode.IsSpace(m) {
+		m = '.'
 	}
-	return e.a.String() + "k" + string(e.m)
+	return set{a: a, m: m}
 }
 
+func (e set) String() string { return e.a.String() + "k" + string(e.m) }
+
 func (e set) do(ed *Editor, _ io.Writer) (addr, error) {
-	if !isMarkRune(e.m) && e.m != '.' {
-		return addr{}, errors.New("bad mark: " + string(e.m))
-	}
 	at, err := e.a.where(ed)
 	if err != nil {
 		return addr{}, err
@@ -799,11 +793,13 @@ func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
 //		and all subsequent matches in the address range are	substituted.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the modified address.
-//	{addr} k {[a-zA-Z]}
+//	{addr} k {name}
 //		Sets the named mark to the address.
 //		If an address is not supplied, dot is used.
-//		If a mark name is not given, dot is set.
-//		Dot is set to the address.
+//		The name is any non-whitespace rune.
+// 		If name is not supplied or is the rune . then dot is set.
+//		Regardless of which mark is set,
+// 		dot is also set to the address.
 //	{addr} p
 //		Returns the runes identified by the address.
 //		If an address is not supplied, dot is used.
@@ -901,10 +897,7 @@ func ed(e []rune) (edit Edit, left []rune, err error) {
 	case 'd':
 		return Delete(a), e, nil
 	case 'k':
-		mk, e, err := parseMarkRune(e)
-		if err != nil {
-			return nil, e, err
-		}
+		mk, e := parseMarkRune(e)
 		return Set(a, mk), e, nil
 	case 'p':
 		return Print(a), e, nil
@@ -1031,14 +1024,14 @@ func parseDelimited(delim rune, e []rune) ([]rune, []rune) {
 	return rs, nil
 }
 
-func parseMarkRune(e []rune) (rune, []rune, error) {
-	var i int
-	if i < len(e) && isMarkRune(e[i]) {
-		return e[i], e[i+1:], nil
-	} else if i == len(e) {
-		return '.', nil, nil
+func parseMarkRune(e []rune) (rune, []rune) {
+	for len(e) > 0 && unicode.IsSpace(e[0]) {
+		e = e[1:]
 	}
-	return ' ', e[i:], errors.New("bad mark: " + string(e[i]))
+	if len(e) == 0 {
+		return '.', nil
+	}
+	return e[0], e[1:]
 }
 
 // ParseNumber parses and returns a positive integer.
