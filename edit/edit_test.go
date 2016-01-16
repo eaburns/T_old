@@ -950,6 +950,7 @@ func TestEd(t *testing.T) {
 		{e: "s//b", err: "missing pattern"},
 		{e: "s/\n/b", err: "missing pattern"},
 		{e: "s" + strconv.FormatInt(math.MaxInt64, 10) + "0" + "/a/b/g", err: "value out of range"},
+		{e: "s/*", err: "missing operand"},
 
 		{e: "|cmd", want: Pipe(Dot, "cmd")},
 		{e: "|	   cmd", want: Pipe(Dot, "cmd")},
