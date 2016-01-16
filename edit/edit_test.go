@@ -34,6 +34,8 @@ func TestEscape(t *testing.T) {
 
 func TestChangeEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Change(Rune(1), ""), err: "address out of range"},
+
 		{
 			init: "Hello, 世界!",
 			e:    Change(Rune(0), ""),
@@ -84,6 +86,8 @@ func TestChangeEdit(t *testing.T) {
 
 func TestAppendEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Append(Rune(1), ""), err: "address out of range"},
+
 		{
 			init: "Hello, 世界!",
 			e:    Append(Rune(0), ""),
@@ -110,6 +114,8 @@ func TestAppendEdit(t *testing.T) {
 
 func TestInsertEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Insert(Rune(1), ""), err: "address out of range"},
+
 		{
 			init: "Hello, 世界!",
 			e:    Insert(Rune(0), ""),
@@ -136,6 +142,8 @@ func TestInsertEdit(t *testing.T) {
 
 func TestDeleteEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Delete(Rune(1)), err: "address out of range"},
+
 		{
 			init: "",
 			e:    Delete(All),
@@ -180,6 +188,9 @@ func TestDeleteEdit(t *testing.T) {
 
 func TestMoveEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Move(Rune(1), Rune(2)), err: "address out of range"},
+		{init: "a", e: Move(Rune(1), Rune(2)), err: "address out of range"},
+
 		{init: "abc", e: Move(Regexp("/abc/"), Rune(0)), want: "abc", dot: addr{0, 3}},
 		{init: "abc", e: Move(Regexp("/abc/"), Rune(1)), err: "overlap"},
 		{init: "abc", e: Move(Regexp("/abc/"), Rune(2)), err: "overlap"},
@@ -195,6 +206,9 @@ func TestMoveEdit(t *testing.T) {
 
 func TestCopyEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Copy(Rune(1), Rune(2)), err: "address out of range"},
+		{init: "a", e: Copy(Rune(1), Rune(3)), err: "address out of range"},
+
 		{init: "abc", e: Copy(Regexp("/abc/"), End), want: "abcabc", dot: addr{3, 6}},
 		{init: "abc", e: Copy(Regexp("/abc/"), Line(0)), want: "abcabc", dot: addr{0, 3}},
 		{init: "abc", e: Copy(Regexp("/abc/"), Rune(1)), want: "aabcbc", dot: addr{1, 4}},
@@ -209,6 +223,8 @@ func TestCopyEdit(t *testing.T) {
 func TestSetEdit(t *testing.T) {
 	const s = "Hello, 世界!"
 	tests := []eTest{
+		{e: Set(Rune(1), '.'), err: "address out of range"},
+
 		{e: Set(All, '.'), dot: addr{0, 0}},
 		{e: Set(All, 'm'), marks: map[rune]addr{'m': addr{0, 0}}},
 		{init: s, want: s, e: Set(All, '.'), dot: addr{0, 10}},
@@ -228,6 +244,8 @@ func TestSetEdit(t *testing.T) {
 func TestPrintEdit(t *testing.T) {
 	const s = "Hello, 世界!"
 	tests := []eTest{
+		{e: Print(Rune(1)), err: "address out of range"},
+
 		{e: Print(All), print: "", dot: addr{0, 0}},
 		{init: s, want: s, e: Print(All), print: s, dot: addr{0, 10}},
 		{init: s, want: s, e: Print(End), print: "", dot: addr{10, 10}},
@@ -243,6 +261,8 @@ func TestPrintEdit(t *testing.T) {
 func TestWhereEdit(t *testing.T) {
 	const s = "Hello\n 世界!"
 	tests := []eTest{
+		{e: Where(Rune(1)), err: "address out of range"},
+
 		{e: Where(All), print: "#0", dot: addr{0, 0}},
 		{init: "H\ne\nl\nl\no\n 世\n界\n!", want: "H\ne\nl\nl\no\n 世\n界\n!",
 			e: Where(All), print: "#0,#16", dot: addr{0, 16}},
@@ -261,6 +281,8 @@ func TestWhereEdit(t *testing.T) {
 func TestWhereLinesEdit(t *testing.T) {
 	const s = "Hello\n 世界!"
 	tests := []eTest{
+		{e: WhereLine(Rune(1)), err: "address out of range"},
+
 		{e: WhereLine(All), print: "1", dot: addr{0, 0}},
 		{init: "H\ne\nl\nl\no\n 世\n界\n!", want: "H\ne\nl\nl\no\n 世\n界\n!",
 			e: WhereLine(All), print: "1,8", dot: addr{0, 16}},
@@ -278,6 +300,8 @@ func TestWhereLinesEdit(t *testing.T) {
 
 func TestSubstituteEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Sub(Rune(1), "/abc", "xyz"), err: "address out of range"},
+
 		{
 			init: "Hello, 世界!",
 			e:    Substitute{A: All, RE: "/.*/", With: "", Global: true},
@@ -408,6 +432,8 @@ func TestPipeFromEdit(t *testing.T) {
 		echo = "echo -n '" + s + "'"
 	)
 	tests := []eTest{
+		{e: PipeFrom(Rune(1), "echo hi"), err: "address out of range"},
+
 		{e: PipeFrom(End, "false"), err: "exit status 1"},
 		{e: PipeFrom(End, "echo -n stderr 1>&2"), print: "stderr"},
 		{init: "", e: PipeFrom(All, echo), want: s, dot: addr{0, 9}},
@@ -427,6 +453,8 @@ func TestPipeToEdit(t *testing.T) {
 	}
 	const s = "Hello\n世界!"
 	tests := []eTest{
+		{e: PipeTo(Rune(1), "echo hi"), err: "address out of range"},
+
 		{e: PipeTo(End, "false"), err: "exit status 1"},
 		{e: PipeTo(End, "echo -n stdout"), print: "stdout"},
 		{e: PipeTo(End, "echo -n stderr 1>&2"), print: "stderr"},
@@ -448,6 +476,8 @@ func TestPipeEdit(t *testing.T) {
 	}
 	const s = "Hello\n世界!"
 	tests := []eTest{
+		{e: Pipe(Rune(1), "echo hi"), err: "address out of range"},
+
 		{e: Pipe(End, "false"), err: "exit status 1"},
 		{e: Pipe(End, "echo -n stderr 1>&2"), print: "stderr"},
 
