@@ -116,18 +116,14 @@
 //
 // A note on regular expressions
 //
-// T has its own regular expression implementation,
-// documented here:
+// The Go regexp package is very good,
+// but it doesn't support reverse matching,
+// which is required by T.
+// T has its own regexp implementation
+// called re1.
+// Re1 is an implementation of Plan9 regular expressions.
+// It is documented here:
 // https://godoc.org/github.com/eaburns/T/re1.
-// It is very similar to Plan9 and Sam regular expressions.
-//
-// The Go regexp package is very good, why not use it?
-// Simply put, it's API doesn't support all operations
-// required for T's address language.
-// In particular, implementing wrapping would be inefficient
-// using its RunesReader-based functions.
-// Instead, we decided to implement a very simple regexp language
-// — the same one (almost) used by Sam and Acme.
 package edit
 
 import (
