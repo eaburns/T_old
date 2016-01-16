@@ -316,7 +316,7 @@ func TestAddr(t *testing.T) {
 		{a: "#12345xyz", left: "xyz", want: Rune(12345)},
 		{a: " #12345xyz", left: "xyz", want: Rune(12345)},
 		{a: " #1\t\n\txyz", left: "\txyz", want: Rune(1)},
-		{a: "#" + strconv.Itoa(math.MaxInt64) + "0", err: "out of range"},
+		{a: "#" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "out of range"},
 
 		{a: "0", want: Line(0)},
 		{a: "1", want: Line(1)},
@@ -324,7 +324,7 @@ func TestAddr(t *testing.T) {
 		{a: "12345xyz", left: "xyz", want: Line(12345)},
 		{a: " 12345xyz", left: "xyz", want: Line(12345)},
 		{a: " 1\t\n\txyz", left: "\txyz", want: Line(1)},
-		{a: strconv.Itoa(math.MaxInt64) + "0", err: "out of range"},
+		{a: strconv.FormatInt(math.MaxInt64, 10) + "0", err: "out of range"},
 
 		{a: "/", want: Regexp("/")},
 		{a: "//", want: Regexp("//")},
