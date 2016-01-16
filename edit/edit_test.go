@@ -829,6 +829,7 @@ func TestEd(t *testing.T) {
 		want    Edit
 		err     string
 	}{
+		{e: "#0 UNKNOWN", err: "unknown command"},
 		{e: strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 
 		{e: "", want: Set(Dot, '.')},
