@@ -10,8 +10,8 @@ and [Plan9 from User Space](https://swtch.com/plan9port/) project.
 The current incarnation of T
 is just a text editing library.
 It implements a dialect of the Sam language.
-This language is used for
-editing buffers of Unicode characters
+This language is used for editing
+buffers of Unicode characters
 which, like the Go programming language in which it is written,
 T calls runes.
 See https://godoc.org/github.com/eaburns/T/edit for more info.
@@ -22,3 +22,7 @@ as the backend for an editor
 much like Acme.
 For a taste of Acme,
 see [Russ Cox's tour](http://research.swtch.com/acme).
+
+[This document](https://docs.google.com/document/d/1a6HoqavYRvn6OWaxeg4PGVEbnxM0VYm_ekjishCnM8s/edit?usp=sharing)
+details some thoughts about the client/server aspect of T.
+They are just thoughts and are subject to change.
