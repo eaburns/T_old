@@ -5,9 +5,11 @@ package edit
 import (
 	"bytes"
 	"io/ioutil"
+	"math"
 	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"testing"
 )
 
@@ -827,6 +829,8 @@ func TestEd(t *testing.T) {
 		want    Edit
 		err     string
 	}{
+		{e: strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
+
 		{e: "", want: Set(Dot, '.')},
 		{e: ".", want: Set(Dot, '.')},
 		{e: "  .", want: Set(Dot, '.')},
@@ -896,6 +900,7 @@ func TestEd(t *testing.T) {
 		{e: " #1 + 1 m $", want: Move(Rune(1).Plus(Line(1)), End)},
 		{e: "1m$xyz", left: "xyz", want: Move(Line(1), End)},
 		{e: "1m\n$xyz", left: "$xyz", want: Move(Line(1), Dot)},
+		{e: "m" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 
 		{e: "t", want: Copy(Dot, Dot)},
 		{e: "t/abc/", want: Copy(Dot, Regexp("/abc/"))},
@@ -904,6 +909,7 @@ func TestEd(t *testing.T) {
 		{e: " #1 + 1 t $", want: Copy(Rune(1).Plus(Line(1)), End)},
 		{e: "1t$xyz", left: "xyz", want: Copy(Line(1), End)},
 		{e: "1t\n$xyz", left: "$xyz", want: Copy(Line(1), Dot)},
+		{e: "t" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 
 		{e: "p", want: Print(Dot)},
 		{e: "pxyz", left: "xyz", want: Print(Dot)},
@@ -942,6 +948,7 @@ func TestEd(t *testing.T) {
 		{e: "s/", err: "missing pattern"},
 		{e: "s//b", err: "missing pattern"},
 		{e: "s/\n/b", err: "missing pattern"},
+		{e: "s" + strconv.FormatInt(math.MaxInt64, 10) + "0" + "/a/b/g", err: "value out of range"},
 
 		{e: "|cmd", want: Pipe(Dot, "cmd")},
 		{e: "|	   cmd", want: Pipe(Dot, "cmd")},
@@ -988,12 +995,14 @@ func TestEd(t *testing.T) {
 		{e: " u1", want: Undo(1)},
 		{e: "u100", want: Undo(100)},
 		{e: " u100", want: Undo(100)},
+		{e: "u" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 		{e: "r", want: Redo(1)},
 		{e: " r", want: Redo(1)},
 		{e: "r1", want: Redo(1)},
 		{e: " r1", want: Redo(1)},
 		{e: "r100", want: Redo(100)},
 		{e: " r100", want: Redo(100)},
+		{e: "r" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 	}
 	for _, test := range tests {
 		e, left, err := Ed([]rune(test.e))
