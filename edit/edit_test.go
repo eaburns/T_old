@@ -301,6 +301,7 @@ func TestWhereLinesEdit(t *testing.T) {
 func TestSubstituteEdit(t *testing.T) {
 	tests := []eTest{
 		{e: Sub(Rune(1), "/abc", "xyz"), err: "address out of range"},
+		{e: Substitute{A: All, RE: "/*/"}, err: "missing operand"},
 
 		{
 			init: "Hello, 世界!",
@@ -526,6 +527,11 @@ func (test eTest) run(t *testing.T) {
 	str := test.e.String()
 	test.e, _, err = Ed([]rune(str))
 	if err != nil {
+		if ok, reErr := regexp.MatchString(test.err, err.Error()); reErr != nil {
+			panic(reErr)
+		} else if ok {
+			return
+		}
 		t.Fatalf("Failed to parse %q: %v", str, err)
 	}
 	test.run1(t)
