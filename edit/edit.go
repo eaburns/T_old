@@ -713,14 +713,14 @@ type undo int
 // made to the buffer,
 // and sets dot to the address
 // covering the last undone change.
+// If n ≤ 0 then 1 change is undone.
 func Undo(n int) Edit { return undo(n) }
 
 func (e undo) String() string {
-	str := strconv.Itoa(int(e))
 	if e <= 0 {
-		panic("bad undo: " + str)
+		return "u1"
 	}
-	return "u" + str
+	return "u" + strconv.Itoa(int(e))
 }
 
 // Undo is special-cased by Editor.Do.
@@ -733,14 +733,14 @@ type redo int
 // undone by an Undo edit,
 // and sets dot to the address
 // covering the last redone change.
+// If n ≤ 0 then 1 change is redone.
 func Redo(n int) Edit { return redo(n) }
 
 func (e redo) String() string {
-	str := strconv.Itoa(int(e))
 	if e <= 0 {
-		panic("bad redo: " + str)
+		return "r1"
 	}
-	return "r" + str
+	return "r" + strconv.Itoa(int(e))
 }
 
 // Redo is special-cased by Editor.Do.

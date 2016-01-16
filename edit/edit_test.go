@@ -552,11 +552,6 @@ func dotAt(from, to int64) map[rune]addr {
 func TestUndoEdit(t *testing.T) {
 	tests := []undoTest{
 		{
-			name: "undo -1",
-			e:    Undo(-1),
-			err:  os.ErrInvalid,
-		},
-		{
 			name: "empty undo 1",
 			e:    Undo(1),
 			want: "",
@@ -570,6 +565,20 @@ func TestUndoEdit(t *testing.T) {
 			name:  "1 append, undo 1",
 			init:  []Edit{Append(End, "abc")},
 			e:     Undo(1),
+			want:  "",
+			marks: dotAt(0, 0),
+		},
+		{
+			name:  "1 append, undo 0",
+			init:  []Edit{Append(End, "abc")},
+			e:     Undo(0),
+			want:  "",
+			marks: dotAt(0, 0),
+		},
+		{
+			name:  "1 append, undo -1",
+			init:  []Edit{Append(End, "abc")},
+			e:     Undo(-1),
 			want:  "",
 			marks: dotAt(0, 0),
 		},
@@ -666,11 +675,6 @@ func TestUndoEdit(t *testing.T) {
 func TestRedoEdit(t *testing.T) {
 	tests := []undoTest{
 		{
-			name: "redo -1",
-			e:    Redo(-1),
-			err:  os.ErrInvalid,
-		},
-		{
 			name: "empty redo 1",
 			init: []Edit{Append(End, "abc")},
 			e:    Redo(1),
@@ -686,6 +690,20 @@ func TestRedoEdit(t *testing.T) {
 			name:  "undo 1 append redo 1",
 			init:  []Edit{Append(End, "abc"), Undo(1)},
 			e:     Redo(1),
+			want:  "abc",
+			marks: dotAt(0, 3),
+		},
+		{
+			name:  "undo 1 append redo 0",
+			init:  []Edit{Append(End, "abc"), Undo(1)},
+			e:     Redo(0),
+			want:  "abc",
+			marks: dotAt(0, 3),
+		},
+		{
+			name:  "undo 1 append redo -1",
+			init:  []Edit{Append(End, "abc"), Undo(1)},
+			e:     Redo(-1),
 			want:  "abc",
 			marks: dotAt(0, 3),
 		},
@@ -760,17 +778,11 @@ type undoTest struct {
 	init  []Edit
 	e     Edit
 	want  string
-	err   error
 	marks map[rune]addr
 }
 
 func (test *undoTest) run(t *testing.T) {
 	test.run1(t)
-
-	if test.err == os.ErrInvalid {
-		// If the Edit is bogus (undo/redo n ≤ 0), its .String() panics.
-		return
-	}
 
 	// Stringify, parse, and re-test the parsed Edit.
 	var err error
@@ -793,16 +805,7 @@ func (test *undoTest) run1(t *testing.T) {
 		}
 	}
 
-	err := ed.Do(test.e, ioutil.Discard)
-
-	if test.err != nil {
-		if err == nil || test.err.Error() != err.Error() {
-			t.Fatalf("%s ed.Do(%q, _)=%v, want %q", test.name, test.e, err, test.err)
-		}
-		return
-	}
-
-	if err != nil {
+	if err := ed.Do(test.e, ioutil.Discard); err != nil {
 		t.Fatalf("%s ed.Do(%q, _)=%v, want nil", test.name, test.e, err)
 	}
 
