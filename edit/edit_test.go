@@ -304,6 +304,11 @@ func TestSubstituteEdit(t *testing.T) {
 		{e: Substitute{A: All, RE: "/*/"}, err: "missing operand"},
 
 		{
+			init: "世界!",
+			e:    Substitute{A: All, RE: "", With: "Hello, "},
+			want: "Hello, 世界!", dot: addr{0, 10},
+		},
+		{
 			init: "Hello, 世界!",
 			e:    Substitute{A: All, RE: "/.*/", With: "", Global: true},
 			want: "", dot: addr{0, 0},
