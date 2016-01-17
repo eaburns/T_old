@@ -517,6 +517,25 @@ func TestPipeEdit(t *testing.T) {
 	}
 }
 
+func TestPipeDefaultShell(t *testing.T) {
+	// Unset the shell and make sure that everything still works.
+	if err := os.Unsetenv("SHELL"); err != nil {
+		t.Fatal(err)
+	}
+	tests := []eTest{
+		{
+			init: "Hello\n世界!",
+			e:    Pipe(All, "sed s/世界/World/"),
+			want: "Hello\nWorld!",
+			dot:  addr{0, 12},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+
+}
+
 type eTest struct {
 	init, want, print, err string
 	e                      Edit
