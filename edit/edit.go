@@ -453,9 +453,6 @@ func (e Substitute) String() string {
 }
 
 func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
-	if e.From < 1 {
-		e.From = 1
-	}
 	at, err := e.A.where(ed)
 	if err != nil {
 		return addr{}, err
@@ -495,11 +492,12 @@ func subSingle(ed *Editor, at addr, re *re1.Regexp, with string, n int) ([][2]in
 	return m, pend(ed, at, runes.SliceReader(rs))
 }
 
-// nthMatch skips past the first n-1 matches of the regular expression
+// nthMatch skips past the first n-1 matches of the regular expression.
+// If n ≤ 0, the first match is returned.
 func nthMatch(ed *Editor, at addr, re *re1.Regexp, n int) ([][2]int64, error) {
 	var err error
 	var m [][2]int64
-	if n == 0 {
+	if n <= 0 {
 		n = 1
 	}
 	for i := 0; i < n; i++ {
