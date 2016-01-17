@@ -304,6 +304,11 @@ func TestSubstituteEdit(t *testing.T) {
 		{e: Substitute{A: All, RE: "/*/"}, err: "missing operand"},
 
 		{
+			init: "世界!",
+			e:    Substitute{A: All, RE: "", With: "Hello, "},
+			want: "Hello, 世界!", dot: addr{0, 10},
+		},
+		{
 			init: "Hello, 世界!",
 			e:    Substitute{A: All, RE: "/.*/", With: "", Global: true},
 			want: "", dot: addr{0, 0},
@@ -510,6 +515,25 @@ func TestPipeEdit(t *testing.T) {
 	for _, test := range tests {
 		test.run(t)
 	}
+}
+
+func TestPipeDefaultShell(t *testing.T) {
+	// Unset the shell and make sure that everything still works.
+	if err := os.Unsetenv("SHELL"); err != nil {
+		t.Fatal(err)
+	}
+	tests := []eTest{
+		{
+			init: "Hello\n世界!",
+			e:    Pipe(All, "sed s/世界/World/"),
+			want: "Hello\nWorld!",
+			dot:  addr{0, 12},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+
 }
 
 type eTest struct {
@@ -886,6 +910,9 @@ func TestEd(t *testing.T) {
 		{e: "#0k	 α", want: Set(Rune(0), 'α')},
 
 		{e: "c/αβξ", want: Change(Dot, "αβξ")},
+		{e: "c   /αβξ", want: Change(Dot, "αβξ")},
+		{e: "c", want: Change(Dot, "")},
+		{e: "c  /", want: Change(Dot, "")},
 		{e: "c/αβξ/", want: Change(Dot, "αβξ")},
 		{e: "c/αβξ\n", want: Change(Dot, "αβξ")},
 		{e: "c/αβξ/xyz", left: "xyz", want: Change(Dot, "αβξ")},
@@ -897,8 +924,12 @@ func TestEd(t *testing.T) {
 		{e: "c\nαβξ\n.\n", want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n.", want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n\n.", want: Change(Dot, "αβξ\n\n")},
+		{e: "c \n", want: Change(Dot, "")},
 
 		{e: "a/αβξ", want: Append(Dot, "αβξ")},
+		{e: "a   /αβξ", want: Append(Dot, "αβξ")},
+		{e: "a", want: Append(Dot, "")},
+		{e: "a  /", want: Append(Dot, "")},
 		{e: "a/αβξ/", want: Append(Dot, "αβξ")},
 		{e: "a/αβξ\n", want: Append(Dot, "αβξ")},
 		{e: "a/αβξ/xyz", left: "xyz", want: Append(Dot, "αβξ")},
@@ -910,8 +941,12 @@ func TestEd(t *testing.T) {
 		{e: "a\nαβξ\n.\n", want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n.", want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n\n.", want: Append(Dot, "αβξ\n\n")},
+		{e: "a \n", want: Append(Dot, "")},
 
 		{e: "i/αβξ", want: Insert(Dot, "αβξ")},
+		{e: "i   /αβξ", want: Insert(Dot, "αβξ")},
+		{e: "i", want: Insert(Dot, "")},
+		{e: "i  /", want: Insert(Dot, "")},
 		{e: "i/αβξ/", want: Insert(Dot, "αβξ")},
 		{e: "i/αβξ\n", want: Insert(Dot, "αβξ")},
 		{e: "i/αβξ/xyz", left: "xyz", want: Insert(Dot, "αβξ")},
@@ -923,6 +958,7 @@ func TestEd(t *testing.T) {
 		{e: "i\nαβξ\n.\n", want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n.", want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n\n.", want: Insert(Dot, "αβξ\n\n")},
+		{e: "i \n", want: Insert(Dot, "")},
 
 		{e: "d", want: Delete(Dot)},
 		{e: "#1,#2d", want: Delete(Rune(1).To(Rune(2)))},
