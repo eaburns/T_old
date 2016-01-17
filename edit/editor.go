@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"errors"
 	"io"
-	"os"
 	"sync"
 
 	"github.com/eaburns/T/edit/runes"
@@ -331,7 +330,7 @@ func (ed *Editor) undoRedo(n int, undoRedo1 func() (addr, error)) (err error) {
 	defer ed.buf.Unlock()
 
 	if n <= 0 {
-		return os.ErrInvalid
+		n = 1
 	}
 
 	marks0 := make(map[rune]addr, len(ed.marks))

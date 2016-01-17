@@ -24,6 +24,20 @@ func (ed *Editor) change(a Address, s string) error {
 	return ed.Do(Change(All, s), bytes.NewBuffer(nil))
 }
 
+func TestEditorClose(t *testing.T) {
+	buf := NewBuffer()
+	ed := NewEditor(buf)
+	if err := ed.Close(); err != nil {
+		t.Fatalf("failed to close the editor: %v", err)
+	}
+	if err := ed.Close(); err == nil {
+		t.Fatal("ed.Close()=nil, want error")
+	}
+	if err := buf.Close(); err != nil {
+		t.Fatalf("failed to close the buffer: %v", err)
+	}
+}
+
 func TestRetry(t *testing.T) {
 	ed := NewEditor(NewBuffer())
 	defer ed.buf.Close()

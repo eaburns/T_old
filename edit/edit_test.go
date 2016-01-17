@@ -5,9 +5,11 @@ package edit
 import (
 	"bytes"
 	"io/ioutil"
+	"math"
 	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"testing"
 )
 
@@ -32,6 +34,8 @@ func TestEscape(t *testing.T) {
 
 func TestChangeEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Change(Rune(1), ""), err: "address out of range"},
+
 		{
 			init: "Hello, 世界!",
 			e:    Change(Rune(0), ""),
@@ -82,6 +86,8 @@ func TestChangeEdit(t *testing.T) {
 
 func TestAppendEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Append(Rune(1), ""), err: "address out of range"},
+
 		{
 			init: "Hello, 世界!",
 			e:    Append(Rune(0), ""),
@@ -108,6 +114,8 @@ func TestAppendEdit(t *testing.T) {
 
 func TestInsertEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Insert(Rune(1), ""), err: "address out of range"},
+
 		{
 			init: "Hello, 世界!",
 			e:    Insert(Rune(0), ""),
@@ -134,6 +142,8 @@ func TestInsertEdit(t *testing.T) {
 
 func TestDeleteEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Delete(Rune(1)), err: "address out of range"},
+
 		{
 			init: "",
 			e:    Delete(All),
@@ -178,6 +188,9 @@ func TestDeleteEdit(t *testing.T) {
 
 func TestMoveEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Move(Rune(1), Rune(2)), err: "address out of range"},
+		{init: "a", e: Move(Rune(1), Rune(2)), err: "address out of range"},
+
 		{init: "abc", e: Move(Regexp("/abc/"), Rune(0)), want: "abc", dot: addr{0, 3}},
 		{init: "abc", e: Move(Regexp("/abc/"), Rune(1)), err: "overlap"},
 		{init: "abc", e: Move(Regexp("/abc/"), Rune(2)), err: "overlap"},
@@ -193,6 +206,9 @@ func TestMoveEdit(t *testing.T) {
 
 func TestCopyEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Copy(Rune(1), Rune(2)), err: "address out of range"},
+		{init: "a", e: Copy(Rune(1), Rune(3)), err: "address out of range"},
+
 		{init: "abc", e: Copy(Regexp("/abc/"), End), want: "abcabc", dot: addr{3, 6}},
 		{init: "abc", e: Copy(Regexp("/abc/"), Line(0)), want: "abcabc", dot: addr{0, 3}},
 		{init: "abc", e: Copy(Regexp("/abc/"), Rune(1)), want: "aabcbc", dot: addr{1, 4}},
@@ -207,10 +223,15 @@ func TestCopyEdit(t *testing.T) {
 func TestSetEdit(t *testing.T) {
 	const s = "Hello, 世界!"
 	tests := []eTest{
+		{e: Set(Rune(1), '.'), err: "address out of range"},
+
 		{e: Set(All, '.'), dot: addr{0, 0}},
 		{e: Set(All, 'm'), marks: map[rune]addr{'m': addr{0, 0}}},
 		{init: s, want: s, e: Set(All, '.'), dot: addr{0, 10}},
+		{init: s, want: s, e: Set(All, ' '), dot: addr{0, 10}},
+		{init: s, want: s, e: Set(All, '\t'), dot: addr{0, 10}},
 		{init: s, want: s, e: Set(All, 'a'), marks: map[rune]addr{'a': addr{0, 10}}},
+		{init: s, want: s, e: Set(All, 'α'), marks: map[rune]addr{'α': addr{0, 10}}},
 		{init: s, want: s, e: Set(Regexp("/Hello"), 'a'), marks: map[rune]addr{'a': addr{0, 5}}},
 		{init: s, want: s, e: Set(Line(0), 'z'), marks: map[rune]addr{'z': addr{0, 0}}},
 		{init: s, want: s, e: Set(End, 'm'), marks: map[rune]addr{'m': addr{10, 10}}},
@@ -223,6 +244,8 @@ func TestSetEdit(t *testing.T) {
 func TestPrintEdit(t *testing.T) {
 	const s = "Hello, 世界!"
 	tests := []eTest{
+		{e: Print(Rune(1)), err: "address out of range"},
+
 		{e: Print(All), print: "", dot: addr{0, 0}},
 		{init: s, want: s, e: Print(All), print: s, dot: addr{0, 10}},
 		{init: s, want: s, e: Print(End), print: "", dot: addr{10, 10}},
@@ -238,6 +261,8 @@ func TestPrintEdit(t *testing.T) {
 func TestWhereEdit(t *testing.T) {
 	const s = "Hello\n 世界!"
 	tests := []eTest{
+		{e: Where(Rune(1)), err: "address out of range"},
+
 		{e: Where(All), print: "#0", dot: addr{0, 0}},
 		{init: "H\ne\nl\nl\no\n 世\n界\n!", want: "H\ne\nl\nl\no\n 世\n界\n!",
 			e: Where(All), print: "#0,#16", dot: addr{0, 16}},
@@ -256,6 +281,8 @@ func TestWhereEdit(t *testing.T) {
 func TestWhereLinesEdit(t *testing.T) {
 	const s = "Hello\n 世界!"
 	tests := []eTest{
+		{e: WhereLine(Rune(1)), err: "address out of range"},
+
 		{e: WhereLine(All), print: "1", dot: addr{0, 0}},
 		{init: "H\ne\nl\nl\no\n 世\n界\n!", want: "H\ne\nl\nl\no\n 世\n界\n!",
 			e: WhereLine(All), print: "1,8", dot: addr{0, 16}},
@@ -273,6 +300,9 @@ func TestWhereLinesEdit(t *testing.T) {
 
 func TestSubstituteEdit(t *testing.T) {
 	tests := []eTest{
+		{e: Sub(Rune(1), "/abc", "xyz"), err: "address out of range"},
+		{e: Substitute{A: All, RE: "/*/"}, err: "missing operand"},
+
 		{
 			init: "Hello, 世界!",
 			e:    Substitute{A: All, RE: "/.*/", With: "", Global: true},
@@ -403,6 +433,8 @@ func TestPipeFromEdit(t *testing.T) {
 		echo = "echo -n '" + s + "'"
 	)
 	tests := []eTest{
+		{e: PipeFrom(Rune(1), "echo hi"), err: "address out of range"},
+
 		{e: PipeFrom(End, "false"), err: "exit status 1"},
 		{e: PipeFrom(End, "echo -n stderr 1>&2"), print: "stderr"},
 		{init: "", e: PipeFrom(All, echo), want: s, dot: addr{0, 9}},
@@ -422,6 +454,8 @@ func TestPipeToEdit(t *testing.T) {
 	}
 	const s = "Hello\n世界!"
 	tests := []eTest{
+		{e: PipeTo(Rune(1), "echo hi"), err: "address out of range"},
+
 		{e: PipeTo(End, "false"), err: "exit status 1"},
 		{e: PipeTo(End, "echo -n stdout"), print: "stdout"},
 		{e: PipeTo(End, "echo -n stderr 1>&2"), print: "stderr"},
@@ -443,6 +477,8 @@ func TestPipeEdit(t *testing.T) {
 	}
 	const s = "Hello\n世界!"
 	tests := []eTest{
+		{e: Pipe(Rune(1), "echo hi"), err: "address out of range"},
+
 		{e: Pipe(End, "false"), err: "exit status 1"},
 		{e: Pipe(End, "echo -n stderr 1>&2"), print: "stderr"},
 
@@ -491,6 +527,11 @@ func (test eTest) run(t *testing.T) {
 	str := test.e.String()
 	test.e, _, err = Ed([]rune(str))
 	if err != nil {
+		if ok, reErr := regexp.MatchString(test.err, err.Error()); reErr != nil {
+			panic(reErr)
+		} else if ok {
+			return
+		}
 		t.Fatalf("Failed to parse %q: %v", str, err)
 	}
 	test.run1(t)
@@ -549,11 +590,6 @@ func dotAt(from, to int64) map[rune]addr {
 func TestUndoEdit(t *testing.T) {
 	tests := []undoTest{
 		{
-			name: "undo -1",
-			e:    Undo(-1),
-			err:  os.ErrInvalid,
-		},
-		{
 			name: "empty undo 1",
 			e:    Undo(1),
 			want: "",
@@ -567,6 +603,20 @@ func TestUndoEdit(t *testing.T) {
 			name:  "1 append, undo 1",
 			init:  []Edit{Append(End, "abc")},
 			e:     Undo(1),
+			want:  "",
+			marks: dotAt(0, 0),
+		},
+		{
+			name:  "1 append, undo 0",
+			init:  []Edit{Append(End, "abc")},
+			e:     Undo(0),
+			want:  "",
+			marks: dotAt(0, 0),
+		},
+		{
+			name:  "1 append, undo -1",
+			init:  []Edit{Append(End, "abc")},
+			e:     Undo(-1),
 			want:  "",
 			marks: dotAt(0, 0),
 		},
@@ -663,11 +713,6 @@ func TestUndoEdit(t *testing.T) {
 func TestRedoEdit(t *testing.T) {
 	tests := []undoTest{
 		{
-			name: "redo -1",
-			e:    Redo(-1),
-			err:  os.ErrInvalid,
-		},
-		{
 			name: "empty redo 1",
 			init: []Edit{Append(End, "abc")},
 			e:    Redo(1),
@@ -683,6 +728,20 @@ func TestRedoEdit(t *testing.T) {
 			name:  "undo 1 append redo 1",
 			init:  []Edit{Append(End, "abc"), Undo(1)},
 			e:     Redo(1),
+			want:  "abc",
+			marks: dotAt(0, 3),
+		},
+		{
+			name:  "undo 1 append redo 0",
+			init:  []Edit{Append(End, "abc"), Undo(1)},
+			e:     Redo(0),
+			want:  "abc",
+			marks: dotAt(0, 3),
+		},
+		{
+			name:  "undo 1 append redo -1",
+			init:  []Edit{Append(End, "abc"), Undo(1)},
+			e:     Redo(-1),
 			want:  "abc",
 			marks: dotAt(0, 3),
 		},
@@ -757,17 +816,11 @@ type undoTest struct {
 	init  []Edit
 	e     Edit
 	want  string
-	err   error
 	marks map[rune]addr
 }
 
 func (test *undoTest) run(t *testing.T) {
 	test.run1(t)
-
-	if test.err == os.ErrInvalid {
-		// If the Edit is bogus (undo/redo n ≤ 0), its .String() panics.
-		return
-	}
 
 	// Stringify, parse, and re-test the parsed Edit.
 	var err error
@@ -790,16 +843,7 @@ func (test *undoTest) run1(t *testing.T) {
 		}
 	}
 
-	err := ed.Do(test.e, ioutil.Discard)
-
-	if test.err != nil {
-		if err == nil || test.err.Error() != err.Error() {
-			t.Fatalf("%s ed.Do(%q, _)=%v, want %q", test.name, test.e, err, test.err)
-		}
-		return
-	}
-
-	if err != nil {
+	if err := ed.Do(test.e, ioutil.Discard); err != nil {
 		t.Fatalf("%s ed.Do(%q, _)=%v, want nil", test.name, test.e, err)
 	}
 
@@ -821,6 +865,9 @@ func TestEd(t *testing.T) {
 		want    Edit
 		err     string
 	}{
+		{e: "#0 UNKNOWN", err: "unknown command"},
+		{e: strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
+
 		{e: "", want: Set(Dot, '.')},
 		{e: ".", want: Set(Dot, '.')},
 		{e: "  .", want: Set(Dot, '.')},
@@ -829,6 +876,14 @@ func TestEd(t *testing.T) {
 		{e: " #0 + 1 ", want: Set(Rune(0).Plus(Line(1)), '.')},
 		{e: "#0+1\nc/abc", left: "c/abc", want: Set(Rune(0).Plus(Line(1)), '.')},
 		{e: "/abc\n1c/xyz", left: "1c/xyz", want: Set(Regexp("/abc/"), '.')},
+
+		{e: "k", want: Set(Dot, '.')},
+		{e: " k ", want: Set(Dot, '.')},
+		{e: "#0k ", want: Set(Rune(0), '.')},
+		{e: "#0ka", want: Set(Rune(0), 'a')},
+		{e: "#0k a", want: Set(Rune(0), 'a')},
+		{e: "#0k	 a", want: Set(Rune(0), 'a')},
+		{e: "#0k	 α", want: Set(Rune(0), 'α')},
 
 		{e: "c/αβξ", want: Change(Dot, "αβξ")},
 		{e: "c/αβξ/", want: Change(Dot, "αβξ")},
@@ -882,6 +937,7 @@ func TestEd(t *testing.T) {
 		{e: " #1 + 1 m $", want: Move(Rune(1).Plus(Line(1)), End)},
 		{e: "1m$xyz", left: "xyz", want: Move(Line(1), End)},
 		{e: "1m\n$xyz", left: "$xyz", want: Move(Line(1), Dot)},
+		{e: "m" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 
 		{e: "t", want: Copy(Dot, Dot)},
 		{e: "t/abc/", want: Copy(Dot, Regexp("/abc/"))},
@@ -890,6 +946,7 @@ func TestEd(t *testing.T) {
 		{e: " #1 + 1 t $", want: Copy(Rune(1).Plus(Line(1)), End)},
 		{e: "1t$xyz", left: "xyz", want: Copy(Line(1), End)},
 		{e: "1t\n$xyz", left: "$xyz", want: Copy(Line(1), Dot)},
+		{e: "t" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 
 		{e: "p", want: Print(Dot)},
 		{e: "pxyz", left: "xyz", want: Print(Dot)},
@@ -928,6 +985,8 @@ func TestEd(t *testing.T) {
 		{e: "s/", err: "missing pattern"},
 		{e: "s//b", err: "missing pattern"},
 		{e: "s/\n/b", err: "missing pattern"},
+		{e: "s" + strconv.FormatInt(math.MaxInt64, 10) + "0" + "/a/b/g", err: "value out of range"},
+		{e: "s/*", err: "missing operand"},
 
 		{e: "|cmd", want: Pipe(Dot, "cmd")},
 		{e: "|	   cmd", want: Pipe(Dot, "cmd")},
@@ -974,12 +1033,14 @@ func TestEd(t *testing.T) {
 		{e: " u1", want: Undo(1)},
 		{e: "u100", want: Undo(100)},
 		{e: " u100", want: Undo(100)},
+		{e: "u" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 		{e: "r", want: Redo(1)},
 		{e: " r", want: Redo(1)},
 		{e: "r1", want: Redo(1)},
 		{e: " r1", want: Redo(1)},
 		{e: "r100", want: Redo(100)},
 		{e: " r100", want: Redo(100)},
+		{e: "r" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 	}
 	for _, test := range tests {
 		e, left, err := Ed([]rune(test.e))

@@ -388,6 +388,9 @@ func e3(p *parser) *Regexp {
 	re.start.out[0].to = re.end
 
 	switch t := p.next(); {
+	case t == star || t == plus || t == question:
+		o := p.pos - 1
+		panic(ParseError{Position: o, Message: "missing operand"})
 	case t == oparen:
 		o := p.pos - 1
 		if p.peek() == cparen {
