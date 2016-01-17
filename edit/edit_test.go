@@ -886,6 +886,9 @@ func TestEd(t *testing.T) {
 		{e: "#0k	 α", want: Set(Rune(0), 'α')},
 
 		{e: "c/αβξ", want: Change(Dot, "αβξ")},
+		{e: "c   /αβξ", want: Change(Dot, "αβξ")},
+		{e: "c", want: Change(Dot, "")},
+		{e: "c  /", want: Change(Dot, "")},
 		{e: "c/αβξ/", want: Change(Dot, "αβξ")},
 		{e: "c/αβξ\n", want: Change(Dot, "αβξ")},
 		{e: "c/αβξ/xyz", left: "xyz", want: Change(Dot, "αβξ")},
@@ -897,8 +900,12 @@ func TestEd(t *testing.T) {
 		{e: "c\nαβξ\n.\n", want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n.", want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n\n.", want: Change(Dot, "αβξ\n\n")},
+		{e: "c \n", want: Change(Dot, "")},
 
 		{e: "a/αβξ", want: Append(Dot, "αβξ")},
+		{e: "a   /αβξ", want: Append(Dot, "αβξ")},
+		{e: "a", want: Append(Dot, "")},
+		{e: "a  /", want: Append(Dot, "")},
 		{e: "a/αβξ/", want: Append(Dot, "αβξ")},
 		{e: "a/αβξ\n", want: Append(Dot, "αβξ")},
 		{e: "a/αβξ/xyz", left: "xyz", want: Append(Dot, "αβξ")},
@@ -910,8 +917,12 @@ func TestEd(t *testing.T) {
 		{e: "a\nαβξ\n.\n", want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n.", want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n\n.", want: Append(Dot, "αβξ\n\n")},
+		{e: "a \n", want: Append(Dot, "")},
 
 		{e: "i/αβξ", want: Insert(Dot, "αβξ")},
+		{e: "i   /αβξ", want: Insert(Dot, "αβξ")},
+		{e: "i", want: Insert(Dot, "")},
+		{e: "i  /", want: Insert(Dot, "")},
 		{e: "i/αβξ/", want: Insert(Dot, "αβξ")},
 		{e: "i/αβξ\n", want: Insert(Dot, "αβξ")},
 		{e: "i/αβξ/xyz", left: "xyz", want: Insert(Dot, "αβξ")},
@@ -923,6 +934,7 @@ func TestEd(t *testing.T) {
 		{e: "i\nαβξ\n.\n", want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n.", want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n\n.", want: Insert(Dot, "αβξ\n\n")},
+		{e: "i \n", want: Insert(Dot, "")},
 
 		{e: "d", want: Delete(Dot)},
 		{e: "#1,#2d", want: Delete(Rune(1).To(Rune(2)))},
