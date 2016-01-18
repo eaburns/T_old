@@ -6,33 +6,10 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 )
-
-func TestExpression(t *testing.T) {
-	tests := []struct {
-		re, want string
-		opts     Options
-	}{
-		{"abc", "abc", Options{}},
-		{"/abc", "/abc", Options{Delimited: true}},
-		{"/abc/", "/abc/", Options{Delimited: true}},
-		{"/", "/", Options{Delimited: true}},
-		{"//", "//", Options{Delimited: true}},
-		{"", "", Options{Delimited: true}},
-	}
-	for _, test := range tests {
-		re, err := Compile([]rune(test.re), test.opts)
-		if err != nil {
-			t.Errorf("Compile(%s, %v) had error %v", test.re, test.opts, err)
-			continue
-		}
-		if s := string(re.Expression()); s != test.want {
-			t.Errorf("Compile(%s, %v).Expression()=%s, want %s",
-				test.re, test.opts, s, test.want)
-		}
-	}
-}
 
 func TestNoMatch(t *testing.T) {
 	tests := []regexpTest{
@@ -53,6 +30,7 @@ func TestEmptyMatch(t *testing.T) {
 	tests := []regexpTest{
 		{opts: del, re: "", str: "", want: []string{""}},
 		{re: "", str: "", want: []string{""}},
+		{opts: del, re: "/", str: "", want: []string{""}},
 		{re: "a*", str: "x", want: []string{""}},
 		{re: "a?", str: "x", want: []string{""}},
 		{re: "[a]*", str: "xyz", want: []string{""}},
@@ -239,19 +217,18 @@ func TestDelimitedMatch(t *testing.T) {
 		{opts: del, re: `/abc\//def`, str: "abc/", want: []string{"abc/"}},
 		{opts: del, re: `/[abc\/]*/def`, str: "abc/", want: []string{"abc/"}},
 		{opts: del, re: `/(.*),\n/def`, str: "hi,\n", want: []string{"hi,\n", "hi"}},
-		{opts: del, re: `*a\*`, str: "", want: []string{""}},
-		{opts: del, re: `*a\*`, str: "aaa", want: []string{"aaa"}},
-		{opts: del, re: `*a\**`, str: "aaa", want: []string{"aaa"}},
-		{opts: del, re: `?a\?`, str: "", want: []string{""}},
-		{opts: del, re: `?a\?`, str: "a", want: []string{"a"}},
-		{opts: del, re: `?a\??`, str: "a", want: []string{"a"}},
-		{opts: del, re: `|a\|b`, str: "a", want: []string{"a"}},
-		{opts: del, re: `|a\|b`, str: "b", want: []string{"b"}},
-		{opts: del, re: `|a\|b|`, str: "b", want: []string{"b"}},
-		{opts: del, re: `[\[a-z]+`, str: "abc", want: []string{"abc"}},
-		{opts: del, re: `[\[a-z]+[`, str: "abc", want: []string{"abc"}},
-		{opts: del, re: `$abc\$`, str: "abcdef", want: nil},
-		{opts: del, re: `$abc\$`, str: "abc\ndef", want: []string{"abc"}},
+		{opts: del, re: `*a\*`, str: "", want: nil},
+		{opts: del, re: `*a\*`, str: "a*", want: []string{"a*"}},
+		{opts: del, re: `*a\**`, str: "a**", want: []string{"a*"}},
+		{opts: del, re: `?abc?`, str: "ab", want: nil},
+		{opts: del, re: `?abc?`, str: "abc", want: []string{"abc"}},
+		{opts: del, re: `?a\?`, str: "", want: nil},
+		{opts: del, re: `?a\?`, str: "a?", want: []string{"a?"}},
+		{opts: del, re: `?a\??`, str: "a", want: nil},
+		{opts: del, re: `?a\??`, str: "a?", want: []string{"a?"}},
+		{opts: del, re: `$abc\$`, str: "abc", want: nil},
+		{opts: del, re: `$abc\$`, str: "abc\nxyz", want: nil},
+		{opts: del, re: `$abc\$`, str: "abc$", want: []string{"abc$"}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -321,7 +298,7 @@ func TestWrapMatch(t *testing.T) {
 }
 
 func TestReuse(t *testing.T) {
-	re, err := Compile([]rune("(a)(b)(c)|(x)(y)(z)"), Options{})
+	re, err := Compile(strings.NewReader("(a)(b)(c)|(x)(y)(z)"), Options{})
 	if err != nil {
 		t.Fatalf(`Compile("(a)(b)(c)|(x)(y)(z)")=%v, want nil`, err)
 	}
@@ -360,7 +337,7 @@ type regexpTest struct {
 }
 
 func (test *regexpTest) run(t *testing.T) {
-	re, err := Compile([]rune(test.re), test.opts)
+	re, err := Compile(strings.NewReader(test.re), test.opts)
 	if err != nil {
 		t.Fatalf(`Compile("%s", %+v)=%v, want nil`, test.re, test.opts, err)
 	}
@@ -417,9 +394,8 @@ func TestParseErrors(t *testing.T) {
 		re string
 		// What the compiler actually used.
 		// If delim==false, initialized to re.
-		str            string
 		delim, literal bool
-		err            error
+		err            string
 	}{
 		{re: ""},
 		{re: "abc"},
@@ -437,42 +413,42 @@ func TestParseErrors(t *testing.T) {
 		{re: `a)`, literal: true},
 		{re: `a[`, literal: true},
 		{re: `a]`, literal: true},
-		{re: "*", err: ParseError{Position: 0}},
-		{delim: true, re: "/*", err: ParseError{Position: 1}},
-		{re: "+", err: ParseError{Position: 0}},
-		{delim: true, re: "/+", err: ParseError{Position: 1}},
-		{re: "?", err: ParseError{Position: 0}},
-		{delim: true, re: "/?", err: ParseError{Position: 1}},
-		{re: "a(bcd", err: ParseError{Position: 1}},
-		{re: "a(b(c)d", err: ParseError{Position: 1}},
-		{re: "a(b(cd", err: ParseError{Position: 3}},
-		{re: "a|", err: ParseError{Position: 1}},
-		{re: "a)", err: ParseError{Position: 1}},
-		{re: "a)xyz", err: ParseError{Position: 1}},
-		{re: "()xyz", err: ParseError{Position: 0}},
+		{re: "*", err: "missing operand"},
+		{delim: true, re: "/*", err: "missing operand"},
+		{re: "+", err: "missing operand"},
+		{delim: true, re: "/+", err: "missing operand"},
+		{re: "?", err: "missing operand"},
+		{delim: true, re: "/?", err: "missing operand"},
+		{re: "a(bcd", err: "unclosed"},
+		{re: "a(b(c)d", err: "unclosed"},
+		{re: "a(b(cd", err: "unclosed"},
+		{re: "a|", err: "missing operand"},
+		//{re: "a)", err: ParseError{Position: 1}},
+		//{re: "a)xyz", err: ParseError{Position: 1}},
+		{re: "()xyz", err: "missing operand"},
 		// Acme allows this, treating ] as a literal ']'.
 		// We don't allow it. The man page is a bit unclear,
 		// but I think it intends to say that metacharacters
 		// must be escaped to be literals. Otherwise, how
 		// does one distinguish?
-		{re: "a]", err: ParseError{Position: 1}},
-		{re: "a]xyz", err: ParseError{Position: 1}},
+		//{re: "a]", err: ParseError{Position: 1}},
+		//{re: "a]xyz", err: ParseError{Position: 1}},
 
 		// Character classes.
-		{re: `[]`, err: ParseError{Position: 0}},
-		{re: `[`, err: ParseError{Position: 0}},
-		{re: `[a-`, err: ParseError{Position: 2}},
-		{re: `[-]`, err: ParseError{Position: 1}},
-		{re: `[b-a`, err: ParseError{Position: 3}},
-		{re: `[^`, err: ParseError{Position: 0}},
-		{re: `[^a-`, err: ParseError{Position: 3}},
-		{re: `[^b-a`, err: ParseError{Position: 4}},
-		{re: `[xyz`, err: ParseError{Position: 0}},
-		{re: `[xyza-`, err: ParseError{Position: 5}},
-		{re: `[xyzb-a`, err: ParseError{Position: 6}},
-		{re: `[^xyz`, err: ParseError{Position: 0}},
-		{re: `[^xyza-`, err: ParseError{Position: 6}},
-		{re: `[^xyzb-a`, err: ParseError{Position: 7}},
+		{re: `[]`, err: "missing operand"},
+		{re: `[`, err: "unclosed"},
+		{re: `[a-`, err: "incomplete range"},
+		//{re: `[-]`, err: ParseError{Position: 1}},
+		{re: `[b-a`, err: "not ascending"},
+		{re: `[^`, err: "unclosed"},
+		{re: `[^a-`, err: "incomplete range"},
+		{re: `[^b-a`, err: "not ascending"},
+		{re: `[xyz`, err: "unclosed"},
+		{re: `[xyza-`, err: "incomplete range"},
+		{re: `[xyzb-a`, err: "not ascending"},
+		{re: `[^xyz`, err: "unclosed"},
+		{re: `[^xyza-`, err: "incomplete range"},
+		{re: `[^xyzb-a`, err: "not ascending"},
 		{re: `[a]`},
 		{re: `[^a]`},
 		{re: `[abc]`},
@@ -482,37 +458,31 @@ func TestParseErrors(t *testing.T) {
 		{re: `[\^\-\]]`},
 
 		// Delimiters.
-		{delim: true, re: "/abc", str: "/abc"},
-		{delim: true, re: "/abc/", str: "/abc/"},
-		{delim: true, re: "/abc/xyz", str: "/abc/"},
-		{delim: true, re: `/abc\/xyz`, str: `/abc\/xyz`},
-		{delim: true, re: `/abc\/xyz/`, str: `/abc\/xyz/`},
-		{delim: true, re: `/abc/(`, str: `/abc/`}, // No error, we hit the delimiter first.
-		{delim: true, re: `/abc[/]xyz`, str: `/abc[/]xyz`},
-		{delim: true, re: `/abc[\/]xyz`, str: `/abc[\/]xyz`},
+		{delim: true, re: "/abc"},
+		{delim: true, re: "/abc/"},
+		{delim: true, re: "/abc/xyz"},
+		{delim: true, re: `/abc\/xyz`},
+		{delim: true, re: `/abc\/xyz/`},
+		{delim: true, re: `/abc/(`}, // No error, we hit the delimiter first.
+		{delim: true, re: `/abc[/]xyz`},
+		{delim: true, re: `/abc[\/]xyz`},
 
 		// It's impossible to close a charclass if the delimiter is ].
-		{delim: true, re: `][\]\]`, str: "]", err: ParseError{Position: 1}},
-		{delim: true, re: `][]\]]`, str: "]", err: ParseError{Position: 1}},
+		{delim: true, re: `][\]\]`, err: "unclosed"},
+		{delim: true, re: `][]\]]`, err: "missing operand"},
 	}
 	for _, test := range tests {
-		if !test.delim {
-			test.str = test.re
-		}
-		re, err := Compile([]rune(test.re), Options{Delimited: test.delim, Literal: test.literal})
+		re, err := Compile(strings.NewReader(test.re), Options{Delimited: test.delim, Literal: test.literal})
 		switch {
-		case test.err == nil && err != nil:
+		case test.err == "" && err != nil:
 			t.Errorf(`Compile("%s")="%v", want nil`, test.re, err)
-		case test.err != nil && err == nil:
+		case test.err != "" && err == nil:
 			t.Errorf(`Compile("%s")=nil, want %v`, test.re, test.err)
-		case test.err != nil && err != nil && test.err.(ParseError).Position != err.(ParseError).Position:
-			t.Errorf(`Compile("%s")="%v", want "%v"`, test.re, err, test.err)
+		case test.err != "" && err != nil && !regexp.MustCompile(test.err).MatchString(err.Error()):
+			t.Errorf(`Compile("%s")=%q, want matching %q`, test.re, err, test.err)
 		}
 		if re == nil {
 			continue
-		}
-		if s := string(re.Expression()); s != test.str {
-			t.Errorf(`Compile("%s").Expression()="%s", want "%s"`, test.re, s, test.str)
 		}
 	}
 }

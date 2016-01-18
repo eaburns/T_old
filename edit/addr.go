@@ -4,6 +4,7 @@ package edit
 
 import (
 	"errors"
+	"io"
 	"strconv"
 	"strings"
 	"unicode"
@@ -422,7 +423,12 @@ func Regexp(re string) SimpleAddress {
 	if len(re) == 0 {
 		re = "/"
 	}
-	return simpleAddr{reAddr{rev: re[0] == '?', re: withTrailingDelim(re)}}
+	return simpleAddr{
+		reAddr{
+			rev: re[0] == '?',
+			re:  withTrailingDelim(re),
+		},
+	}
 }
 
 func withTrailingDelim(re string) string {
@@ -466,7 +472,8 @@ func (rs *reverse) Rune(i int64) rune {
 }
 
 func (r reAddr) whereFrom(from int64, ed *Editor) (a addr, err error) {
-	re, err := re1.Compile([]rune(r.re), re1.Options{Delimited: true, Reverse: r.rev})
+	opts := re1.Options{Delimited: true, Reverse: r.rev}
+	re, err := re1.Compile(strings.NewReader(r.re), opts)
 	if err != nil {
 		return a, err
 	}
@@ -502,7 +509,7 @@ const (
 	additiveFirst = "+-" + simpleFirst
 )
 
-// Addr parses and returns an address and the remaining runes.
+// Addr parses and returns an address.
 // Addresses are terminated by a newline or end of input.
 //
 // The address syntax for address a0 is:
@@ -539,28 +546,32 @@ const (
 //		If the first address is missing, . is used.
 //		If the second address is missing, 1 is used.
 // If two addresses of the form a0 a1 are present and distinct then a '+' is inserted, as in a0 '+' a1.
-func Addr(rs []rune) (Address, []rune, error) {
-	a, rs, err := parseCompoundAddr(rs)
-	if len(rs) > 0 && rs[0] == '\n' {
-		// Trim the terminating newline.
-		rs = rs[1:]
+func Addr(rs io.RuneScanner) (Address, error) {
+	a, err := parseCompoundAddr(rs)
+	if err != nil {
+		return nil, err
 	}
-	return a, rs, err
+	if err := skipSingleNewline(rs); err != nil {
+		return nil, err
+	}
+	return a, err
 }
 
-func parseCompoundAddr(rs []rune) (Address, []rune, error) {
+func parseCompoundAddr(rs io.RuneScanner) (Address, error) {
 	var a1 Address
 	for {
-		if len(rs) == 0 {
-			return a1, rs, nil
-		}
-		var err error
-		switch r := rs[0]; {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return a1, nil
+		case err != nil:
+			return nil, err
 		case strings.ContainsRune(simpleFirst, r):
-			var a2 SimpleAddress
-			switch a2, rs, err = parseSimpleAddr(rs); {
+			if err := rs.UnreadRune(); err != nil {
+				return nil, err
+			}
+			switch a2, err := parseSimpleAddr(rs); {
 			case err != nil:
-				return nil, rs, err
+				return nil, err
 			case a1 != nil:
 				a1 = a1.Plus(a2)
 			default:
@@ -570,124 +581,132 @@ func parseCompoundAddr(rs []rune) (Address, []rune, error) {
 			if a1 == nil {
 				a1 = Dot
 			}
-			var err error
-			var a2 SimpleAddress
-			a2, rs, err = parseSimpleAddr(rs[1:])
-			switch {
-			case err != nil:
-				return nil, rs, err
-			case a2 == nil:
+			a2, err := parseSimpleAddr(rs)
+			if a2 == nil {
 				a2 = Line(1)
 			}
-			if r == '+' {
+			switch {
+			case err != nil:
+				return nil, err
+			case r == '+':
 				a1 = a1.Plus(a2)
-			} else {
+			default:
 				a1 = a1.Minus(a2)
 			}
 		case r == ',' || r == ';':
 			if a1 == nil {
 				a1 = Line(0)
 			}
-			var err error
-			var a2 Address
-			a2, rs, err = parseCompoundAddr(rs[1:])
-			switch {
-			case err != nil:
-				return nil, rs, err
-			case a2 == nil:
+			a2, err := parseCompoundAddr(rs)
+			if a2 == nil {
 				a2 = End
 			}
-			if r == ',' {
+			switch {
+			case err != nil:
+				return nil, err
+			case r == ',':
 				a1 = a1.To(a2)
-			} else {
+			default:
 				a1 = a1.Then(a2)
 			}
 		case unicode.IsSpace(r) && r != '\n':
-			rs = rs[1:]
+			continue
 		default:
-			return a1, rs, nil
+			return a1, rs.UnreadRune()
 		}
 	}
 }
 
-func parseSimpleAddr(rs []rune) (SimpleAddress, []rune, error) {
-	for len(rs) > 0 {
-		if len(rs) == 0 {
-			return nil, rs, nil
-		}
+func parseSimpleAddr(rs io.RuneScanner) (SimpleAddress, error) {
+	for {
+		var r rune
 		var err error
 		var a SimpleAddress
-		switch r := rs[0]; {
+		switch r, _, err = rs.ReadRune(); {
+		case err == io.EOF:
+			return a, nil
+		case err != nil:
+			return nil, err
 		case r == '\'':
-			a, rs, err = parseMarkAddr(rs)
+			a, err = parseMarkAddr(rs)
 		case r == '#':
-			a, rs, err = parseRuneAddr(rs)
+			a, err = parseRuneAddr(rs)
 		case strings.ContainsRune(digits, r):
-			a, rs, err = parseLineAddr(rs)
+			a, err = parseLineAddr(r, rs)
 		case r == '/' || r == '?':
-			var exp []rune
-			if exp, rs, err = parseRegexp(rs); err != nil {
-				return nil, rs, err
+			if err := rs.UnreadRune(); err != nil {
+				return nil, err
 			}
-			return Regexp(string(exp)), rs, nil
+			exp, err := parseRegexp2(rs)
+			if err != nil {
+				return nil, err
+			}
+			return Regexp(string(exp)), nil
 		case r == '$':
 			a = End
-			rs = rs[1:]
 		case r == '.':
 			a = Dot
-			rs = rs[1:]
 		case unicode.IsSpace(r) && r != '\n':
-			rs = rs[1:]
+			break // nothing to do
 		default:
-			return nil, rs, nil
+			return nil, rs.UnreadRune()
 		}
 		if a != nil || err != nil {
-			return a, rs, err
+			return a, err
 		}
 	}
-	return nil, rs, nil
 }
 
-func parseMarkAddr(rs []rune) (SimpleAddress, []rune, error) {
-	if rs[0] != '\'' {
-		panic("not a mark address")
-	}
-	n := 1
-	for ; n < len(rs) && unicode.IsSpace(rs[n]) && rs[n] != '\n'; n++ {
-	}
-	if n >= len(rs) || !isMarkRune(rs[n]) {
-		got := "EOF"
-		if n < len(rs) {
-			got = string(rs[n])
+func parseMarkAddr(rs io.RuneScanner) (SimpleAddress, error) {
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return nil, errors.New("bad mark: EOF")
+		case err != nil:
+			return nil, err
+		case !unicode.IsSpace(r) || r == '\n':
+			if !isMarkRune(r) {
+				return nil, errors.New("bad mark: " + string(r))
+			}
+			return Mark(r), nil
 		}
-		return nil, rs[n:], errors.New("bad mark: " + got)
 	}
-	return Mark(rs[n]), rs[n+1:], nil
 }
 
-func parseRuneAddr(rs []rune) (SimpleAddress, []rune, error) {
-	if rs[0] != '#' {
-		panic("not a rune address")
+func parseRuneAddr(rs io.RuneScanner) (SimpleAddress, error) {
+	s, err := scanDigits(rs)
+	if err != nil {
+		return nil, err
 	}
-	var n int
-	for n = 1; n < len(rs) && strings.ContainsRune(digits, rs[n]); n++ {
-	}
-	s := "1"
-	if n > 1 {
-		s = string(rs[1:n])
+	if len(s) == 0 {
+		s = "1"
 	}
 	const base, bits = 10, 64
 	r, err := strconv.ParseInt(s, base, bits)
-	return Rune(r), rs[n:], err
+	return Rune(r), err
 }
 
-func parseLineAddr(rs []rune) (SimpleAddress, []rune, error) {
-	if !strings.ContainsRune(digits, rs[0]) {
-		panic("not a line address")
+func parseLineAddr(r rune, rs io.RuneScanner) (SimpleAddress, error) {
+	s, err := scanDigits(rs)
+	if err != nil {
+		return nil, err
 	}
-	var n int
-	for n = 1; n < len(rs) && strings.ContainsRune(digits, rs[n]); n++ {
+	l, err := strconv.Atoi(string(r) + s)
+	return Line(l), err
+}
+
+func scanDigits(rs io.RuneScanner) (string, error) {
+	var s string
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return s, nil
+		case err != nil:
+			return "", err
+		case !unicode.IsDigit(r):
+			return s, rs.UnreadRune()
+		default:
+			s += string(r)
+		}
 	}
-	l, err := strconv.Atoi(string(rs[:n]))
-	return Line(l), rs[n:], err
 }

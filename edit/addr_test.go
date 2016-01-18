@@ -4,10 +4,13 @@ package edit
 
 import (
 	"errors"
+	"io"
+	"io/ioutil"
 	"math"
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -415,15 +418,26 @@ func TestAddr(t *testing.T) {
 		{a: "$?abc", want: End.Plus(Regexp("?abc"))},
 	}
 	for _, test := range tests {
-		a, left, err := Addr([]rune(test.a))
-		ok := true
+		rs := strings.NewReader(test.a)
+		a, err := Addr(rs)
 		if test.err != "" {
-			ok = err != nil && regexp.MustCompile(test.err).MatchString(err.Error())
-		} else {
-			ok = err == nil && reflect.DeepEqual(a, test.want) && string(left) == string(test.left)
+			if !regexp.MustCompile(test.err).MatchString(err.Error()) {
+				t.Errorf(`Addr(%q)=%q,%q, want %q,%q`,
+					test.a, a, err, test.want, test.err)
+			}
+			continue
 		}
-		if !ok {
-			t.Errorf(`Addr(%q)=%q,%q,%q, want %q,%q,%q`, test.a, a, left, err, test.want, test.left, test.err)
+		if err != nil || !reflect.DeepEqual(a, test.want) {
+			t.Errorf(`Addr(%q)=%q,%q, want %q,%q`, test.a, a, err, test.want, test.err)
+			continue
+		}
+		left, err := ioutil.ReadAll(rs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(left) != test.left {
+			t.Errorf(`Addr(%q) leftover %q want %q`, test.a, string(left), test.left)
+			continue
 		}
 	}
 }
@@ -472,6 +486,7 @@ func TestUpdate(t *testing.T) {
 		if a != test.want {
 			t.Errorf("%v.update(%v, %d)=%v, want %v",
 				test.a, test.b, test.n, a, test.want)
+			continue
 		}
 	}
 }
@@ -511,9 +526,10 @@ func TestAddressString(t *testing.T) {
 			test.want = test.addr
 		}
 		str := test.addr.String()
-		got, _, err := Addr([]rune(str))
+		got, err := Addr(strings.NewReader(str))
 		if err != nil || got != test.want {
 			t.Errorf("Addr(%q)=%v,%v want %q,nil", str, got.String(), err, test.want.String())
+			continue
 		}
 	}
 }
@@ -525,7 +541,7 @@ func (e *errReaderAt) WriteAt(b []byte, _ int64) (int, error) { return len(b), n
 
 // TestIOErrors tests IO errors when computing addresses.
 func TestIOErrors(t *testing.T) {
-	rs := []rune("Hello,\nWorld!")
+	helloWorld := []rune("Hello,\nWorld!")
 	tests := []string{
 		"1",
 		"#1+1",
@@ -549,23 +565,33 @@ func TestIOErrors(t *testing.T) {
 		"/Hello/;/World",
 	}
 	for _, test := range tests {
-		addr, left, err := Addr([]rune(test))
-		if err != nil || len(left) != 0 {
-			t.Fatalf("Addr(%q)=%q,{},%v want _,{},nil", test, addr, err)
+		rs := strings.NewReader(test)
+		addr, err := Addr(rs)
+		if err != nil {
+			t.Errorf("Addr(%q)=%q,%v want _,nil", test, addr, err)
+			continue
+		}
+		switch l, err := ioutil.ReadAll(rs); {
+		case err != nil && err != io.EOF:
+			t.Fatal(err)
+		case len(l) > 0:
+			t.Errorf("Addr(%q) leftover %q want []", test, string(l))
+			continue
 		}
 		f := &errReaderAt{nil}
 		r := runes.NewBufferReaderWriterAt(1, f)
 		ed := NewEditor(newBuffer(r))
 		defer ed.buf.Close()
 
-		if err := ed.buf.runes.Insert(rs, 0); err != nil {
-			t.Fatalf("ed.buf.runes.Insert(%v, 0)=%v, want nil", strconv.Quote(string(rs)), err)
+		if err := ed.buf.runes.Insert(helloWorld, 0); err != nil {
+			t.Fatalf("ed.buf.runes.Insert(%v, 0)=%v, want nil", strconv.Quote(string(helloWorld)), err)
 		}
 
 		// All subsequent reads will be errors.
 		f.error = errors.New("read error")
 		if a, err := addr.where(ed); err != f.error {
 			t.Errorf("Addr(%q).addr()=%v,%v, want addr{},%q", test, a, err, f.error)
+			continue
 		}
 	}
 }
