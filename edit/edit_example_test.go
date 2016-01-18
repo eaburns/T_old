@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/ioutil"
 	"os"
+	"strings"
 )
 
 func ExampleAddress() {
@@ -18,7 +19,7 @@ func ExampleAddress() {
 	// It is intended to be called with runes input by a UI.
 	// This wrapper makes it a bit more friendly for our example.
 	parseAddr := func(s string) Address {
-		a, _, err := Addr([]rune(s))
+		a, err := Addr(strings.NewReader(s))
 		if err != nil {
 			panic(err)
 		}
@@ -99,7 +100,7 @@ func ExampleEdit() {
 	// It is intended to be called with runes input by a UI.
 	// This wrapper makes it a bit more friendly for our example.
 	parseEd := func(s string) Edit {
-		e, _, err := Ed([]rune(s))
+		e, err := Ed(strings.NewReader(s))
 		if err != nil {
 			panic(err)
 		}

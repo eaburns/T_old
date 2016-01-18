@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -549,7 +550,7 @@ func (test eTest) run(t *testing.T) {
 	// Stringify, parse, and re-test the parsed Edit.
 	var err error
 	str := test.e.String()
-	test.e, _, err = Ed([]rune(str))
+	test.e, err = Ed(strings.NewReader(str))
 	if err != nil {
 		if ok, reErr := regexp.MatchString(test.err, err.Error()); reErr != nil {
 			panic(reErr)
@@ -849,7 +850,7 @@ func (test *undoTest) run(t *testing.T) {
 	// Stringify, parse, and re-test the parsed Edit.
 	var err error
 	str := test.e.String()
-	test.e, _, err = Ed([]rune(str))
+	test.e, err = Ed(strings.NewReader(str))
 	if err != nil {
 		t.Fatalf("Failed to parse %q: %v", str, err)
 	}
@@ -924,6 +925,7 @@ func TestEd(t *testing.T) {
 		{e: "c\nαβξ\n.\n", want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n.", want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n\n.", want: Change(Dot, "αβξ\n\n")},
+		{e: "c\nαβξ\nabc\n.", want: Change(Dot, "αβξ\nabc\n")},
 		{e: "c \n", want: Change(Dot, "")},
 
 		{e: "a/αβξ", want: Append(Dot, "αβξ")},
@@ -941,6 +943,7 @@ func TestEd(t *testing.T) {
 		{e: "a\nαβξ\n.\n", want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n.", want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n\n.", want: Append(Dot, "αβξ\n\n")},
+		{e: "a\nαβξ\nabc\n.", want: Append(Dot, "αβξ\nabc\n")},
 		{e: "a \n", want: Append(Dot, "")},
 
 		{e: "i/αβξ", want: Insert(Dot, "αβξ")},
@@ -958,6 +961,7 @@ func TestEd(t *testing.T) {
 		{e: "i\nαβξ\n.\n", want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n.", want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n\n.", want: Insert(Dot, "αβξ\n\n")},
+		{e: "i\nαβξ\nabc\n.", want: Insert(Dot, "αβξ\nabc\n")},
 		{e: "i \n", want: Insert(Dot, "")},
 
 		{e: "d", want: Delete(Dot)},
@@ -1036,6 +1040,7 @@ func TestEd(t *testing.T) {
 		{e: ",	  |cmd", want: Pipe(All, "cmd")},
 		{e: "  	,	  |cmd", want: Pipe(All, "cmd")},
 		{e: ",+3|cmd", want: Pipe(Line(0).To(Dot.Plus(Line(3))), "cmd")},
+		{e: `|\x\y\z`, want: Pipe(Dot, `\x\y\z`)},
 
 		{e: ">cmd", want: PipeTo(Dot, "cmd")},
 		{e: ">	   cmd", want: PipeTo(Dot, "cmd")},
@@ -1049,6 +1054,7 @@ func TestEd(t *testing.T) {
 		{e: ",	  >cmd", want: PipeTo(All, "cmd")},
 		{e: "  	,	  >cmd", want: PipeTo(All, "cmd")},
 		{e: ",+3>cmd", want: PipeTo(Line(0).To(Dot.Plus(Line(3))), "cmd")},
+		{e: `>\x\y\z`, want: PipeTo(Dot, `\x\y\z`)},
 
 		{e: "<cmd", want: PipeFrom(Dot, "cmd")},
 		{e: "<	   cmd", want: PipeFrom(Dot, "cmd")},
@@ -1062,6 +1068,7 @@ func TestEd(t *testing.T) {
 		{e: ",	  <cmd", want: PipeFrom(All, "cmd")},
 		{e: "  	,	  <cmd", want: PipeFrom(All, "cmd")},
 		{e: ",+3<cmd", want: PipeFrom(Line(0).To(Dot.Plus(Line(3))), "cmd")},
+		{e: `<\x\y\z`, want: PipeFrom(Dot, `\x\y\z`)},
 
 		{e: "u", want: Undo(1)},
 		{e: " u", want: Undo(1)},
@@ -1079,16 +1086,27 @@ func TestEd(t *testing.T) {
 		{e: "r" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 	}
 	for _, test := range tests {
-		e, left, err := Ed([]rune(test.e))
-		ok := true
-		if test.err != "" {
-			ok = err != nil && regexp.MustCompile(test.err).MatchString(err.Error())
-		} else {
-			ok = err == nil && reflect.DeepEqual(e, test.want) && string(left) == string(test.left)
-		}
-		if !ok {
-			t.Errorf(`Ed(%q)=%q,%q,%q, want %q,%q,%q`, test.e, e, left, err, test.want, test.left, test.err)
+		rs := strings.NewReader(test.e)
+		e, err := Ed(rs)
 
+		if test.err != "" {
+			if !regexp.MustCompile(test.err).MatchString(err.Error()) {
+				t.Errorf(`Ed(%q)=%q,%q, want %q,%q`, test.e, e, err, test.want, test.err)
+			}
+			continue
+		}
+
+		if err != nil || !reflect.DeepEqual(e, test.want) {
+			t.Errorf(`Ed(%q)=%q,%q, want %q,%q`, test.e, e, err, test.want, test.err)
+			continue
+		}
+		left, err := ioutil.ReadAll(rs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(left) != test.left {
+			t.Errorf(`Ed(%q) leftover %q want %q`, test.e, string(left), test.left)
+			continue
 		}
 	}
 }

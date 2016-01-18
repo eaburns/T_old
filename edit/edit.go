@@ -134,6 +134,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -457,7 +458,7 @@ func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	re, err := re1.Compile([]rune(e.RE), re1.Options{Delimited: true})
+	re, err := re1.Compile(strings.NewReader(e.RE), re1.Options{Delimited: true})
 	if err != nil {
 		return addr{}, err
 	}
@@ -744,7 +745,7 @@ func (e redo) String() string {
 // Redo is special-cased by Editor.Do.
 func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
 
-// Ed parses and returns an Edit and the remaining, unparsed runes.
+// Ed parses and returns an Edit.
 //
 // In the following, text surrounded by / represents delimited text.
 // The delimiter can be any character, it need not be /.
@@ -839,265 +840,386 @@ func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
 //		If n is not specified, it defaults to 1.
 //		Dot is set to the address covering
 // 		the last redone change.
-func Ed(e []rune) (Edit, []rune, error) {
-	edit, left, err := ed(e)
-	for len(left) > 0 && unicode.IsSpace(left[0]) {
-		var r rune
-		r, left = left[0], left[1:]
-		if r == '\n' {
-			break
-		}
+func Ed(rs io.RuneScanner) (Edit, error) {
+	e, err := ed(rs)
+	if err != nil {
+		return nil, err
 	}
-	return edit, left, err
+	if err := skipSpace(rs); err != nil {
+		return nil, err
+	}
+	if err := skipSingleNewline(rs); err != nil {
+		return nil, err
+	}
+	return e, err
 }
 
-func ed(e []rune) (edit Edit, left []rune, err error) {
-	a, e, err := parseCompoundAddr(e)
+func ed(rs io.RuneScanner) (Edit, error) {
+	a, err := parseCompoundAddr(rs)
 	switch {
 	case err != nil:
-		return nil, e, err
-	case a == nil && len(e) > 0:
-		switch e[0] {
-		case 'u':
-			n, e, err := parseNumber(e[1:])
-			if err != nil {
-				return nil, e, err
-			}
-			return Undo(n), e, nil
-
-		case 'r':
-			n, e, err := parseNumber(e[1:])
-			if err != nil {
-				return nil, e, err
-			}
-			return Redo(n), e, nil
-		}
-		fallthrough
+		return nil, err
 	case a == nil:
-		a = Dot
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return Set(Dot, '.'), nil
+		case err != nil:
+			return nil, err
+		case r == 'u':
+			n, err := parseNumber(rs)
+			if err != nil {
+				return nil, err
+			}
+			return Undo(n), nil
+		case r == 'r':
+			n, err := parseNumber(rs)
+			if err != nil {
+				return nil, err
+			}
+			return Redo(n), nil
+		default:
+			if err := rs.UnreadRune(); err != nil {
+				return nil, err
+			}
+			a = Dot
+		}
 	}
-	if len(e) == 0 || e[0] == '\n' {
-		return Set(a, '.'), e, nil
-	}
-	switch c, e := e[0], e[1:]; c {
-	case 'a', 'c', 'i':
-		var rs []rune
-		rs, e = parseText(e)
-		switch c {
+	switch r, _, err := rs.ReadRune(); {
+	case err == io.EOF || err == nil && r == '\n':
+		return Set(a, '.'), nil
+	case err != nil:
+		return nil, err
+	case r == 'a' || r == 'c' || r == 'i':
+		text, err := parseText(rs)
+		if err != nil {
+			return nil, err
+		}
+		switch r {
 		case 'a':
-			return Append(a, string(rs)), e, nil
+			return Append(a, text), nil
 		case 'c':
-			return Change(a, string(rs)), e, nil
-		case 'i':
-			return Insert(a, string(rs)), e, nil
+			return Change(a, text), nil
+		default: // case 'i'
+			return Insert(a, text), nil
 		}
-		panic("unreachable")
-	case 'd':
-		return Delete(a), e, nil
-	case 'k':
-		mk, e := parseMarkRune(e)
-		return Set(a, mk), e, nil
-	case 'p':
-		return Print(a), e, nil
-	case '=':
-		if len(e) == 0 || e[0] != '#' {
-			return WhereLine(a), e, nil
-		}
-		return Where(a), e[1:], nil
-	case 't', 'm':
-		a1, e, err := addrOrDot(e)
+	case r == 'd':
+		return Delete(a), nil
+	case r == 'k':
+		m, err := parseMarkRune(rs)
 		if err != nil {
-			return nil, e, err
+			return nil, err
 		}
-		if c == 't' {
-			return Copy(a, a1), e, nil
+		return Set(a, m), nil
+	case r == 'p':
+		return Print(a), nil
+	case r == '=':
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return WhereLine(a), nil
+		case err != nil:
+			return nil, err
+		case r == '#':
+			return Where(a), nil
+		default:
+			if err := rs.UnreadRune(); err != nil {
+				return nil, err
+			}
+			return WhereLine(a), nil
 		}
-		return Move(a, a1), e, nil
-	case 's':
-		n, e, err := parseNumber(e)
+	case r == 't' || r == 'm':
+		a1, err := parseAddrOrDot(rs)
 		if err != nil {
-			return nil, e, err
+			return nil, err
 		}
-		exp, e, err := parseRegexp(e)
+		if r == 't' {
+			return Copy(a, a1), nil
+		}
+		return Move(a, a1), nil
+	case r == 's':
+		n, err := parseNumber(rs)
 		if err != nil {
-			return nil, e, err
+			return nil, err
+		}
+		exp, err := parseRegexp2(rs)
+		if err != nil {
+			return nil, err
 		}
 		if len(exp) < 2 || len(exp) == 2 && exp[0] == exp[1] {
 			// len==1 is just the open delim.
 			// len==2 && exp[0]==exp[1] is just open and close delim.
-			return nil, e, errors.New("missing pattern")
+			return nil, errors.New("missing pattern")
 		}
-		repl, e := parseDelimited(exp[0], e)
+		repl, err := parseDelimited(exp[0], rs)
+		if err != nil {
+			return nil, err
+		}
 		sub := Substitute{
 			A:    a,
 			RE:   string(exp),
 			With: string(repl),
 			From: n,
 		}
-		if len(e) > 0 && e[0] == 'g' {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return sub, nil
+		case err != nil:
+			return nil, err
+		case r == 'g':
 			sub.Global = true
-			e = e[1:]
-		}
-		return sub, e, nil
-	case '|':
-		cmd, e := parseCmd(e)
-		return Pipe(a, cmd), e, nil
-	case '>':
-		cmd, e := parseCmd(e)
-		return PipeTo(a, cmd), e, nil
-	case '<':
-		cmd, e := parseCmd(e)
-		return PipeFrom(a, cmd), e, nil
-	default:
-		return nil, e, errors.New("unknown command: " + string(c))
-	}
-}
-
-func addrOrDot(e []rune) (Address, []rune, error) {
-	a, e, err := parseCompoundAddr(e)
-	switch {
-	case err != nil:
-		return nil, e, err
-	case a == nil:
-		a = Dot
-	}
-	return a, e, err
-}
-
-func parseText(e []rune) ([]rune, []rune) {
-	var i int
-	for i < len(e) && unicode.IsSpace(e[i]) {
-		if e[i] == '\n' {
-			return parseLines(e[i+1:])
-		}
-		i++
-	}
-	if i == len(e) {
-		return nil, e
-	}
-	return parseDelimited(e[i], e[i+1:])
-}
-
-func parseLines(e []rune) ([]rune, []rune) {
-	var i int
-	var nl bool
-	for i = 0; i < len(e); i++ {
-		if nl && e[i] == '.' {
-			switch {
-			case i == len(e)-1:
-				return e[:i], e[i+1:]
-			case i < len(e)-1 && e[i+1] == '\n':
-				return e[:i], e[i+2:]
+		default:
+			if err := rs.UnreadRune(); err != nil {
+				return nil, err
 			}
 		}
-		nl = e[i] == '\n'
+		return sub, nil
+	case r == '|' || r == '>' || r == '<':
+		c, err := parseCmd(rs)
+		if err != nil {
+			return nil, err
+		}
+		switch r {
+		case '|':
+			return Pipe(a, c), nil
+		case '>':
+			return PipeTo(a, c), nil
+		default: // case '<'
+			return PipeFrom(a, c), nil
+		}
+	default:
+		return nil, errors.New("unknown command: " + string(r))
 	}
-	return e, e[i:]
 }
 
-// ParseDelimited returns the runes
-// up to the first unescaped delimiter,
-// raw newline (rune 0xA),
-// or the end of the slice
-// and the remaining, unconsumed runes.
-// A delimiter preceeded by \ is escaped and is non-terminating.
-// The letter n preceeded by \ is a newline literal.
-func parseDelimited(delim rune, e []rune) ([]rune, []rune) {
-	var i int
-	var rs []rune
-	for i = 0; i < len(e); i++ {
-		switch {
-		case e[i] == delim || e[i] == '\n':
-			return rs, e[i+1:]
-		case i < len(e)-1 && e[i] == '\\' && e[i+1] == delim:
-			rs = append(rs, delim)
-			i++
-		case i < len(e)-1 && e[i] == '\\' && e[i+1] == 'n':
-			rs = append(rs, '\n')
-			i++
+// Re1Scanner serves two purposes:
+//
+// 1) It keeps track of runes consumed by re1.Compile.
+// These runes are the parsed regular expression.
+//
+// 2) re1 does not terminate on raw newlines; Ed and Addr do.
+// The re1Scanner returns io.EOF when it encounters a raw newline.
+type re1Scanner struct {
+	rs      io.RuneScanner
+	scanned []rune
+}
+
+func (rs *re1Scanner) ReadRune() (rune, int, error) {
+	switch r, w, err := rs.rs.ReadRune(); {
+	case err != nil:
+		return r, w, err
+	case r == '\n':
+		if err := rs.rs.UnreadRune(); err != nil {
+			return r, w, err
+		}
+		return rune(0), 0, io.EOF
+	default:
+		rs.scanned = append(rs.scanned, r)
+		return r, w, err
+	}
+}
+
+func (rs *re1Scanner) UnreadRune() error {
+	if err := rs.rs.UnreadRune(); err != nil {
+		return err
+	}
+	rs.scanned = rs.scanned[:len(rs.scanned)-1]
+	return nil
+}
+
+func parseRegexp2(rs io.RuneScanner) ([]rune, error) {
+	if err := skipSpace(rs); err != nil {
+		return nil, err
+	}
+	rs1 := &re1Scanner{rs: rs}
+	if _, err := re1.Compile(rs1, re1.Options{Delimited: true}); err != nil {
+		return nil, err
+	}
+	return rs1.scanned, nil
+}
+
+func parseAddrOrDot(rs io.RuneScanner) (Address, error) {
+	switch a, err := parseCompoundAddr(rs); {
+	// parseCompoundAddr returns never returns io.EOF, but nil, nil.
+	case err != nil:
+		return nil, err
+	case a == nil:
+		return Dot, nil
+	default:
+		return a, err
+	}
+}
+
+func parseText(rs io.RuneScanner) (string, error) {
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return "", nil
+		case err != nil:
+			return "", err
+		case r == '\n':
+			return parseLines(rs)
+		case unicode.IsSpace(r):
+			continue
 		default:
-			rs = append(rs, e[i])
+			return parseDelimited(r, rs)
 		}
 	}
-	return rs, nil
 }
 
-func parseMarkRune(e []rune) (rune, []rune) {
-	for len(e) > 0 && unicode.IsSpace(e[0]) {
-		e = e[1:]
+func parseLines(rs io.RuneScanner) (string, error) {
+	var s string
+	var nl bool
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return s, nil
+		case err != nil:
+			return "", err
+		case nl && r == '.':
+			return s, nil
+		default:
+			s += string(r)
+			nl = r == '\n'
+		}
 	}
-	if len(e) == 0 {
-		return '.', nil
+}
+
+// ParseDelimited returns the string
+// up to the first unescaped delimiter,
+// raw newline (rune 0xA),
+// or the end of input.
+// A delimiter preceeded by \ is escaped and is non-terminating.
+// The letter n preceeded by \ is a newline literal.
+func parseDelimited(delim rune, rs io.RuneScanner) (string, error) {
+	var s string
+	var esc bool
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return s, nil
+		case err != nil:
+			return "", err
+		case esc && r == delim:
+			s += string(delim)
+			esc = false
+		case r == delim || r == '\n':
+			return s, nil
+		case !esc && r == '\\':
+			esc = true
+		case esc && r == 'n':
+			s += "\n"
+			esc = false
+		default:
+			if esc {
+				s += "\\"
+			}
+			s += string(r)
+			esc = false
+		}
 	}
-	return e[0], e[1:]
+}
+
+func parseMarkRune(rs io.RuneScanner) (rune, error) {
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return '.', nil
+		case err != nil:
+			return 0, err
+		case unicode.IsSpace(r):
+			continue
+		default:
+			return r, nil
+		}
+	}
 }
 
 // ParseNumber parses and returns a positive integer.
-// The first returned value is the number,
-// the second is the number of runes parsed.
-// If there is no error and 0 runes are parsed,
-// the number returned is 1.
-func parseNumber(e []rune) (int, []rune, error) {
-	for len(e) > 0 && unicode.IsSpace(e[0]) && e[0] != '\n' {
-		e = e[1:]
+// Leading spaces are ignored.
+// If EOF is reached before any digits are encountered, 1 is returned.
+func parseNumber(rs io.RuneScanner) (int, error) {
+	if err := skipSpace(rs); err != nil {
+		return 0, err
 	}
-
-	i := 0
-	n := 1 // by default return 1
-	var err error
-	for len(e) > i && unicode.IsDigit(e[i]) {
-		i++
-	}
-	if i != 0 {
-		n, err = strconv.Atoi(string(e[:i]))
-		if err != nil {
-			return 0, e[:], err
-		}
-	}
-	return n, e[i:], nil
-}
-
-func parseRegexp(e []rune) ([]rune, []rune, error) {
-	// re1 doesn't special-case raw newlines.
-	// We need them to terminate the regexp.
-	// So, we split on newline (if any),
-	// parse the first line with re1,
-	// and rejoin the rest of the lines.
-	var rest []rune
-	for i, r := range e {
-		if r == '\n' {
-			e, rest = e[:i], e[i:]
+	var s string
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
 			break
+		case err != nil:
+			return 0, err
+		case unicode.IsDigit(r):
+			s += string(r)
+			continue
+		default:
+			if err := rs.UnreadRune(); err != nil {
+				return 0, err
+			}
 		}
-	}
-	for len(e) > 0 && unicode.IsSpace(e[0]) {
-		e = e[1:]
-	}
 
-	re, err := re1.Compile(e, re1.Options{Delimited: true})
-	if err != nil {
-		return nil, e, err
+		if len(s) == 0 {
+			return 1, nil
+		}
+		return strconv.Atoi(s)
 	}
-	exp := re.Expression()
-	return exp, append(e[len(exp):], rest...), nil
 }
 
-func parseCmd(e []rune) (string, []rune) {
-	var cmd string
-	for len(e) > 0 && unicode.IsSpace(e[0]) && e[0] != '\n' {
-		e = e[1:]
+func parseCmd(rs io.RuneScanner) (string, error) {
+	if err := skipSpace(rs); err != nil {
+		return "", err
 	}
-	for len(e) > 0 {
-		var r rune
-		switch r, e = e[0], e[1:]; {
-		case r == '\\' && len(e) > 0 && e[0] == 'n':
-			cmd += "\n"
-			e = e[1:]
+	var esc bool
+	var cmd string
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return cmd, nil
+		case err != nil:
+			return "", nil
 		case r == '\n':
-			return cmd, e
+			return cmd, nil
+		case r == '\\':
+			esc = true
+		case esc && r == 'n':
+			cmd += "\n"
+			esc = false
 		default:
+			if esc {
+				cmd += "\\"
+			}
 			cmd += string(r)
+			esc = false
 		}
 	}
-	return cmd, e
+}
+
+// SkipSpace consumes and ignores non-newline whitespace.
+// Terminates if a newline is encountered.
+// The terminating newline remains consumed.
+func skipSpace(rs io.RuneScanner) error {
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err == io.EOF:
+			return nil
+		case err != nil:
+			return err
+		case r != '\n' && unicode.IsSpace(r):
+			continue
+		default:
+			return rs.UnreadRune()
+		}
+	}
+}
+
+func skipSingleNewline(rs io.RuneScanner) error {
+	// Eat a single trailing newline.
+	switch r, _, err := rs.ReadRune(); {
+	case err == io.EOF:
+		return nil
+	case err != nil:
+		return err
+	case r == '\n':
+		return nil
+	default:
+		return rs.UnreadRune()
+	}
 }
