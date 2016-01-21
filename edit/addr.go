@@ -696,17 +696,17 @@ func parseLineAddr(r rune, rs io.RuneScanner) (SimpleAddress, error) {
 }
 
 func scanDigits(rs io.RuneScanner) (string, error) {
-	var s string
+	var s []rune
 	for {
 		switch r, _, err := rs.ReadRune(); {
 		case err == io.EOF:
-			return s, nil
+			return string(s), nil
 		case err != nil:
 			return "", err
 		case !unicode.IsDigit(r):
-			return s, rs.UnreadRune()
+			return string(s), rs.UnreadRune()
 		default:
-			s += string(r)
+			s = append(s, r)
 		}
 	}
 }

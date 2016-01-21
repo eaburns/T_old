@@ -641,15 +641,15 @@ func (e pipe) String() string {
 }
 
 func escNewlines(s string) string {
-	var esc string
+	var esc []rune
 	for _, r := range s {
 		if r == '\n' {
-			esc += `\n`
+			esc = append(esc, '\\', 'n')
 		} else {
-			esc += string(r)
+			esc = append(esc, r)
 		}
 	}
-	return esc
+	return string(esc)
 }
 
 // DefaultShell is the default shell
@@ -1066,18 +1066,18 @@ func parseText(rs io.RuneScanner) (string, error) {
 }
 
 func parseLines(rs io.RuneScanner) (string, error) {
-	var s string
+	var s []rune
 	var nl bool
 	for {
 		switch r, _, err := rs.ReadRune(); {
 		case err == io.EOF:
-			return s, nil
+			return string(s), nil
 		case err != nil:
 			return "", err
 		case nl && r == '.':
-			return s, nil
+			return string(s), nil
 		default:
-			s += string(r)
+			s = append(s, r)
 			nl = r == '\n'
 		}
 	}
@@ -1090,29 +1090,29 @@ func parseLines(rs io.RuneScanner) (string, error) {
 // A delimiter preceeded by \ is escaped and is non-terminating.
 // The letter n preceeded by \ is a newline literal.
 func parseDelimited(delim rune, rs io.RuneScanner) (string, error) {
-	var s string
+	var s []rune
 	var esc bool
 	for {
 		switch r, _, err := rs.ReadRune(); {
 		case err == io.EOF:
-			return s, nil
+			return string(s), nil
 		case err != nil:
 			return "", err
 		case esc && r == delim:
-			s += string(delim)
+			s = append(s, delim)
 			esc = false
 		case r == delim || r == '\n':
-			return s, nil
+			return string(s), nil
 		case !esc && r == '\\':
 			esc = true
 		case esc && r == 'n':
-			s += "\n"
+			s = append(s, '\n')
 			esc = false
 		default:
 			if esc {
-				s += "\\"
+				s = append(s, '\\')
 			}
-			s += string(r)
+			s = append(s, r)
 			esc = false
 		}
 	}
@@ -1140,7 +1140,7 @@ func parseNumber(rs io.RuneScanner) (int, error) {
 	if err := skipSpace(rs); err != nil {
 		return 0, err
 	}
-	var s string
+	var s []rune
 	for {
 		switch r, _, err := rs.ReadRune(); {
 		case err == io.EOF:
@@ -1148,7 +1148,7 @@ func parseNumber(rs io.RuneScanner) (int, error) {
 		case err != nil:
 			return 0, err
 		case unicode.IsDigit(r):
-			s += string(r)
+			s = append(s, r)
 			continue
 		default:
 			if err := rs.UnreadRune(); err != nil {
@@ -1159,7 +1159,7 @@ func parseNumber(rs io.RuneScanner) (int, error) {
 		if len(s) == 0 {
 			return 1, nil
 		}
-		return strconv.Atoi(s)
+		return strconv.Atoi(string(s))
 	}
 }
 
@@ -1168,25 +1168,25 @@ func parseCmd(rs io.RuneScanner) (string, error) {
 		return "", err
 	}
 	var esc bool
-	var cmd string
+	var s []rune
 	for {
 		switch r, _, err := rs.ReadRune(); {
 		case err == io.EOF:
-			return cmd, nil
+			return string(s), nil
 		case err != nil:
 			return "", nil
 		case r == '\n':
-			return cmd, nil
+			return string(s), nil
 		case r == '\\':
 			esc = true
 		case esc && r == 'n':
-			cmd += "\n"
+			s = append(s, '\n')
 			esc = false
 		default:
 			if esc {
-				cmd += "\\"
+				s = append(s, '\\')
 			}
-			cmd += string(r)
+			s = append(s, r)
 			esc = false
 		}
 	}
