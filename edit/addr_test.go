@@ -216,6 +216,7 @@ func TestMinusAddress(t *testing.T) {
 		{text: "abc", addr: Rune(2).Minus(Rune(-1)), want: pt(3)},
 		{text: "abc\ndef", addr: Line(1).Minus(Line(1)), want: pt(0)},
 		{text: "abc\ndef", dot: rng(1, 6), addr: Dot.Minus(Line(1)).Plus(Line(1)), want: rng(0, 4)},
+		{text: "abc", dot: pt(3), addr: Dot.Minus(Regexp("/aa?/")), want: rng(0, 1)},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -287,7 +288,7 @@ func (test addressTest) run(t *testing.T) {
 	if a != test.want ||
 		(test.err == "" && errStr != "") ||
 		(test.err != "" && !regexp.MustCompile(test.err).MatchString(errStr)) {
-		t.Errorf(`Address("%q").range(%d, %q)=%v, %v, want %v, %v`,
+		t.Errorf(`Address(%q).range(%d, %q)=%v, %v, want %v, %v`,
 			test.addr.String(), test.dot, test.text, a, err,
 			test.want, test.err)
 	}
@@ -381,6 +382,9 @@ func TestAddr(t *testing.T) {
 		{a: " + - ", want: Dot.Plus(Line(1)).Minus(Line(1))},
 		{a: " - + ", want: Dot.Minus(Line(1)).Plus(Line(1))},
 		{a: "/abc/+++---", want: Regexp("/abc/").Plus(Line(1)).Plus(Line(1)).Plus(Line(1)).Minus(Line(1)).Minus(Line(1)).Minus(Line(1))},
+
+		{a: ".+/aa?/", want: Dot.Plus(Regexp("/aa?/"))},
+		{a: ".-/aa?/", want: Dot.Minus(Regexp("/aa?/"))},
 
 		{a: ",", want: Line(0).To(End)},
 		{a: ",xyz", left: "xyz", want: Line(0).To(End)},
