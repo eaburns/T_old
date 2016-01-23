@@ -160,7 +160,7 @@ func numberStates(re *Regexp) {
 // The regular expression is parsed until either
 // the end of the input or an un-escaped closing delimiter.
 func Compile(rs io.RuneScanner, opts Options) (*Regexp, error) {
-	p := parser{rs: rs, nsub: 1, reverse: opts.Reverse, literal: opts.Literal, i: -1}
+	p := parser{rs: rs, nsub: 1, Options: opts, i: -1}
 	if opts.Delimited {
 		switch r, _, err := rs.ReadRune(); {
 		case err == io.EOF:
@@ -200,10 +200,10 @@ func Compile(rs io.RuneScanner, opts Options) (*Regexp, error) {
 }
 
 type parser struct {
-	rs               io.RuneScanner
-	nsub             int
-	delim            rune
-	literal, reverse bool
+	rs    io.RuneScanner
+	nsub  int
+	delim rune
+	Options
 
 	// Need two runes of lookahead
 	// for escaped metacharacter delimiters.
@@ -280,7 +280,7 @@ func e1(p *parser) (*Regexp, error) {
 		return nil, err
 	case r == nil:
 		return l, nil
-	case p.reverse:
+	case p.Reverse:
 		l, r = r, l
 	}
 	re := &Regexp{start: new(node)}
@@ -304,7 +304,7 @@ func e2(p *parser) (*Regexp, error) {
 }
 
 func e2p(l *Regexp, p *parser) (*Regexp, error) {
-	if p.literal {
+	if p.Literal {
 		return l, nil
 	}
 	re := &Regexp{start: new(node), end: new(node)}
@@ -367,7 +367,7 @@ func e3(p *parser) (*Regexp, error) {
 		return nil, nil
 	case err != nil:
 		return nil, err
-	case p.literal:
+	case p.Literal:
 		re.start.out[0].label = runeLabel(r)
 		return re, nil
 	case r == '\\':
@@ -430,9 +430,9 @@ func e3(p *parser) (*Regexp, error) {
 		}
 	case r == '.':
 		re.start.out[0].label = dotLabel{}
-	case r == '^' && !p.reverse || r == '$' && p.reverse:
+	case r == '^' && !p.Reverse || r == '$' && p.Reverse:
 		re.start.out[0].label = bolLabel{}
-	case r == '^' && p.reverse || r == '$' && !p.reverse:
+	case r == '^' && p.Reverse || r == '$' && !p.Reverse:
 		re.start.out[0].label = eolLabel{}
 	case r == '*' || r == '+' || r == '?':
 		return nil, errors.New("missing operand for " + string(r))
