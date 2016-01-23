@@ -125,6 +125,7 @@ func TestSubexprMatch(t *testing.T) {
 		{re: "(abc)d|abce", str: "abce", want: []string{"abce", ""}},
 		{re: "abcd|(abc)e", str: "abcd", want: []string{"abcd", ""}},
 		{re: "(☺|☹)*", str: "☺☹☺☹☺☹☺", want: []string{"☺☹☺☹☺☹☺", "☺"}},
+		{re: "(a(b(c)))", str: "abc", want: []string{"abc", "abc", "bc", "c"}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -217,18 +218,64 @@ func TestDelimitedMatch(t *testing.T) {
 		{opts: del, re: `/abc\//def`, str: "abc/", want: []string{"abc/"}},
 		{opts: del, re: `/[abc\/]*/def`, str: "abc/", want: []string{"abc/"}},
 		{opts: del, re: `/(.*),\n/def`, str: "hi,\n", want: []string{"hi,\n", "hi"}},
-		{opts: del, re: `*a\*`, str: "", want: nil},
-		{opts: del, re: `*a\*`, str: "a*", want: []string{"a*"}},
-		{opts: del, re: `*a\**`, str: "a**", want: []string{"a*"}},
 		{opts: del, re: `?abc?`, str: "ab", want: nil},
 		{opts: del, re: `?abc?`, str: "abc", want: []string{"abc"}},
-		{opts: del, re: `?a\?`, str: "", want: nil},
-		{opts: del, re: `?a\?`, str: "a?", want: []string{"a?"}},
-		{opts: del, re: `?a\??`, str: "a", want: nil},
-		{opts: del, re: `?a\??`, str: "a?", want: []string{"a?"}},
-		{opts: del, re: `$abc\$`, str: "abc", want: nil},
-		{opts: del, re: `$abc\$`, str: "abc\nxyz", want: nil},
-		{opts: del, re: `$abc\$`, str: "abc$", want: []string{"abc$"}},
+
+		// Test escaped meta delimiters:
+
+		{opts: del, re: `.\.+`, str: "abc", want: []string{"abc"}},
+		{opts: del, re: `.\.+.(would be error`, str: "abc", want: []string{"abc"}},
+		{opts: del, re: `.xyz\.+`, str: "xyzabc", want: []string{"xyzabc"}},
+
+		{opts: del, re: `*a\*`, str: "", want: []string{""}},
+		{opts: del, re: `*a\*`, str: "aaabc", want: []string{"aaa"}},
+		{opts: del, re: `*a\**(would be error`, str: "aa", want: []string{"aa"}},
+		{opts: del, re: `*a\**`, str: "*", want: []string{""}},
+		{opts: del, re: `*a\**`, str: "a*", want: []string{"a"}},
+
+		{opts: del, re: `+a\+`, str: "aa", want: []string{"aa"}},
+		{opts: del, re: `+a\+`, str: "aaabc", want: []string{"aaa"}},
+		{opts: del, re: `+a\++(would be error`, str: "aa", want: []string{"aa"}},
+		{opts: del, re: `+a\++`, str: "a+", want: []string{"a"}},
+
+		{opts: del, re: `?a\?`, str: "", want: []string{""}},
+		{opts: del, re: `?a\?`, str: "a?", want: []string{"a"}},
+		{opts: del, re: `?a\??(would be error`, str: "a", want: []string{"a"}},
+		{opts: del, re: `?a\??`, str: "a?", want: []string{"a"}},
+
+		{opts: del, re: `[\[1-5]*`, str: "[1-9", want: []string{""}},
+		{opts: del, re: `[\[1-5]*`, str: "12345", want: []string{"12345"}},
+		{opts: del, re: `[\[1-5]*[(would be error`, str: "1", want: []string{"1"}},
+		{opts: del, re: `[abc\[[]`, str: "abc[", want: []string{"abc["}},
+
+		{opts: del, re: `][1-5\]*`, str: "[1-9", want: []string{""}},
+		{opts: del, re: `][1-5\]*`, str: "12345", want: []string{"12345"}},
+		{opts: del, re: `][1-5\]*](would be error`, str: "1", want: []string{"1"}},
+		{opts: del, re: `]abc[[\]`, str: "abc[", want: []string{"abc["}},
+
+		{opts: del, re: `(\(abc)`, str: "abc", want: []string{"abc", "abc"}},
+		{opts: del, re: `(\(abc)([would be error`, str: "abc", want: []string{"abc", "abc"}},
+		{opts: del, re: `(\(a\(b))`, str: "ab", want: []string{"ab", "ab", "b"}},
+
+		{opts: del, re: `)(abc\)`, str: "abc", want: []string{"abc", "abc"}},
+		{opts: del, re: `)(abc\))(would be error`, str: "abc", want: []string{"abc", "abc"}},
+		{opts: del, re: `)(a(b\)\)`, str: "ab", want: []string{"ab", "ab", "b"}},
+
+		{opts: del, re: `|a\|b`, str: "a", want: []string{"a"}},
+		{opts: del, re: `|a\|b`, str: "b", want: []string{"b"}},
+		{opts: del, re: `|(a)\|(b)`, str: "a", want: []string{"a", "a", ""}},
+		{opts: del, re: `|(a)\|(b)`, str: "b", want: []string{"b", "", "b"}},
+		{opts: del, re: `|a\|b|(would be error`, str: "b", want: []string{"b"}},
+
+		{opts: del, re: `^\^abc`, str: "abc", want: []string{"abc"}},
+		{opts: del, re: `^\^abc`, str: "xyz\nabc", want: []string{"abc"}},
+		{opts: del, re: `^\^abc`, str: "^abc", want: nil},
+		{opts: del, re: `^\^a^(would be error`, str: "b\na", want: []string{"a"}},
+
+		{opts: del, re: `$abc\$`, str: "abc", want: []string{"abc"}},
+		{opts: del, re: `$abc\$`, str: "abc\nxyz", want: []string{"abc"}},
+		{opts: del, re: `$abc\$`, str: "abc$", want: nil},
+		{opts: del, re: `$a\$$(would be error`, str: "a\nb", want: []string{"a"}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -341,6 +388,7 @@ func (test *regexpTest) run(t *testing.T) {
 	if err != nil {
 		t.Fatalf(`Compile("%s", %+v)=%v, want nil`, test.re, test.opts, err)
 	}
+
 	str := test.str
 	if test.opts.Reverse {
 		str = reverse(test.str)
@@ -422,6 +470,9 @@ func TestParseErrors(t *testing.T) {
 		{re: "a(bcd", err: "unclosed"},
 		{re: "a(b(c)d", err: "unclosed"},
 		{re: "a(b(cd", err: "unclosed"},
+		{delim: true, re: "/(abc/", err: "unclosed"},
+		{delim: true, re: "/(abc/)", err: "unclosed"},
+		{delim: true, re: "/(/", err: "unclosed"},
 		{re: "a|", err: "missing operand"},
 		//{re: "a)", err: ParseError{Position: 1}},
 		//{re: "a)xyz", err: ParseError{Position: 1}},
@@ -458,6 +509,7 @@ func TestParseErrors(t *testing.T) {
 		{re: `[\^\-\]]`},
 
 		// Delimiters.
+		{delim: true, re: `\abc`, err: "bad delimiter"},
 		{delim: true, re: "/abc"},
 		{delim: true, re: "/abc/"},
 		{delim: true, re: "/abc/xyz"},
@@ -467,8 +519,7 @@ func TestParseErrors(t *testing.T) {
 		{delim: true, re: `/abc[/]xyz`},
 		{delim: true, re: `/abc[\/]xyz`},
 
-		// It's impossible to close a charclass if the delimiter is ].
-		{delim: true, re: `][\]\]`, err: "unclosed"},
+		{delim: true, re: `][\]]`, err: "missing operand"},
 		{delim: true, re: `][]\]]`, err: "missing operand"},
 	}
 	for _, test := range tests {

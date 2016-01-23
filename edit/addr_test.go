@@ -532,7 +532,7 @@ func TestAddressString(t *testing.T) {
 		str := test.addr.String()
 		got, err := Addr(strings.NewReader(str))
 		if err != nil || got != test.want {
-			t.Errorf("Addr(%q)=%v,%v want %q,nil", str, got.String(), err, test.want.String())
+			t.Errorf("Addr(%q)=%v,%v want %q,nil", str, got, err, test.want.String())
 			continue
 		}
 	}
