@@ -394,6 +394,8 @@ func e3(p *parser) (*Regexp, error) {
 
 	switch {
 	case r == '(':
+		nsub := p.nsub
+		p.nsub++
 		e, err := e0(p)
 		if err != nil {
 			return nil, err
@@ -420,8 +422,7 @@ func e3(p *parser) (*Regexp, error) {
 			if e == nil {
 				return nil, errors.New("missing operand for (")
 			}
-			re = subexpr(e, p.nsub)
-			p.nsub++
+			re = subexpr(e, nsub)
 		}
 	case r == '[':
 		if re.start.out[0].label, err = charClass(p); err != nil {

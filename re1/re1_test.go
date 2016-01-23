@@ -125,6 +125,7 @@ func TestSubexprMatch(t *testing.T) {
 		{re: "(abc)d|abce", str: "abce", want: []string{"abce", ""}},
 		{re: "abcd|(abc)e", str: "abcd", want: []string{"abcd", ""}},
 		{re: "(☺|☹)*", str: "☺☹☺☹☺☹☺", want: []string{"☺☹☺☹☺☹☺", "☺"}},
+		{re: "(a(b(c)))", str: "abc", want: []string{"abc", "abc", "bc", "c"}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -254,13 +255,11 @@ func TestDelimitedMatch(t *testing.T) {
 
 		{opts: del, re: `(\(abc)`, str: "abc", want: []string{"abc", "abc"}},
 		{opts: del, re: `(\(abc)([would be error`, str: "abc", want: []string{"abc", "abc"}},
-		// BUG(eaburns): Nested subexpressions are numbered wrong.
-		{opts: del, re: `(\(a\(b))`, str: "ab", want: []string{"ab", "b", "ab"}},
+		{opts: del, re: `(\(a\(b))`, str: "ab", want: []string{"ab", "ab", "b"}},
 
 		{opts: del, re: `)(abc\)`, str: "abc", want: []string{"abc", "abc"}},
 		{opts: del, re: `)(abc\))(would be error`, str: "abc", want: []string{"abc", "abc"}},
-		// BUG(eaburns): Nested subexpressions are numbered wrong.
-		{opts: del, re: `)(a(b\)\)`, str: "ab", want: []string{"ab", "b", "ab"}},
+		{opts: del, re: `)(a(b\)\)`, str: "ab", want: []string{"ab", "ab", "b"}},
 
 		{opts: del, re: `|a\|b`, str: "a", want: []string{"a"}},
 		{opts: del, re: `|a\|b`, str: "b", want: []string{"b"}},
