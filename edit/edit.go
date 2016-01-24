@@ -50,7 +50,7 @@
 // and any errors encountered while parsing.
 //
 // For example:
-// 	addr, leftOver, err := Addr([]rune("1+#3,/the/+8"))
+// 	addr, leftOver, err := Addr(strings.NewReader("1+#3,/the/+8"))
 //
 // For details about the address language,
 // see the document on the Addr function below.
@@ -80,7 +80,7 @@
 // and any errors encountered while parsing.
 //
 // Here's an example:
-//	edit, leftOver, err := Ed("1+#3,/the/+8 c/new text/")
+//	edit, leftOver, err := Ed(strings.NewReader("1+#3,/the/+8 c/new text/"))
 //
 // For details about the edit language,
 // see the document on the Ed function below.
