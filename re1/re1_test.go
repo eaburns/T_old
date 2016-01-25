@@ -57,6 +57,7 @@ func TestSimpleMatch(t *testing.T) {
 		// This isn't in the spec, but the plan9 code seems to
 		// treat a \ at the end of input as a literal.
 		{re: `\`, str: `\`, want: []string{`\`}},
+		{re: `abc\`, str: `abc\`, want: []string{`abc\`}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -489,7 +490,8 @@ func TestParseErrors(t *testing.T) {
 		{re: `[]`, err: "missing operand"},
 		{re: `[`, err: "unclosed"},
 		{re: `[a-`, err: "incomplete range"},
-		//{re: `[-]`, err: ParseError{Position: 1}},
+		{re: `[\`, err: "unclosed"},
+		{re: `[-]`, err: "range incomplete"},
 		{re: `[b-a`, err: "not ascending"},
 		{re: `[^`, err: "unclosed"},
 		{re: `[^a-`, err: "incomplete range"},
