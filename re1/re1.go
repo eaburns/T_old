@@ -45,8 +45,6 @@ const Meta = `.*+?[]()|\^$`
 // nCache is the maximum number of machines to cache.
 const nCache = 2
 
-const eof rune = -1
-
 // A Regexp is the compiled form of a regular expression.
 type Regexp struct {
 	start, end *node
@@ -136,6 +134,28 @@ type Options struct {
 	Literal bool
 }
 
+// Compile compiles a regular expression using the options.
+// The regular expression is parsed until either
+// the end of the input or an un-escaped closing delimiter.
+func Compile(rs io.RuneScanner, opts Options) (*Regexp, error) {
+	p, err := newParser(rs, opts)
+	if err != nil {
+		return nil, err
+	}
+	re, err := e0(p)
+	if err != nil {
+		return nil, err
+	}
+	if re == nil {
+		re = &Regexp{start: new(node), end: new(node)}
+		re.start.out[0].to = re.end
+	}
+	re = subexpr(re, 0)
+	re.nsub = p.nsub
+	numberStates(re)
+	return re, nil
+}
+
 // NumberStates assigns a unique, small interger to each state
 // and sets Regexp.n to the number of states in the automata.
 func numberStates(re *Regexp) {
@@ -156,11 +176,43 @@ func numberStates(re *Regexp) {
 	}
 }
 
-// Compile compiles a regular expression using the options.
-// The regular expression is parsed until either
-// the end of the input or an un-escaped closing delimiter.
-func Compile(rs io.RuneScanner, opts Options) (*Regexp, error) {
-	p := parser{rs: rs, nsub: 1, Options: opts, i: -1}
+type token rune
+
+const (
+	eof            = -1
+	dot      token = -'.'
+	star     token = -'*'
+	plus     token = -'+'
+	question token = -'?'
+	obrace   token = -'['
+	cbrace   token = -']'
+	oparen   token = -'('
+	cparen   token = -')'
+	or       token = -'|'
+	caret    token = -'^'
+	dollar   token = -'$'
+)
+
+func (t token) String() string {
+	if t == eof {
+		return "EOF"
+	}
+	if t < 0 {
+		t = -t
+	}
+	return string([]rune{'\'', rune(t), '\''})
+}
+
+type parser struct {
+	Options
+	nsub    int
+	delim   rune
+	current token
+	scanner io.RuneScanner
+}
+
+func newParser(rs io.RuneScanner, opts Options) (*parser, error) {
+	p := parser{nsub: 1, Options: opts, scanner: rs}
 	if opts.Delimited {
 		switch r, _, err := rs.ReadRune(); {
 		case err == io.EOF:
@@ -173,92 +225,56 @@ func Compile(rs io.RuneScanner, opts Options) (*Regexp, error) {
 			p.delim = r
 		}
 	}
-	re, err := e0(&p)
-	if err != nil {
-		return nil, err
-	}
-	if opts.Delimited {
-		// Must have ended on an EOF or a closing delimiter.
-		// If it was a closing delimiter, chomp it.
-		switch d, err := p.readRune(); {
+	return &p, p.next()
+}
+
+func (p *parser) read() (rune, error) {
+	r, _, err := p.scanner.ReadRune()
+	return r, err
+}
+
+func (p *parser) next() error {
+	switch r, err := p.read(); {
+	case err == io.EOF:
+		p.current = eof
+	case err != nil:
+		return err
+	case r == p.delim:
+		p.current = eof
+	case r == '\\':
+		switch r1, err := p.read(); {
 		case err == io.EOF:
-			break
+			p.current = '\\'
 		case err != nil:
-			return nil, err
-		case d != p.delim:
-			panic("end not a delimiter: " + string(d))
+			return err
+		case r1 == 'n':
+			p.current = '\n'
+		case r1 == p.delim && strings.ContainsRune(Meta, r1):
+			p.current = token(-r1)
+		default:
+			p.current = token(r1)
 		}
+	case strings.ContainsRune(Meta, r):
+		p.current = token(-r)
+	default:
+		p.current = token(r)
 	}
-	if re == nil {
-		re = &Regexp{start: new(node), end: new(node)}
-		re.start.out[0].to = re.end
-	}
-	re = subexpr(re, 0)
-	re.nsub = p.nsub
-	numberStates(re)
-	return re, nil
+	return nil
 }
-
-type parser struct {
-	rs    io.RuneScanner
-	nsub  int
-	delim rune
-	Options
-
-	// Need two runes of lookahead
-	// for escaped metacharacter delimiters.
-	i int
-	r [2]rune
-}
-
-func (p *parser) readRune() (rune, error) {
-	if i := p.i; i >= 0 {
-		p.i--
-		return p.r[i], nil
-	}
-	copy(p.r[1:], p.r[0:])
-	var err error
-	p.r[0], _, err = p.rs.ReadRune()
-	return p.r[0], err
-}
-
-func (p *parser) unreadRune() { p.i++ }
 
 func e0(p *parser) (*Regexp, error) {
 	l, err := e1(p)
-	if l == nil || err != nil {
+	if l == nil || err != nil || p.current == eof || p.current != or {
 		return l, err
 	}
-	r, err := p.readRune()
-	switch {
-	case err == nil && r == p.delim:
-		p.unreadRune()
-		fallthrough
-	case err == io.EOF:
-		return l, nil
-	case err != nil:
+	if err := p.next(); err != nil {
 		return nil, err
-	case r == '\\':
-		switch r1, err := p.readRune(); {
-		case err != nil && err != io.EOF:
-			return nil, err
-		case r1 == p.delim && r1 == '|':
-			r = r1 // Interpret as meta.
-		default:
-			p.unreadRune()
-			p.unreadRune()
-			return l, nil
-		}
-	}
-	if r != '|' {
-		p.unreadRune()
-		return l, nil
 	}
 	switch r, err := e0(p); {
-	case r == nil:
-		return nil, errors.New("missing operand for |")
 	case err != nil:
 		return nil, err
+	case r == nil:
+		return nil, errors.New("missing operand for |")
 	default:
 		re := &Regexp{start: new(node), end: new(node)}
 		re.start.out[0].to = l.start
@@ -275,12 +291,10 @@ func e1(p *parser) (*Regexp, error) {
 		return l, err
 	}
 	r, err := e1(p)
-	switch {
-	case err != nil:
-		return nil, err
-	case r == nil:
-		return l, nil
-	case p.Reverse:
+	if r == nil || err != nil {
+		return l, err
+	}
+	if p.Reverse {
 		l, r = r, l
 	}
 	re := &Regexp{start: new(node)}
@@ -308,29 +322,10 @@ func e2p(l *Regexp, p *parser) (*Regexp, error) {
 		return l, nil
 	}
 	re := &Regexp{start: new(node), end: new(node)}
-	r, err := p.readRune()
-	switch {
-	case err == nil && r == p.delim:
-		p.unreadRune()
-		fallthrough
-	case err == io.EOF:
+	switch p.current {
+	case eof:
 		return l, nil
-	case err != nil:
-		return nil, err
-	case r == '\\':
-		switch r1, err := p.readRune(); {
-		case err != nil && err != io.EOF:
-			return nil, err
-		case r1 == p.delim && (r1 == '*' || r1 == '+' || r1 == '?'):
-			r = r1 // Interpret as meta in the switch below.
-		default:
-			p.unreadRune()
-			p.unreadRune()
-			return l, nil
-		}
-	}
-	switch {
-	case r == '*':
+	case star:
 		if l.start.out[1].to == nil {
 			// Common case: if possible, re-use l's start node.
 			re.start = l.start
@@ -340,17 +335,19 @@ func e2p(l *Regexp, p *parser) (*Regexp, error) {
 		re.start.out[1].to = re.end
 		l.end.out[0].to = l.start
 		l.end.out[1].to = re.end
-	case r == '+':
+	case plus:
 		re.start.out[0].to = l.start
 		l.end.out[0].to = l.start
 		l.end.out[1].to = re.end
-	case r == '?':
+	case question:
 		re.start.out[0].to = l.start
 		re.start.out[1].to = l.end
 		re.end = l.end
 	default:
-		p.unreadRune()
 		return l, nil
+	}
+	if err := p.next(); err != nil {
+		return nil, err
 	}
 	return e2p(re, p)
 }
@@ -358,141 +355,113 @@ func e2p(l *Regexp, p *parser) (*Regexp, error) {
 func e3(p *parser) (*Regexp, error) {
 	re := &Regexp{start: new(node), end: new(node)}
 	re.start.out[0].to = re.end
-	r, err := p.readRune()
-	switch {
-	case err == nil && r == p.delim:
-		p.unreadRune()
-		fallthrough
-	case err == io.EOF:
-		return nil, nil
-	case err != nil:
-		return nil, err
-	case p.Literal:
-		re.start.out[0].label = runeLabel(r)
-		return re, nil
-	case r == '\\':
-		switch r1, err := p.readRune(); {
-		case err == io.EOF:
-			re.start.out[0].label = runeLabel('\\')
-			return re, nil
-		case err != nil:
-			return nil, err
-		case r1 == p.delim && strings.ContainsRune("([.^$*+?", r1):
-			r = r1 // Interpret as meta in the switch below.
-		case r1 == p.delim && strings.ContainsRune(Meta, r1):
-			p.unreadRune()
-			p.unreadRune()
+	if p.Literal {
+		if p.current == eof {
 			return nil, nil
-		case r1 == 'n':
-			re.start.out[0].label = runeLabel('\n')
-			return re, nil
-		default:
-			re.start.out[0].label = runeLabel(r1)
-			return re, nil
 		}
+		if p.current < 0 {
+			p.current = -p.current
+		}
+		re.start.out[0].label = runeLabel(p.current)
+		if err := p.next(); err != nil {
+			return nil, err
+		}
+		return re, nil
 	}
-
-	switch {
-	case r == '(':
+	switch p.current {
+	case eof:
+		return nil, nil
+	case oparen:
+		if err := p.next(); err != nil {
+			return nil, err
+		}
 		nsub := p.nsub
 		p.nsub++
-		e, err := e0(p)
+		switch e, err := e0(p); {
+		case err != nil:
+			return nil, err
+		case p.current == eof:
+			return nil, errors.New("unclosed (")
+		case p.current != cparen:
+			panic("impossible unclose")
+		case e == nil:
+			return nil, errors.New("missing operand for (")
+		default:
+			re = subexpr(e, nsub)
+		}
+	case obrace:
+		c, err := charClass(p)
 		if err != nil {
 			return nil, err
 		}
-		switch r1, err := p.readRune(); {
-		case err != nil && err != io.EOF:
-			return nil, err
-		case err == io.EOF || r1 == p.delim:
-			return nil, errors.New("unclosed (")
-		case r1 == '\\':
-			switch r2, err := p.readRune(); {
-			case err != nil && err != io.EOF:
-				return nil, err
-			case err == io.EOF || r2 == p.delim && p.delim != ')':
-				return nil, errors.New("unclosed (")
-			default:
-				r1 = r2
-			}
-			fallthrough
-		default:
-			if r1 != ')' {
-				panic("impossible unclose")
-			}
-			if e == nil {
-				return nil, errors.New("missing operand for (")
-			}
-			re = subexpr(e, nsub)
-		}
-	case r == '[':
-		if re.start.out[0].label, err = charClass(p); err != nil {
-			return nil, err
-		}
-	case r == '.':
+		re.start.out[0].label = c
+	case dot:
 		re.start.out[0].label = dotLabel{}
-	case r == '^' && !p.Reverse || r == '$' && p.Reverse:
-		re.start.out[0].label = bolLabel{}
-	case r == '^' && p.Reverse || r == '$' && !p.Reverse:
-		re.start.out[0].label = eolLabel{}
-	case r == '*' || r == '+' || r == '?':
-		return nil, errors.New("missing operand for " + string(r))
-	case strings.ContainsRune(Meta, r):
-		p.unreadRune()
-		return nil, nil
+	case caret:
+		if !p.Reverse {
+			re.start.out[0].label = bolLabel{}
+		} else {
+			re.start.out[0].label = eolLabel{}
+		}
+	case dollar:
+		if !p.Reverse {
+			re.start.out[0].label = eolLabel{}
+		} else {
+			re.start.out[0].label = bolLabel{}
+		}
+	case star, plus, question:
+		return nil, errors.New("missing operand for " + p.current.String())
 	default:
-		re.start.out[0].label = runeLabel(r)
+		if p.current < 0 { // Any other meta character.
+			return nil, nil
+		}
+		re.start.out[0].label = runeLabel(p.current)
 	}
-	return re, nil
+	return re, p.next()
 }
 
 func charClass(p *parser) (label, error) {
 	var c classLabel
+	r, err := p.read()
 	for {
-		r, err := p.readRune()
 		switch {
 		case err == io.EOF:
 			return nil, errors.New("unclosed ]")
 		case err != nil:
 			return nil, err
+		case r == ']':
+			if len(c.runes) == 0 && len(c.ranges) == 0 {
+				return nil, errors.New("missing operand for [")
+			}
+			return &c, nil
 		case r == '\\':
-			switch r1, err := p.readRune(); {
+			switch r1, err := p.read(); {
 			case err == io.EOF:
 				return nil, errors.New("unclosed ]")
 			case err != nil:
 				return nil, err
 			case r1 == p.delim && r1 == ']':
-				r = r1
+				if len(c.runes) == 0 && len(c.ranges) == 0 {
+					return nil, errors.New("missing operand for [")
+				}
+				return &c, nil
 			default:
-				p.unreadRune()
+				r = r1
 			}
-		}
-		switch {
 		case r == '^' && len(c.runes) == 0 && len(c.ranges) == 0:
 			c.neg = true
 			c.runes = append(c.runes, '\n')
-		case r == ']' && len(c.runes) == 0 && len(c.ranges) == 0:
-			return nil, errors.New("missing operand for [")
-		case r == ']':
-			return &c, nil
 		case r == '-':
 			return nil, errors.New("range incomplete")
-		case r == '\\':
-			switch r1, err := p.readRune(); {
-			case err == io.EOF:
-				r = '\n'
-			case err != nil:
-				return nil, err
-			default:
-				r = r1
-			}
 		}
-		switch r1, err := p.readRune(); {
+
+		switch r1, err := p.read(); {
 		case err == io.EOF:
 			return nil, errors.New("unclosed ]")
 		case err != nil:
 			return nil, err
 		case r1 == '-':
-			switch r2, err := p.readRune(); {
+			switch r2, err := p.read(); {
 			case err == io.EOF:
 				return nil, errors.New("incomplete range")
 			case err != nil:
@@ -501,10 +470,11 @@ func charClass(p *parser) (label, error) {
 				return nil, errors.New("range not ascending")
 			default:
 				c.ranges = append(c.ranges, [2]rune{r, r2})
+				r, err = p.read()
 			}
 		default:
-			p.unreadRune()
 			c.runes = append(c.runes, r)
+			r = r1
 		}
 	}
 }
