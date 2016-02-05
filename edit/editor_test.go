@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/eaburns/T/edit/runes"
+	"github.com/eaburns/T/re1"
 )
 
 // String returns a string containing the entire editor contents.
@@ -70,8 +71,8 @@ func TestWhere(t *testing.T) {
 		{init: "Hello\n 世界!", a: End, at: addr{10, 10}},
 		{init: "Hello\n 世界!", a: Line(1), at: addr{0, 6}},
 		{init: "Hello\n 世界!", a: Line(2), at: addr{6, 10}},
-		{init: "Hello\n 世界!", a: Regexp("/Hello"), at: addr{0, 5}},
-		{init: "Hello\n 世界!", a: Regexp("/世界"), at: addr{7, 9}},
+		{init: "Hello\n 世界!", a: Regexp(re1.Must("Hello")), at: addr{0, 5}},
+		{init: "Hello\n 世界!", a: Regexp(re1.Must("世界")), at: addr{7, 9}},
 	}
 	for _, test := range tests {
 		ed := NewEditor(NewBuffer())
@@ -97,7 +98,7 @@ func TestWriterTo(t *testing.T) {
 		{init: "", a: End, want: "", dot: addr{}},
 		{init: "", a: Rune(0), want: "", dot: addr{}},
 		{init: "Hello, 世界", a: All, want: "Hello, 世界", dot: addr{0, 9}},
-		{init: "Hello, 世界", a: Regexp("/Hello/"), want: "Hello", dot: addr{0, 5}},
+		{init: "Hello, 世界", a: Regexp(re1.Must("Hello")), want: "Hello", dot: addr{0, 5}},
 		{init: "Hello, 世界", a: End, want: "", dot: addr{9, 9}},
 		{init: "Hello, 世界", a: Rune(0), want: "", dot: addr{}},
 		{init: "a\nb\nc\n", a: Line(0), want: "", dot: addr{}},
@@ -141,7 +142,7 @@ func TestReaderFrom(t *testing.T) {
 		{init: "Hello, 世界", a: End, read: "", want: "Hello, 世界", dot: addr{9, 9}},
 		{init: "Hello, 世界", a: All, read: "", want: "", dot: addr{0, 0}},
 		{init: "Hello, 世界", a: All, read: "αβξ", want: "αβξ", dot: addr{0, 3}},
-		{init: "Hello, 世界", a: Regexp("/世界/"), read: "World", want: "Hello, World", dot: addr{7, 12}},
+		{init: "Hello, 世界", a: Regexp(re1.Must("世界")), read: "World", want: "Hello, World", dot: addr{7, 12}},
 		{init: "a\nb\nc\n", a: Line(0), read: "z\n", want: "z\na\nb\nc\n", dot: addr{0, 2}},
 		{init: "a\nb\nc\n", a: Line(1), read: "z\n", want: "z\nb\nc\n", dot: addr{0, 2}},
 		{init: "a\nb\nc\n", a: Line(2), read: "z\n", want: "a\nz\nc\n", dot: addr{2, 4}},

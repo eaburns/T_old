@@ -12,6 +12,8 @@ package edit
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/eaburns/T/re1"
 )
 
 // benchmark based on regexp/exec_test.go
@@ -53,10 +55,11 @@ func benchmarkLine(b *testing.B, n int) {
 func BenchmarkLinex32(b *testing.B) { benchmarkLine(b, 32<<0) }
 func BenchmarkLinex1K(b *testing.B) { benchmarkLine(b, 1<<10) }
 
-func benchmarkRegexp(b *testing.B, re string, n int) {
+func benchmarkRegexp(b *testing.B, regexp string, n int) {
 	ed, _ := makeEditor(n)
 	b.ResetTimer()
 	b.SetBytes(int64(n))
+	re := re1.Must(regexp)
 	for i := 0; i < b.N; i++ {
 		switch _, err := Regexp(re).where(ed); {
 		case err == nil:

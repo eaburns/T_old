@@ -63,7 +63,7 @@
 // at compile-time.
 //
 // For example:
-//	addr := Line(1).Plus(Rune(3)).To(Regexp("/the/").Plus(Line(8)))
+//	addr := Line(1).Plus(Rune(3)).To(Regexp(re1.Must("the")).Plus(Line(8)))
 //
 // Edit
 //
@@ -91,7 +91,7 @@
 // and errors can be reported at compile-time.
 //
 // Here's example:
-// 	addr := Line(1).Plus(Rune(3)).To(Regexp("/the/").Plus(Line(8)))
+// 	addr := Line(1).Plus(Rune(3)).To(Regexp(re1.Must("the")).Plus(Line(8)))
 //	edit := Change(addr, "new text")
 //
 // Once created,
@@ -396,8 +396,13 @@ type Substitute struct {
 	// After performing the edit, Dot is set the modified address A.
 	A Address
 	// RE is the regular expression to match.
-	// It is compiled with re1.Options{Delimited: true}.
-	RE string
+	// Substitutions always occur in the forward direction,
+	// and never occur as a literal matches.
+	// If RE was compiled with Options.Reverse=true,
+	// it is recompiled with Reverse=false.
+	// If RE was compiled with Options.Literal=true,
+	// it is recompiled with Literal=false.
+	RE *re1.Regexp
 	// With is the runes with which to replace each match.
 	// Within With, a backslash followed by a digit d
 	// stands for the string that matched the d-th subexpression.
@@ -427,13 +432,15 @@ type Substitute struct {
 // that substitutes the first occurrence
 // of the regular expression within a
 // and sets dot to the modified address a.
-func Sub(a Address, re, with string) Edit { return Substitute{A: a, RE: re, With: with, From: 1} }
+func Sub(a Address, re *re1.Regexp, with string) Edit {
+	return Substitute{A: a, RE: re, With: with, From: 1}
+}
 
 // SubGlobal returns a Substitute Edit
 // that substitutes the all occurrences
 // of the regular expression within a
 // and sets dot to the modified address a.
-func SubGlobal(a Address, re, with string) Edit {
+func SubGlobal(a Address, re *re1.Regexp, with string) Edit {
 	return Substitute{A: a, RE: re, With: with, Global: true, From: 1}
 }
 
@@ -442,15 +449,26 @@ func (e Substitute) String() string {
 	if e.From > 1 {
 		s += strconv.Itoa(e.From)
 	}
-	if e.RE == "" {
-		e.RE = "/"
-	}
-	s += withTrailingDelim(e.RE) + e.With
+	s += e.RE.DelimitedString('/') + e.With
 	if e.Global {
-		delim, _ := utf8.DecodeRuneInString(e.RE)
-		s += string(delim) + "g"
+		s += "/g"
 	}
 	return s
+}
+
+func (e Substitute) forwardRE() *re1.Regexp {
+	opts := e.RE.Options()
+	if !opts.Reverse && !opts.Literal {
+		return e.RE
+	}
+	opts.Reverse = false
+	opts.Literal = false
+	re, err := re1.Compile(strings.NewReader(e.RE.String()), opts)
+	if err != nil {
+		// Impossible. If it compiled in one direction, it compiles in the other.
+		panic(err)
+	}
+	return re
 }
 
 func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
@@ -458,10 +476,7 @@ func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	re, err := re1.Compile(strings.NewReader(e.RE), re1.Options{Delimited: true})
-	if err != nil {
-		return addr{}, err
-	}
+	re := e.forwardRE()
 	from := at.from
 	for {
 		m, err := subSingle(ed, addr{from, at.to}, re, e.With, e.From)
@@ -940,22 +955,20 @@ func ed(rs io.RuneScanner) (Edit, error) {
 		if err != nil {
 			return nil, err
 		}
-		exp, err := parseRegexp2(rs)
+		re, delim, err := parseRegexp(rs, false)
 		if err != nil {
 			return nil, err
 		}
-		if len(exp) < 2 || len(exp) == 2 && exp[0] == exp[1] {
-			// len==1 is just the open delim.
-			// len==2 && exp[0]==exp[1] is just open and close delim.
+		if re.String() == "" {
 			return nil, errors.New("missing pattern")
 		}
-		repl, err := parseDelimited(exp[0], rs)
+		repl, err := parseDelimited(delim, rs)
 		if err != nil {
 			return nil, err
 		}
 		sub := Substitute{
 			A:    a,
-			RE:   string(exp),
+			RE:   re,
 			With: string(repl),
 			From: n,
 		}
@@ -990,16 +1003,11 @@ func ed(rs io.RuneScanner) (Edit, error) {
 	}
 }
 
-// Re1Scanner serves two purposes:
-//
-// 1) It keeps track of runes consumed by re1.Compile.
-// These runes are the parsed regular expression.
-//
-// 2) re1 does not terminate on raw newlines; Ed and Addr do.
-// The re1Scanner returns io.EOF when it encounters a raw newline.
+// Re1Scanner terminates scanning on raw newlines.
+// Ed and Addr have this behavior, but re1 doesn't.
+// This adapts between the two.
 type re1Scanner struct {
-	rs      io.RuneScanner
-	scanned []rune
+	rs io.RuneScanner
 }
 
 func (rs *re1Scanner) ReadRune() (rune, int, error) {
@@ -1012,7 +1020,6 @@ func (rs *re1Scanner) ReadRune() (rune, int, error) {
 		}
 		return rune(0), 0, io.EOF
 	default:
-		rs.scanned = append(rs.scanned, r)
 		return r, w, err
 	}
 }
@@ -1021,19 +1028,23 @@ func (rs *re1Scanner) UnreadRune() error {
 	if err := rs.rs.UnreadRune(); err != nil {
 		return err
 	}
-	rs.scanned = rs.scanned[:len(rs.scanned)-1]
 	return nil
 }
 
-func parseRegexp2(rs io.RuneScanner) ([]rune, error) {
+func parseRegexp(rs io.RuneScanner, rev bool) (*re1.Regexp, rune, error) {
 	if err := skipSpace(rs); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	rs1 := &re1Scanner{rs: rs}
-	if _, err := re1.Compile(rs1, re1.Options{Delimited: true}); err != nil {
-		return nil, err
+	delim, _, err := rs1.ReadRune()
+	if err != nil {
+		return nil, 0, err
 	}
-	return rs1.scanned, nil
+	if err := rs1.UnreadRune(); err != nil {
+		return nil, 0, err
+	}
+	re, err := re1.Compile(rs1, re1.Options{Delimited: true, Reverse: rev})
+	return re, delim, err
 }
 
 func parseAddrOrDot(rs io.RuneScanner) (Address, error) {
