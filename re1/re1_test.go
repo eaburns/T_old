@@ -760,3 +760,33 @@ func TestDelimitedString(t *testing.T) {
 		}
 	}
 }
+
+// TestDeepEqual verifies that reflect.DeepEqual is happy with re1.Regexps.
+func TestDeepEqual(t *testing.T) {
+	regexps := []string{
+		"",
+		"a*",
+		"(a|b|c)",
+		"[xyz]$",
+		"^.+a?$",
+		`(\/\*(([^*\/]|\n)|([^*]|\n)\/|\*([^\/]|\n))*\*\/)`,
+	}
+	for _, a := range regexps {
+		for _, b := range regexps {
+			rea, err := Compile(strings.NewReader(a), Options{})
+			if err != nil {
+				t.Fatal(err.Error())
+			}
+			reb, err := Compile(strings.NewReader(b), Options{})
+			if err != nil {
+				t.Fatal(err.Error())
+			}
+
+			want := a == b
+			got := reflect.DeepEqual(rea, reb)
+			if got != want {
+				t.Errorf("reflect.DeepEqual(%q, %q)=%v, want %v", a, b, got, want)
+			}
+		}
+	}
+}
