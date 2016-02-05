@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestNoMatch(t *testing.T) {
@@ -787,6 +788,31 @@ func TestDeepEqual(t *testing.T) {
 			if got != want {
 				t.Errorf("reflect.DeepEqual(%q, %q)=%v, want %v", a, b, got, want)
 			}
+		}
+	}
+}
+
+func TestMust(t *testing.T) {
+	tests := []struct {
+		re, matches string
+	}{
+		{re: "", matches: ""},
+		{re: "abc", matches: "abc"},
+		{re: "a*", matches: "aaa"},
+		{re: "?", matches: ""},
+		{re: "?xyz", matches: "zyx"},
+		{re: "?xyz?not matched", matches: "zyx"},
+		{re: "!", matches: ""},
+		{re: "!literal*?+()", matches: "literal*?+()"},
+		{re: "!literal*?+()!not matched", matches: "literal*?+()"},
+	}
+	for _, test := range tests {
+		re := Must(test.re)
+		n := utf8.RuneCountInString(test.matches)
+		match := re.Match(sliceRunes([]rune(test.matches)), 0)
+		if match == nil || match[0][0] != 0 && match[0][1] != int64(n) {
+			t.Errorf("Must(%q).Match(%q)=%v, want [][2]int{%d, %d}",
+				test.re, test.matches, match, 0, n)
 		}
 	}
 }

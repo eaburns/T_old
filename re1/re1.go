@@ -178,6 +178,32 @@ type Options struct {
 	Literal bool
 }
 
+// Must returns a compiled Regexp, or panics.
+//
+// The first rune of the string
+// determines the compilation options:
+// If the first rune is ?, the options are Options{Delimited: true, Reverse: true}.
+// If the first rune is !, the options are Options{Delimited: true, Literal: true}.
+// Otherwise the options are Options{}.
+// Character classes can be used to begin a regular expression
+// with one of these characters using the default Options{}.
+// For example:
+// 	[!]abc
+// is compiled with Options{}, not Options{Delimited: true, Literal: true}.
+func Must(s string) *Regexp {
+	var opts Options
+	if len(s) > 0 && s[0] == '?' {
+		opts = Options{Delimited: true, Reverse: true}
+	} else if len(s) > 0 && s[0] == '!' {
+		opts = Options{Delimited: true, Literal: true}
+	}
+	re, err := Compile(strings.NewReader(s), opts)
+	if err != nil {
+		panic(err)
+	}
+	return re
+}
+
 // Compile compiles a regular expression using the options.
 // The regular expression is parsed until either
 // the end of the input or an un-escaped closing delimiter.
