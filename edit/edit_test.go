@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/eaburns/T/re1"
 )
 
 func TestEscape(t *testing.T) {
@@ -192,13 +194,13 @@ func TestMoveEdit(t *testing.T) {
 		{e: Move(Rune(1), Rune(2)), err: "address out of range"},
 		{init: "a", e: Move(Rune(1), Rune(2)), err: "address out of range"},
 
-		{init: "abc", e: Move(Regexp("/abc/"), Rune(0)), want: "abc", dot: addr{0, 3}},
-		{init: "abc", e: Move(Regexp("/abc/"), Rune(1)), err: "overlap"},
-		{init: "abc", e: Move(Regexp("/abc/"), Rune(2)), err: "overlap"},
-		{init: "abc", e: Move(Regexp("/abc/"), Rune(3)), want: "abc", dot: addr{0, 3}},
-		{init: "abcdef", e: Move(Regexp("/abc/"), End), want: "defabc", dot: addr{3, 6}},
-		{init: "abcdef", e: Move(Regexp("/def/"), Line(0)), want: "defabc", dot: addr{0, 3}},
-		{init: "abc\ndef\nghi", e: Move(Regexp("/def/"), Line(3)), want: "abc\n\nghidef", dot: addr{8, 11}},
+		{init: "abc", e: Move(Regexp(re1.Must("abc")), Rune(0)), want: "abc", dot: addr{0, 3}},
+		{init: "abc", e: Move(Regexp(re1.Must("abc")), Rune(1)), err: "overlap"},
+		{init: "abc", e: Move(Regexp(re1.Must("abc")), Rune(2)), err: "overlap"},
+		{init: "abc", e: Move(Regexp(re1.Must("abc")), Rune(3)), want: "abc", dot: addr{0, 3}},
+		{init: "abcdef", e: Move(Regexp(re1.Must("abc")), End), want: "defabc", dot: addr{3, 6}},
+		{init: "abcdef", e: Move(Regexp(re1.Must("def")), Line(0)), want: "defabc", dot: addr{0, 3}},
+		{init: "abc\ndef\nghi", e: Move(Regexp(re1.Must("def")), Line(3)), want: "abc\n\nghidef", dot: addr{8, 11}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -210,11 +212,11 @@ func TestCopyEdit(t *testing.T) {
 		{e: Copy(Rune(1), Rune(2)), err: "address out of range"},
 		{init: "a", e: Copy(Rune(1), Rune(3)), err: "address out of range"},
 
-		{init: "abc", e: Copy(Regexp("/abc/"), End), want: "abcabc", dot: addr{3, 6}},
-		{init: "abc", e: Copy(Regexp("/abc/"), Line(0)), want: "abcabc", dot: addr{0, 3}},
-		{init: "abc", e: Copy(Regexp("/abc/"), Rune(1)), want: "aabcbc", dot: addr{1, 4}},
-		{init: "abcdef", e: Copy(Regexp("/abc/"), Rune(4)), want: "abcdabcef", dot: addr{4, 7}},
-		{init: "abc\ndef\nghi", e: Copy(Regexp("/def/"), Line(1)), want: "abc\ndefdef\nghi", dot: addr{4, 7}},
+		{init: "abc", e: Copy(Regexp(re1.Must("abc")), End), want: "abcabc", dot: addr{3, 6}},
+		{init: "abc", e: Copy(Regexp(re1.Must("abc")), Line(0)), want: "abcabc", dot: addr{0, 3}},
+		{init: "abc", e: Copy(Regexp(re1.Must("abc")), Rune(1)), want: "aabcbc", dot: addr{1, 4}},
+		{init: "abcdef", e: Copy(Regexp(re1.Must("abc")), Rune(4)), want: "abcdabcef", dot: addr{4, 7}},
+		{init: "abc\ndef\nghi", e: Copy(Regexp(re1.Must("def")), Line(1)), want: "abc\ndefdef\nghi", dot: addr{4, 7}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -233,7 +235,7 @@ func TestSetEdit(t *testing.T) {
 		{init: s, want: s, e: Set(All, '\t'), dot: addr{0, 10}},
 		{init: s, want: s, e: Set(All, 'a'), marks: map[rune]addr{'a': addr{0, 10}}},
 		{init: s, want: s, e: Set(All, 'α'), marks: map[rune]addr{'α': addr{0, 10}}},
-		{init: s, want: s, e: Set(Regexp("/Hello"), 'a'), marks: map[rune]addr{'a': addr{0, 5}}},
+		{init: s, want: s, e: Set(Regexp(re1.Must("Hello")), 'a'), marks: map[rune]addr{'a': addr{0, 5}}},
 		{init: s, want: s, e: Set(Line(0), 'z'), marks: map[rune]addr{'z': addr{0, 0}}},
 		{init: s, want: s, e: Set(End, 'm'), marks: map[rune]addr{'m': addr{10, 10}}},
 	}
@@ -250,9 +252,9 @@ func TestPrintEdit(t *testing.T) {
 		{e: Print(All), print: "", dot: addr{0, 0}},
 		{init: s, want: s, e: Print(All), print: s, dot: addr{0, 10}},
 		{init: s, want: s, e: Print(End), print: "", dot: addr{10, 10}},
-		{init: s, want: s, e: Print(Regexp("/H/")), print: "H", dot: addr{0, 1}},
-		{init: s, want: s, e: Print(Regexp("/Hello/")), print: "Hello", dot: addr{0, 5}},
-		{init: s, want: s, e: Print(Regexp("/世界/")), print: "世界", dot: addr{7, 9}},
+		{init: s, want: s, e: Print(Regexp(re1.Must("H"))), print: "H", dot: addr{0, 1}},
+		{init: s, want: s, e: Print(Regexp(re1.Must("Hello"))), print: "Hello", dot: addr{0, 5}},
+		{init: s, want: s, e: Print(Regexp(re1.Must("世界"))), print: "世界", dot: addr{7, 9}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -271,8 +273,8 @@ func TestWhereEdit(t *testing.T) {
 		{init: s, want: s, e: Where(End), print: "#10", dot: addr{10, 10}},
 		{init: s, want: s, e: Where(Line(1)), print: "#0,#6", dot: addr{0, 6}},
 		{init: s, want: s, e: Where(Line(2)), print: "#6,#10", dot: addr{6, 10}},
-		{init: s, want: s, e: Where(Regexp("/Hello")), print: "#0,#5", dot: addr{0, 5}},
-		{init: s, want: s, e: Where(Regexp("/世界")), print: "#7,#9", dot: addr{7, 9}},
+		{init: s, want: s, e: Where(Regexp(re1.Must("Hello"))), print: "#0,#5", dot: addr{0, 5}},
+		{init: s, want: s, e: Where(Regexp(re1.Must("世界"))), print: "#7,#9", dot: addr{7, 9}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -291,8 +293,8 @@ func TestWhereLinesEdit(t *testing.T) {
 		{init: s, want: s, e: WhereLine(End), print: "2", dot: addr{10, 10}},
 		{init: s, want: s, e: WhereLine(Line(1)), print: "1", dot: addr{0, 6}},
 		{init: s, want: s, e: WhereLine(Line(2)), print: "2", dot: addr{6, 10}},
-		{init: s, want: s, e: WhereLine(Regexp("/Hello")), print: "1", dot: addr{0, 5}},
-		{init: s, want: s, e: WhereLine(Regexp("/世界")), print: "2", dot: addr{7, 9}},
+		{init: s, want: s, e: WhereLine(Regexp(re1.Must("Hello"))), print: "1", dot: addr{0, 5}},
+		{init: s, want: s, e: WhereLine(Regexp(re1.Must("世界"))), print: "2", dot: addr{7, 9}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -300,128 +302,140 @@ func TestWhereLinesEdit(t *testing.T) {
 }
 
 func TestSubstituteEdit(t *testing.T) {
+	abc := re1.Must("abc")
 	tests := []eTest{
-		{e: Sub(Rune(1), "/abc", "xyz"), err: "address out of range"},
-		{e: Substitute{A: All, RE: "/*/"}, err: "missing operand"},
+		{e: Sub(Rune(1), abc, "xyz"), err: "address out of range"},
 
 		{
 			init: "世界!",
-			e:    Substitute{A: All, RE: "", With: "Hello, "},
+			e:    Substitute{A: All, RE: re1.Must(""), With: "Hello, "},
 			want: "Hello, 世界!", dot: addr{0, 10},
 		},
 		{
 			init: "Hello, 世界!",
-			e:    Substitute{A: All, RE: "/.*/", With: "", Global: true},
+			e:    Substitute{A: All, RE: re1.Must(".*"), With: "", Global: true},
 			want: "", dot: addr{0, 0},
 		},
 		{
 			init: "Hello, 世界!",
-			e:    Substitute{A: All, RE: "/世界/", With: "World"},
+			e:    Substitute{A: All, RE: re1.Must("世界"), With: "World"},
 			want: "Hello, World!", dot: addr{0, 13},
 		},
 		{
 			init: "Hello, 世界!",
-			e:    Substitute{A: All, RE: "/(.)/", With: `\1-`, Global: true},
+			e:    Substitute{A: All, RE: re1.Must("(.)"), With: `\1-`, Global: true},
 			want: "H-e-l-l-o-,- -世-界-!-", dot: addr{0, 20},
 		},
 		{
 			init: "abcabc",
-			e:    Substitute{A: All, RE: "/abc/", With: "defg"},
+			e:    Substitute{A: All, RE: abc, With: "defg"},
 			want: "defgabc", dot: addr{0, 7},
 		},
 		{
+			init: "abcabc",
+			// Recompiles RE in the forward direction.
+			e:    Substitute{A: All, RE: re1.Must("?abc"), With: "defg"},
+			want: "defgabc", dot: addr{0, 7},
+		},
+		{
+			init: "aaa",
+			// Recompiles RE with Literal=false.
+			e:    Substitute{A: All, RE: re1.Must("!a*"), With: "bbb"},
+			want: "bbb", dot: addr{0, 3},
+		},
+		{
 			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "/abc/", With: "defg", Global: true},
+			e:    Substitute{A: All, RE: abc, With: "defg", Global: true},
 			want: "defgdefgdefg", dot: addr{0, 12},
 		},
 		{
 			init: "abcabcabc",
-			e:    Substitute{A: Regexp("/abcabc/"), RE: "/abc/", With: "defg", Global: true},
+			e:    Substitute{A: Regexp(re1.Must("abcabc")), RE: abc, With: "defg", Global: true},
 			want: "defgdefgabc", dot: addr{0, 8},
 		},
 		{
 			init: "abc abc",
-			e:    Substitute{A: All, RE: "/abc/", With: "defg"},
+			e:    Substitute{A: All, RE: abc, With: "defg"},
 			want: "defg abc", dot: addr{0, 8},
 		},
 		{
 			init: "abc abc",
-			e:    Substitute{A: All, RE: "/abc/", With: "defg", Global: true},
+			e:    Substitute{A: All, RE: abc, With: "defg", Global: true},
 			want: "defg defg", dot: addr{0, 9},
 		},
 		{
 			init: "abc abc abc",
-			e:    Substitute{A: Regexp("/abc abc/"), RE: "/abc/", With: "defg", Global: true},
+			e:    Substitute{A: Regexp(re1.Must("abc abc")), RE: abc, With: "defg", Global: true},
 			want: "defg defg abc", dot: addr{0, 9},
 		},
 		{
 			init: "abcabc",
-			e:    Substitute{A: All, RE: "/abc/", With: "de"},
+			e:    Substitute{A: All, RE: abc, With: "de"},
 			want: "deabc", dot: addr{0, 5},
 		},
 		{
 			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "/abc/", With: "de", Global: true},
+			e:    Substitute{A: All, RE: abc, With: "de", Global: true},
 			want: "dedede", dot: addr{0, 6},
 		},
 		{
 			init: "abcabcabc",
-			e:    Substitute{A: Regexp("/abcabc/"), RE: "/abc/", With: "de", Global: true},
+			e:    Substitute{A: Regexp(re1.Must("abcabc")), RE: abc, With: "de", Global: true},
 			want: "dedeabc", dot: addr{0, 4},
 		},
 		{
 			init: "func f()",
-			e:    Substitute{A: All, RE: `/func (.*)\(\)/`, With: `func (T) \1()`, Global: true},
+			e:    Substitute{A: All, RE: re1.Must(`func (.*)\(\)`), With: `func (T) \1()`, Global: true},
 			want: "func (T) f()", dot: addr{0, 12},
 		},
 		{
 			init: "abcdefghi",
-			e:    Substitute{A: All, RE: "/(abc)(def)(ghi)/", With: `\0 \3 \2 \1`},
+			e:    Substitute{A: All, RE: re1.Must("(abc)(def)(ghi)"), With: `\0 \3 \2 \1`},
 			want: "abcdefghi ghi def abc", dot: addr{0, 21},
 		},
 		{
 			init: "...===...",
-			e:    Substitute{A: All, RE: "/(=*)/", With: `---\1---`},
+			e:    Substitute{A: All, RE: re1.Must("(=*)"), With: `---\1---`},
 			want: "------...===...", dot: addr{0, 15},
 		},
 		{
 			init: "...===...",
-			e:    Substitute{A: All, RE: "/(=+)/", With: `---\1---`},
+			e:    Substitute{A: All, RE: re1.Must("(=+)"), With: `---\1---`},
 			want: "...---===---...", dot: addr{0, 15},
 		},
 		{
 			init: "abc",
-			e:    Substitute{A: All, RE: "/abc/", With: `\1`},
+			e:    Substitute{A: All, RE: abc, With: `\1`},
 			want: "", dot: addr{0, 0},
 		},
 		{
 			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "/abc/", With: "def", From: 0},
+			e:    Substitute{A: All, RE: abc, With: "def", From: 0},
 			want: "defabcabc", dot: addr{0, 9},
 		},
 		{
 			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "/abc/", With: "def", From: 1},
+			e:    Substitute{A: All, RE: abc, With: "def", From: 1},
 			want: "defabcabc", dot: addr{0, 9},
 		},
 		{
 			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "/abc/", With: "def", From: 2},
+			e:    Substitute{A: All, RE: abc, With: "def", From: 2},
 			want: "abcdefabc", dot: addr{0, 9},
 		},
 		{
 			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "/abc/", With: "def", Global: true, From: 2},
+			e:    Substitute{A: All, RE: abc, With: "def", Global: true, From: 2},
 			want: "abcdefdef", dot: addr{0, 9},
 		},
 		{
 			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "/notpresent/", With: "def", From: 4},
+			e:    Substitute{A: All, RE: re1.Must("notpresent"), With: "def", From: 4},
 			want: "abcabcabc", dot: addr{0, 9},
 		},
 		{
 			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "/abc/", With: "def", From: 4},
+			e:    Substitute{A: All, RE: abc, With: "def", From: 4},
 			want: "abcabcabc", dot: addr{0, 9},
 		},
 	}
@@ -709,7 +723,7 @@ func TestUndoEdit(t *testing.T) {
 			name: "multi-change undo",
 			init: []Edit{
 				Append(End, "a.a.a"),
-				SubGlobal(All, "/[.]/", "z"),
+				SubGlobal(All, re1.Must("[.]"), "z"),
 			},
 			e:     Undo(1),
 			want:  "a.a.a",
@@ -719,8 +733,8 @@ func TestUndoEdit(t *testing.T) {
 			name: "undo maintains marks",
 			init: []Edit{
 				Append(End, "abcXXX"),
-				Set(Regexp("/XXX"), 'm'),
-				Delete(Regexp("/b")),
+				Set(Regexp(re1.Must("XXX")), 'm'),
+				Delete(Regexp(re1.Must("b"))),
 			},
 			e:    Undo(1),
 			want: "abcXXX",
@@ -795,7 +809,7 @@ func TestRedoEdit(t *testing.T) {
 			name: "multi-change redo",
 			init: []Edit{
 				Append(End, "a.a.a"),
-				SubGlobal(All, "/[.]/", "z"),
+				SubGlobal(All, re1.Must("[.]"), "z"),
 				Undo(1),
 			},
 			e:     Redo(1),
@@ -806,8 +820,8 @@ func TestRedoEdit(t *testing.T) {
 			name: "redo maintains marks",
 			init: []Edit{
 				Append(End, "abcXXX"),
-				Set(Regexp("/XXX"), 'm'),
-				Delete(Regexp("/b")),
+				Set(Regexp(re1.Must("XXX")), 'm'),
+				Delete(Regexp(re1.Must("b"))),
 				Undo(1),
 			},
 			e:    Redo(1),
@@ -885,6 +899,7 @@ func (test *undoTest) run1(t *testing.T) {
 }
 
 func TestEd(t *testing.T) {
+	a := re1.Must("a")
 	tests := []struct {
 		e, left string
 		want    Edit
@@ -900,7 +915,7 @@ func TestEd(t *testing.T) {
 		{e: "#0+1", want: Set(Rune(0).Plus(Line(1)), '.')},
 		{e: " #0 + 1 ", want: Set(Rune(0).Plus(Line(1)), '.')},
 		{e: "#0+1\nc/abc", left: "c/abc", want: Set(Rune(0).Plus(Line(1)), '.')},
-		{e: "/abc\n1c/xyz", left: "1c/xyz", want: Set(Regexp("/abc/"), '.')},
+		{e: "/abc\n1c/xyz", left: "1c/xyz", want: Set(Regexp(re1.Must("abc")), '.')},
 
 		{e: "k", want: Set(Dot, '.')},
 		{e: " k ", want: Set(Dot, '.')},
@@ -971,8 +986,8 @@ func TestEd(t *testing.T) {
 		{e: "d  \nxyz", left: "xyz", want: Delete(Dot)},
 
 		{e: "m", want: Move(Dot, Dot)},
-		{e: "m/abc/", want: Move(Dot, Regexp("/abc/"))},
-		{e: "/abc/m/def/", want: Move(Regexp("/abc/"), Regexp("/def/"))},
+		{e: "m/abc/", want: Move(Dot, Regexp(re1.Must("abc")))},
+		{e: "/abc/m/def/", want: Move(Regexp(re1.Must("abc")), Regexp(re1.Must("def")))},
 		{e: "#1+1m$", want: Move(Rune(1).Plus(Line(1)), End)},
 		{e: " #1 + 1 m $", want: Move(Rune(1).Plus(Line(1)), End)},
 		{e: "1m$xyz", left: "xyz", want: Move(Line(1), End)},
@@ -980,8 +995,8 @@ func TestEd(t *testing.T) {
 		{e: "m" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 
 		{e: "t", want: Copy(Dot, Dot)},
-		{e: "t/abc/", want: Copy(Dot, Regexp("/abc/"))},
-		{e: "/abc/t/def/", want: Copy(Regexp("/abc/"), Regexp("/def/"))},
+		{e: "t/abc/", want: Copy(Dot, Regexp(re1.Must("abc")))},
+		{e: "/abc/t/def/", want: Copy(Regexp(re1.Must("abc")), Regexp(re1.Must("def")))},
 		{e: "#1+1t$", want: Copy(Rune(1).Plus(Line(1)), End)},
 		{e: " #1 + 1 t $", want: Copy(Rune(1).Plus(Line(1)), End)},
 		{e: "1t$xyz", left: "xyz", want: Copy(Line(1), End)},
@@ -1003,25 +1018,25 @@ func TestEd(t *testing.T) {
 		{e: "#1+1=#", want: Where(Rune(1).Plus(Line(1)))},
 		{e: " #1 + 1 =#", want: Where(Rune(1).Plus(Line(1)))},
 
-		{e: "s/a/b", want: Sub(Dot, "/a/", "b")},
-		{e: "s;a;b", want: Sub(Dot, ";a;", "b")},
-		{e: "s/a//", want: Sub(Dot, "/a/", "")},
-		{e: "s/a/\n/g", left: "/g", want: Sub(Dot, "/a/", "")},
-		{e: "s/(.*)/a\\1", want: Sub(Dot, "/(.*)/", "a\\1")},
-		{e: ".s/a/b", want: Sub(Dot, "/a/", "b")},
-		{e: "#1+1s/a/b", want: Sub(Rune(1).Plus(Line(1)), "/a/", "b")},
-		{e: " #1 + 1 s/a/b", want: Sub(Rune(1).Plus(Line(1)), "/a/", "b")},
-		{e: " #1 + 1 s/a/b", want: Sub(Rune(1).Plus(Line(1)), "/a/", "b")},
-		{e: "s/a/b/xyz", left: "xyz", want: Sub(Dot, "/a/", "b")},
-		{e: "s/a/b\nxyz", left: "xyz", want: Sub(Dot, "/a/", "b")},
-		{e: "s1/a/b", want: Sub(Dot, "/a/", "b")},
-		{e: "s/a/b/g", want: SubGlobal(Dot, "/a/", "b")},
-		{e: " #1 + 1 s/a/b/g", want: SubGlobal(Rune(1).Plus(Line(1)), "/a/", "b")},
-		{e: "s2/a/b", want: Substitute{A: Dot, RE: "/a/", With: "b", From: 2}},
-		{e: "s2;a;b", want: Substitute{A: Dot, RE: ";a;", With: "b", From: 2}},
-		{e: "s1000/a/b", want: Substitute{A: Dot, RE: "/a/", With: "b", From: 1000}},
-		{e: "s 2 /a/b", want: Substitute{A: Dot, RE: "/a/", With: "b", From: 2}},
-		{e: "s 1000 /a/b/g", want: Substitute{A: Dot, RE: "/a/", With: "b", Global: true, From: 1000}},
+		{e: "s/a/b", want: Sub(Dot, a, "b")},
+		{e: "s;a;b", want: Sub(Dot, a, "b")},
+		{e: "s/a//", want: Sub(Dot, a, "")},
+		{e: "s/a/\n/g", left: "/g", want: Sub(Dot, a, "")},
+		{e: "s/(.*)/a\\1", want: Sub(Dot, re1.Must("(.*)"), "a\\1")},
+		{e: ".s/a/b", want: Sub(Dot, a, "b")},
+		{e: "#1+1s/a/b", want: Sub(Rune(1).Plus(Line(1)), a, "b")},
+		{e: " #1 + 1 s/a/b", want: Sub(Rune(1).Plus(Line(1)), a, "b")},
+		{e: " #1 + 1 s/a/b", want: Sub(Rune(1).Plus(Line(1)), a, "b")},
+		{e: "s/a/b/xyz", left: "xyz", want: Sub(Dot, a, "b")},
+		{e: "s/a/b\nxyz", left: "xyz", want: Sub(Dot, a, "b")},
+		{e: "s1/a/b", want: Sub(Dot, a, "b")},
+		{e: "s/a/b/g", want: SubGlobal(Dot, a, "b")},
+		{e: " #1 + 1 s/a/b/g", want: SubGlobal(Rune(1).Plus(Line(1)), a, "b")},
+		{e: "s2/a/b", want: Substitute{A: Dot, RE: a, With: "b", From: 2}},
+		{e: "s2;a;b", want: Substitute{A: Dot, RE: a, With: "b", From: 2}},
+		{e: "s1000/a/b", want: Substitute{A: Dot, RE: a, With: "b", From: 1000}},
+		{e: "s 2 /a/b", want: Substitute{A: Dot, RE: a, With: "b", From: 2}},
+		{e: "s 1000 /a/b/g", want: Substitute{A: Dot, RE: a, With: "b", Global: true, From: 1000}},
 		{e: "s/", err: "missing pattern"},
 		{e: "s//b", err: "missing pattern"},
 		{e: "s/\n/b", err: "missing pattern"},
@@ -1090,14 +1105,14 @@ func TestEd(t *testing.T) {
 		e, err := Ed(rs)
 
 		if test.err != "" {
-			if !regexp.MustCompile(test.err).MatchString(err.Error()) {
-				t.Errorf(`Ed(%q)=%q,%q, want %q,%q`, test.e, e, err, test.want, test.err)
+			if err == nil || !regexp.MustCompile(test.err).MatchString(err.Error()) {
+				t.Errorf(`Ed(%q)=%q,%v, want %q,%q`, test.e, e, err, test.want, test.err)
 			}
 			continue
 		}
 
 		if err != nil || !reflect.DeepEqual(e, test.want) {
-			t.Errorf(`Ed(%q)=%q,%q, want %q,%q`, test.e, e, err, test.want, test.err)
+			t.Errorf(`Ed(%q)=%q,%v, want %q,%q`, test.e, e, err, test.want, test.err)
 			continue
 		}
 		left, err := ioutil.ReadAll(rs)

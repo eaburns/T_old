@@ -54,9 +54,49 @@ type Regexp struct {
 	// counting the 0th, which is the entire expression.
 	nsub int
 
+	// Str is the non-delimited string representation of the Regexp.
+	str string
+	// Opts are the options used to compile the Regexp.
+	opts Options
+
 	lock   sync.Mutex
 	mcache []*machine
 }
+
+// String returns the non-delimited string representation of the Regexp.
+func (re *Regexp) String() string { return re.str }
+
+// DelimitedString returns the string representation of the Regexp delimited by d.
+// The returned string has both a leading and trailing delimiter.
+// Both \ and ] are invalid delimiters and will cause a panic.
+//
+// Note that while ] is invalid for DelimitedString, it is acceptable for Compile:
+// 	re1.Compile("]abc]", Options{Delimited:true})
+func (re *Regexp) DelimitedString(d rune) string {
+	// \ is impossible, because we can't escape it if it is a delimiter itself.
+	// It is always a bad delimiter.
+	// ] is an accptable delimiter in general, but we cannot accept it here.
+	// It is impossible because ] can appear escaped in a character class.
+	// To delimit [abc\]], we must convert it to ([abc]|\]).
+	// But ( and ) are capturing; we would need non-capturing groups.
+	if d == '\\' || d == ']' {
+		panic("bad delimiter: " + string(d))
+	}
+	return addDelim(d, re.str)
+}
+
+// Options returns the options used to compile the Regexp,
+// but with Delimited set to false
+// regardless of its value during compilation.
+// This special handling of Delimited allows reflect.DeepEqual
+// to compare regular expressions as equal
+// regardless of whether they were compiled with a delimiter or not.
+// For example,
+// 	/abc/
+// will equal
+//	abc
+// if the first is compiled with Options{Delimited:true}.
+func (re *Regexp) Options() Options { return re.opts }
 
 type node struct {
 	n   int
@@ -126,12 +166,42 @@ func (classLabel) epsilon() bool { return false }
 type Options struct {
 	// Delimited states whether the first character
 	// in the string should be interpreted as a delimiter.
+	// The rune \ is an invalid delimiter.
 	Delimited bool
-	// Reverse states whether the regular expression
-	// should be compiled for reverse match.
+	// Reverse states whether to compile regular expression in reverse.
+	// A reverse regular expression will match the regular expression
+	// if passed the input in reverse order.
+	// For example, "a*bc" will match the input sequence "cbaaaa".
 	Reverse bool
 	// Literal states whether metacharacters should be interpreted as literals.
+	// If Literal is true, the compiled Regexp matches the exact input string.
 	Literal bool
+}
+
+// Must returns a compiled Regexp, or panics.
+//
+// The first rune of the string
+// determines the compilation options:
+// If the first rune is ?, the options are Options{Delimited: true, Reverse: true}.
+// If the first rune is !, the options are Options{Delimited: true, Literal: true}.
+// Otherwise the options are Options{}.
+// Character classes can be used to begin a regular expression
+// with one of these characters using the default Options{}.
+// For example:
+// 	[!]abc
+// is compiled with Options{}, not Options{Delimited: true, Literal: true}.
+func Must(s string) *Regexp {
+	var opts Options
+	if len(s) > 0 && s[0] == '?' {
+		opts = Options{Delimited: true, Reverse: true}
+	} else if len(s) > 0 && s[0] == '!' {
+		opts = Options{Delimited: true, Literal: true}
+	}
+	re, err := Compile(strings.NewReader(s), opts)
+	if err != nil {
+		panic(err)
+	}
+	return re
 }
 
 // Compile compiles a regular expression using the options.
@@ -151,7 +221,14 @@ func Compile(rs io.RuneScanner, opts Options) (*Regexp, error) {
 		re.start.out[0].to = re.end
 	}
 	re = subexpr(re, 0)
+	re.opts = opts
+	re.opts.Delimited = false
 	re.nsub = p.nsub
+	if opts.Delimited {
+		re.str = rmDelim(p.scanned)
+	} else {
+		re.str = string(p.scanned)
+	}
 	numberStates(re)
 	return re, nil
 }
@@ -174,6 +251,63 @@ func numberStates(re *Regexp) {
 			stk = append(stk, t)
 		}
 	}
+}
+
+func rmDelim(rs []rune) string {
+	if len(rs) == 0 {
+		return ""
+	}
+	var s []rune
+	var d rune
+	var esc, class bool
+	d, rs = rs[0], rs[1:]
+	for _, r := range rs {
+		if !esc && !class && r == d {
+			return string(s)
+		}
+		if esc && r == d {
+			// Escaped delimiter, strip the escape.
+			s = s[:len(s)-1]
+		}
+		s = append(s, r)
+		if r == '[' {
+			class = true
+		} else if class && r == ']' {
+			class = false
+		}
+		esc = !esc && r == '\\'
+	}
+	return string(s)
+}
+
+func addDelim(d rune, rs string) string {
+	s := []rune{d}
+	var esc, class bool
+	for _, r := range rs {
+		if r == d && !class {
+			if esc && strings.ContainsRune(Meta, d) {
+				// Change escaped meta characters matching the delimiter
+				// to character classes.
+				s = append(s[:len(s)-1], '[', d, ']')
+				esc = false
+				continue
+			}
+			if !esc {
+				s = append(s, '\\')
+			}
+		}
+		s = append(s, r)
+		if r == '[' {
+			class = true
+		} else if class && r == ']' {
+			class = false
+		}
+		esc = !esc && r == '\\'
+	}
+	if esc {
+		s = append(s, '\\')
+	}
+	return string(append(s, d))
 }
 
 type token rune
@@ -209,6 +343,7 @@ type parser struct {
 	delim   rune
 	current token
 	scanner io.RuneScanner
+	scanned []rune
 }
 
 func newParser(rs io.RuneScanner, opts Options) (*parser, error) {
@@ -220,9 +355,10 @@ func newParser(rs io.RuneScanner, opts Options) (*parser, error) {
 		case err != nil:
 			return nil, err
 		case r == '\\':
-			return nil, errors.New("bad delimiter")
+			return nil, errors.New("bad delimiter: " + string(r))
 		default:
 			p.delim = r
+			p.scanned = append(p.scanned, r)
 		}
 	}
 	return &p, p.next()
@@ -230,6 +366,9 @@ func newParser(rs io.RuneScanner, opts Options) (*parser, error) {
 
 func (p *parser) read() (rune, error) {
 	r, _, err := p.scanner.ReadRune()
+	if err == nil {
+		p.scanned = append(p.scanned, r)
+	}
 	return r, err
 }
 

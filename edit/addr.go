@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/eaburns/T/edit/runes"
 	"github.com/eaburns/T/re1"
@@ -407,46 +406,19 @@ func (l lineAddr) rev(from int64, ed *Editor) (addr, error) {
 // ErrNoMatch is returned when a regular expression address fails to match.
 var ErrNoMatch = errors.New("no match")
 
-type reAddr struct {
-	rev bool
-	re  string
-}
+type reAddr struct{ *re1.Regexp }
 
-// Regexp returns an address identifying the next match of a regular expression.
-// The regular expression must be a delimited regular expression
-// using the syntax of the re1 package:
-// http://godoc.org/github.com/eaburns/T/re1.
-// If the delimiter is a ? then the regular expression is matched in reverse.
-// The regular expression is not compiled until the address is computed
-// on a buffer, so compilation errors will not be returned until that time.
-func Regexp(re string) SimpleAddress {
-	if len(re) == 0 {
-		re = "/"
-	}
-	return simpleAddr{
-		reAddr{
-			rev: re[0] == '?',
-			re:  withTrailingDelim(re),
-		},
-	}
-}
+// Regexp returns an Address identifying the next match of a regular expression.
+// If the Regexp was compiled with Options.Reverse=true,
+// the returned Address matches in reverse.
+func Regexp(re *re1.Regexp) SimpleAddress { return simpleAddr{reAddr{re}} }
 
-func withTrailingDelim(re string) string {
-	var esc bool
-	var rs []rune
-	d, _ := utf8.DecodeRuneInString(re)
-	for i, ru := range re {
-		rs = append(rs, ru)
-		// Ensure an unescaped trailing delimiter.
-		if i == len(re)-utf8.RuneLen(ru) && (i == 0 || ru != d || esc) {
-			rs = append(rs, d)
-		}
-		esc = !esc && ru == '\\'
+func (r reAddr) String() string {
+	if r.Options().Reverse {
+		return r.DelimitedString('?')
 	}
-	return string(rs)
+	return r.DelimitedString('/')
 }
-
-func (r reAddr) String() string { return r.re }
 
 type forward struct {
 	*runes.Buffer
@@ -472,25 +444,20 @@ func (rs *reverse) Rune(i int64) rune {
 }
 
 func (r reAddr) whereFrom(from int64, ed *Editor) (a addr, err error) {
-	opts := re1.Options{Delimited: true, Reverse: r.rev}
-	re, err := re1.Compile(strings.NewReader(r.re), opts)
-	if err != nil {
-		return a, err
-	}
 	fwd := &forward{Buffer: ed.buf.runes}
 	rs := re1.Runes(fwd)
-	if r.rev {
+	if r.Options().Reverse {
 		rs = &reverse{fwd}
 		from = rs.Size() - from
 	}
-	switch match := re.Match(rs, from); {
+	switch match := r.Match(rs, from); {
 	case fwd.err != nil:
 		return a, fwd.err
 	case match == nil:
 		return a, ErrNoMatch
 	default:
 		a = addr{from: match[0][0], to: match[0][1]}
-		if r.rev {
+		if r.Options().Reverse {
 			a.from, a.to = rs.Size()-a.to, rs.Size()-a.from
 		}
 		return a, nil
@@ -499,8 +466,14 @@ func (r reAddr) whereFrom(from int64, ed *Editor) (a addr, err error) {
 }
 
 func (r reAddr) reverse() SimpleAddress {
-	r.rev = !r.rev
-	return simpleAddr{r}
+	opts := r.Options()
+	opts.Reverse = !opts.Reverse
+	re, err := re1.Compile(strings.NewReader(r.Regexp.String()), opts)
+	if err != nil {
+		// Impossible. If it compiled one way, it must compile the other.
+		panic(err)
+	}
+	return Regexp(re)
 }
 
 const (
@@ -637,11 +610,11 @@ func parseSimpleAddr(rs io.RuneScanner) (SimpleAddress, error) {
 			if err := rs.UnreadRune(); err != nil {
 				return nil, err
 			}
-			exp, err := parseRegexp2(rs)
+			re, _, err := parseRegexp(rs, r == '?')
 			if err != nil {
 				return nil, err
 			}
-			return Regexp(string(exp)), nil
+			return Regexp(re), nil
 		case r == '$':
 			a = End
 		case r == '.':

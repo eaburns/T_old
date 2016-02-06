@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestNoMatch(t *testing.T) {
@@ -249,7 +250,7 @@ func TestDelimitedMatch(t *testing.T) {
 		{opts: del, re: `[\[1-5]*[(would be error`, str: "1", want: []string{"1"}},
 		{opts: del, re: `[abc\[[]`, str: "abc[", want: []string{"abc["}},
 
-		{opts: del, re: `][1-5\]*`, str: "[1-9", want: []string{""}},
+		{opts: del, re: `][1-5\]*`, str: "[1-5", want: []string{""}},
 		{opts: del, re: `][1-5\]*`, str: "12345", want: []string{"12345"}},
 		{opts: del, re: `][1-5\]*](would be error`, str: "1", want: []string{"1"}},
 		{opts: del, re: `]abc[[\]`, str: "abc[", want: []string{"abc["}},
@@ -385,11 +386,32 @@ type regexpTest struct {
 }
 
 func (test *regexpTest) run(t *testing.T) {
-	re, err := Compile(strings.NewReader(test.re), test.opts)
-	if err != nil {
-		t.Fatalf(`Compile("%s", %+v)=%v, want nil`, test.re, test.opts, err)
+	name := test.re
+	re := test.run1(name, t)
+	if re == nil {
+		return
 	}
 
+	test.re = re.String()
+	test.opts.Delimited = false
+	test.run1(name+" from String()", t)
+
+	for _, d := range "/" + Meta {
+		if d == '\\' || d == ']' {
+			continue
+		}
+		test.re = re.DelimitedString(d)
+		test.opts.Delimited = true
+		test.run1(name+" from DelimitedString("+string(d)+")", t)
+	}
+}
+
+func (test *regexpTest) run1(name string, t *testing.T) *Regexp {
+	re, err := Compile(strings.NewReader(test.re), test.opts)
+	if err != nil {
+		t.Fatalf(`%s Compile("%s", %+v)=%v, want nil`, name, test.re, test.opts, err)
+		return nil
+	}
 	str := test.str
 	if test.opts.Reverse {
 		str = reverse(test.str)
@@ -398,7 +420,7 @@ func (test *regexpTest) run(t *testing.T) {
 	ms := matches(test.str, es, test.opts.Reverse)
 	if es == nil && test.want == nil ||
 		len(es) == len(test.want) && reflect.DeepEqual(ms, test.want) {
-		return
+		return re
 	}
 	got := "<nil>"
 	if es != nil {
@@ -408,8 +430,9 @@ func (test *regexpTest) run(t *testing.T) {
 	if test.want != nil {
 		want = fmt.Sprintf("%v", test.want)
 	}
-	t.Errorf(`Compile("%s", %+v).Match("%s", %d)=%v,%v, want %s`,
-		test.re, test.opts, test.str, test.from, got, err, want)
+	t.Errorf(`%s Compile("%s", %+v).Match("%s", %d)=%v,%v, want %s`,
+		name, test.re, test.opts, test.str, test.from, got, err, want)
+	return re
 }
 
 func matches(str string, es [][2]int64, rev bool) []string {
@@ -536,6 +559,260 @@ func TestParseErrors(t *testing.T) {
 		}
 		if re == nil {
 			continue
+		}
+	}
+}
+
+func TestString(t *testing.T) {
+	tests := []struct {
+		name    string
+		in, out string
+	}{
+		{
+			name: "empty",
+			in:   "",
+			out:  "",
+		},
+		{
+			name: "no ending delimiter",
+			in:   "/abc",
+			out:  "abc",
+		},
+		{
+			name: "ending delimiter",
+			in:   "/abc/",
+			out:  "abc",
+		},
+		{
+			name: "escaped delimiter",
+			in:   `/ab\/c`,
+			out:  `ab/c`,
+		},
+		{
+			name: "escaped delimiter at start",
+			in:   `/\/abc`,
+			out:  `/abc`,
+		},
+		{
+			name: "escaped delimiter at end",
+			in:   `/abc\/`,
+			out:  `abc/`,
+		},
+		{
+			name: "charclass delimiter",
+			in:   `/ab[/]c`,
+			out:  `ab[/]c`,
+		},
+		{
+			name: "escaped and charclass delimiter",
+			in:   `/a\/b[/]c/`,
+			out:  `a/b[/]c`,
+		},
+		{
+			name: "non-ASCII delimiter",
+			in:   `☺abc☺`,
+			out:  `abc`,
+		},
+		{
+			name: "escaped and charclass non-ASCII delimiter",
+			in:   `☺a\☺b[☺]c☺`,
+			out:  `a☺b[☺]c`,
+		},
+		{
+			name: "[ in charclass",
+			in:   `/abc[[/]`,
+			out:  `abc[[/]`,
+		},
+		{
+			name: "escaped ] in charclass",
+			in:   `/abc[/\]]`,
+			out:  `abc[/\]]`,
+		},
+		{
+			name: "trailing escape",
+			in:   `/abc\`,
+			out:  `abc\`,
+		},
+	}
+	for _, test := range tests {
+		rs := strings.NewReader(test.in)
+		re, err := Compile(rs, Options{Delimited: true})
+		if err != nil {
+			t.Errorf("%s re1.Compile(%q, Options{Delimited: true}) %v",
+				test.name, test.in, err)
+		} else if str := re.String(); str != test.out {
+			t.Errorf("%s (%q).String()=%q, want %q",
+				test.name, test.in, str, test.out)
+		}
+	}
+}
+
+func TestDelimitedString(t *testing.T) {
+	tests := []struct {
+		name    string
+		in, out string
+		delim   rune
+	}{
+		{
+			name:  "empty",
+			in:    "",
+			delim: '/',
+			out:   "//",
+		},
+		{
+			name:  "simple",
+			in:    `abc`,
+			delim: '/',
+			out:   `/abc/`,
+		},
+		{
+			name:  "escape delimiter",
+			in:    `ab/c`,
+			delim: '/',
+			out:   `/ab\/c/`,
+		},
+		{
+			name:  "already escaped delimiter",
+			in:    `ab\/c`,
+			delim: '/',
+			out:   `/ab\/c/`,
+		},
+		{
+			name:  "charclass delimiter",
+			in:    `ab[/]c`,
+			delim: '/',
+			out:   `/ab[/]c/`,
+		},
+		{
+			name:  "escape meta delimiter",
+			in:    `abc*`,
+			delim: '*',
+			out:   `*abc\**`,
+		},
+		{
+			name:  "already escaped meta delimiter",
+			in:    `a\*`,
+			delim: '*',
+			out:   `*a[*]*`,
+		},
+		{
+			name:  "charclass meta delimiter",
+			in:    `abc\*`,
+			delim: '*',
+			out:   `*abc[*]*`,
+		},
+		{
+			name:  "obrace delimiter",
+			in:    `a[xyz]b`,
+			delim: '[',
+			out:   `[a\[xyz]b[`,
+		},
+		{
+			name:  "obrace delimiter add charclass",
+			in:    `a\[b`,
+			delim: '[',
+			out:   `[a[[]b[`,
+		},
+		{
+			name:  "trailing escape",
+			in:    `abc\`,
+			delim: '/',
+			out:   `/abc\\/`,
+		},
+		{
+			name:  "only escape",
+			in:    `\`,
+			delim: '/',
+			out:   `/\\/`,
+		},
+		{
+			name:  "escape in charclass",
+			in:    `[\]]`,
+			delim: '/',
+			out:   `/[\]]/`,
+		},
+		{
+			name:  "escaped delim in charclass",
+			in:    `[\/]`,
+			delim: '/',
+			out:   `/[\/]/`,
+		},
+		{
+			name:  "double escape",
+			in:    `\\[\\]`,
+			delim: '/',
+			out:   `/\\[\\]/`,
+		},
+		{
+			name:  "double escape before delimiter",
+			in:    `\\/`,
+			delim: '/',
+			out:   `/\\\//`,
+		},
+	}
+	for _, test := range tests {
+		rs := strings.NewReader(test.in)
+		re, err := Compile(rs, Options{})
+		if err != nil {
+			t.Errorf("%s re1.Compile(%q, Options{}) %v", test.name, test.in, err)
+		} else if str := re.DelimitedString(test.delim); str != test.out {
+			t.Errorf("%s (%q).DelimitedString(%q)=%q, want %q",
+				test.name, test.in, test.delim, str, test.out)
+		}
+	}
+}
+
+// TestDeepEqual verifies that reflect.DeepEqual is happy with re1.Regexps.
+func TestDeepEqual(t *testing.T) {
+	regexps := []string{
+		"",
+		"a*",
+		"(a|b|c)",
+		"[xyz]$",
+		"^.+a?$",
+		`(\/\*(([^*\/]|\n)|([^*]|\n)\/|\*([^\/]|\n))*\*\/)`,
+	}
+	for _, a := range regexps {
+		for _, b := range regexps {
+			rea, err := Compile(strings.NewReader(a), Options{})
+			if err != nil {
+				t.Fatal(err.Error())
+			}
+			reb, err := Compile(strings.NewReader(b), Options{})
+			if err != nil {
+				t.Fatal(err.Error())
+			}
+
+			want := a == b
+			got := reflect.DeepEqual(rea, reb)
+			if got != want {
+				t.Errorf("reflect.DeepEqual(%q, %q)=%v, want %v", a, b, got, want)
+			}
+		}
+	}
+}
+
+func TestMust(t *testing.T) {
+	tests := []struct {
+		re, matches string
+	}{
+		{re: "", matches: ""},
+		{re: "abc", matches: "abc"},
+		{re: "a*", matches: "aaa"},
+		{re: "?", matches: ""},
+		{re: "?xyz", matches: "zyx"},
+		{re: "?xyz?not matched", matches: "zyx"},
+		{re: "!", matches: ""},
+		{re: "!literal*?+()", matches: "literal*?+()"},
+		{re: "!literal*?+()!not matched", matches: "literal*?+()"},
+	}
+	for _, test := range tests {
+		re := Must(test.re)
+		n := utf8.RuneCountInString(test.matches)
+		match := re.Match(sliceRunes([]rune(test.matches)), 0)
+		if match == nil || match[0][0] != 0 && match[0][1] != int64(n) {
+			t.Errorf("Must(%q).Match(%q)=%v, want [][2]int{%d, %d}",
+				test.re, test.matches, match, 0, n)
 		}
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+
+	"github.com/eaburns/T/re1"
 )
 
 func ExampleAddress() {
@@ -42,9 +44,9 @@ func ExampleAddress() {
 
 		// Regular expressions.
 		parseAddr("/Hello/"),
-		Regexp("/Hello/"),
+		Regexp(re1.Must("Hello")),
 		// A regular expression, searching in reverse.
-		Regexp("?Hello?"),
+		Regexp(re1.Must("?Hello?")),
 
 		// Line addresses.
 		parseAddr("1"),
@@ -56,9 +58,9 @@ func ExampleAddress() {
 
 		// Addresses relative to other addresses.
 		parseAddr("#0+/l/,#5"),
-		Rune(0).Plus(Regexp("/l")).To(Rune(5)),
+		Rune(0).Plus(Regexp(re1.Must("l"))).To(Rune(5)),
 		parseAddr("$-/l/,#5"),
-		End.Minus(Regexp("/l")).To(Rune(5)),
+		End.Minus(Regexp(re1.Must("l"))).To(Rune(5)),
 	}
 
 	// Print the contents of the editor at each address to os.Stdout.
@@ -117,7 +119,7 @@ func ExampleEdit() {
 		// Here is the same Edit built with a funciton.
 		Print(All),
 		// This prints a different address.
-		Print(Regexp("/,").Plus(Rune(1)).To(End)),
+		Print(Regexp(re1.Must(",")).Plus(Rune(1)).To(End)),
 
 		// c changes the buffer at a given address preceeding it.
 		// After this change, the buffer will contain: "Hello, 世界!\n"
@@ -126,7 +128,7 @@ func ExampleEdit() {
 
 		// Or you can do it with functions.
 		// After this change, the buffer will contain: "Hello, World!\n" again.
-		Change(Regexp("/世界"), "World"),
+		Change(Regexp(re1.Must("世界")), "World"),
 		Print(All),
 
 		// There is infinite Undo…
@@ -140,7 +142,7 @@ func ExampleEdit() {
 
 		// You can also edit with regexp substitution.
 		Change(All, "...===...\n"),
-		Sub(All, "/(=+)/", `---\1---`),
+		Sub(All, re1.Must("(=+)"), `---\1---`),
 		Print(All),
 		parseEd(`,s/\./_/g`),
 		Print(All),
