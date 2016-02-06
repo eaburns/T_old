@@ -16,7 +16,7 @@ import (
 
 var (
 	// All is the address of the entire buffer: 0,$.
-	All Address = Line(0).To(End)
+	All = Line(0).To(End)
 	// Dot is the address of the Editor's dot.
 	Dot SimpleAddress = simpleAddr{dotAddr{}}
 	// End is the address of the empty string at the end of the buffer.
