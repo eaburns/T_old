@@ -63,7 +63,7 @@
 // at compile-time.
 //
 // For example:
-//	addr := Line(1).Plus(Rune(3)).To(Regexp("/the/").Plus(Line(8)))
+//	addr := Line(1).Plus(Rune(3)).To(Regexp("the").Plus(Line(8)))
 //
 // Edit
 //
@@ -91,7 +91,7 @@
 // and errors can be reported at compile-time.
 //
 // Here's example:
-// 	addr := Line(1).Plus(Rune(3)).To(Regexp("/the/").Plus(Line(8)))
+// 	addr := Line(1).Plus(Rune(3)).To(Regexp("the").Plus(Line(8)))
 //	edit := Change(addr, "new text")
 //
 // Once created,
@@ -136,7 +136,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/eaburns/T/edit/runes"
 	"github.com/eaburns/T/re1"
@@ -432,7 +431,9 @@ type Substitute struct {
 // that substitutes the first occurrence
 // of the regular expression within a
 // and sets dot to the modified address a.
-func Sub(a Address, re, with string) Edit { return Substitute{A: a, RE: re, With: with, From: 1} }
+func Sub(a Address, re, with string) Edit {
+	return Substitute{A: a, RE: re, With: with, From: 1}
+}
 
 // SubGlobal returns a Substitute Edit
 // that substitutes the all occurrences
@@ -447,13 +448,9 @@ func (e Substitute) String() string {
 	if e.From > 1 {
 		s += strconv.Itoa(e.From)
 	}
-	if e.RE == "" {
-		e.RE = "/"
-	}
-	s += withTrailingDelim(e.RE) + escape('/', e.With)
+	s += re1.AddDelimiter('/', e.RE) + escape('/', e.With)
 	if e.Global {
-		delim, _ := utf8.DecodeRuneInString(e.RE)
-		s += string(delim) + "g"
+		s += "/g"
 	}
 	return s
 }
@@ -463,7 +460,7 @@ func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	re, err := re1.Compile(strings.NewReader(e.RE), re1.Options{Delimited: true})
+	re, err := re1.Compile(strings.NewReader(e.RE), re1.Options{})
 	if err != nil {
 		return addr{}, err
 	}
@@ -918,22 +915,17 @@ func ed(rs io.RuneScanner) (Edit, error) {
 		if err != nil {
 			return nil, err
 		}
-		exp, err := parseRegexp2(rs)
+		delim, regexp, err := parseRegexp(rs)
 		if err != nil {
 			return nil, err
 		}
-		if len(exp) < 2 || len(exp) == 2 && exp[0] == exp[1] {
-			// len==1 is just the open delim.
-			// len==2 && exp[0]==exp[1] is just open and close delim.
-			return nil, errors.New("missing pattern")
-		}
-		repl, err := parseDelimited(exp[0], rs)
+		repl, err := parseDelimited(delim, rs)
 		if err != nil {
 			return nil, err
 		}
 		sub := Substitute{
 			A:    a,
-			RE:   string(exp),
+			RE:   regexp,
 			With: string(repl),
 			From: n,
 		}
@@ -1003,15 +995,16 @@ func (rs *re1Scanner) UnreadRune() error {
 	return nil
 }
 
-func parseRegexp2(rs io.RuneScanner) ([]rune, error) {
+func parseRegexp(rs io.RuneScanner) (rune, string, error) {
 	if err := skipSpace(rs); err != nil {
-		return nil, err
+		return 0, "", err
 	}
 	rs1 := &re1Scanner{rs: rs}
 	if _, err := re1.Compile(rs1, re1.Options{Delimited: true}); err != nil {
-		return nil, err
+		return 0, "", err
 	}
-	return rs1.scanned, nil
+	delim, regexp := re1.RemoveDelimiter(string(rs1.scanned))
+	return delim, regexp, nil
 }
 
 func parseAddrOrDot(rs io.RuneScanner) (Address, error) {
