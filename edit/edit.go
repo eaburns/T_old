@@ -161,16 +161,30 @@ type change struct {
 // Change returns an Edit
 // that changes the string at a to str,
 // and sets dot to the changed runes.
+//
+// The rune \ in str is interpreted as an escape.
+// \n is a literal newline.
+// All other escaped runes are the rune themselves.
+// For example,
+// 	\n is a literal newline
+// 	\\ is \
+// 	\a is a
 func Change(a Address, str string) Edit { return change{a: a, op: 'c', str: str} }
 
 // Append returns an Edit
 // that appends str after the string at a,
 // and sets dot to the appended runes.
+//
+// The rune \ in str is interpreted as an escape,
+// as described for the Change function.
 func Append(a Address, str string) Edit { return change{a: a, op: 'a', str: str} }
 
 // Insert returns an Edit
 // that inserts str before the string at a,
 // and sets dot to the inserted runes.
+//
+// The rune \ in str is interpreted as an escape,
+// as described for the Change function.
 func Insert(a Address, str string) Edit { return change{a: a, op: 'i', str: str} }
 
 // Delete returns an Edit
@@ -179,7 +193,9 @@ func Insert(a Address, str string) Edit { return change{a: a, op: 'i', str: str}
 // that was deleted.
 func Delete(a Address) Edit { return change{a: a, op: 'd'} }
 
-func (e change) String() string { return e.a.String() + string(e.op) + escape(e.str) }
+func (e change) String() string {
+	return e.a.String() + string(e.op) + "/" + escape('/', e.str) + "/"
+}
 
 func (e change) do(ed *Editor, _ io.Writer) (addr, error) {
 	switch e.op {
@@ -192,31 +208,8 @@ func (e change) do(ed *Editor, _ io.Writer) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	return at, pend(ed, at, runes.StringReader(e.str))
-}
-
-func escape(str string) string {
-	if r, _ := utf8.DecodeLastRuneInString(str); r == '\n' {
-		// Use multi-line format.
-		return "\n" + str + ".\n"
-	}
-
-	const (
-		delim = '/'
-		esc   = '\\'
-	)
-	es := []rune{delim}
-	for _, r := range str {
-		switch r {
-		case '\n':
-			es = append(es, esc, 'n')
-		case delim:
-			es = append(es, esc, r)
-		default:
-			es = append(es, r)
-		}
-	}
-	return string(append(es, delim))
+	unesc := unescape(e.str, nil)
+	return at, pend(ed, at, runes.StringReader(unesc))
 }
 
 type move struct {
@@ -396,15 +389,27 @@ type Substitute struct {
 	// After performing the edit, Dot is set the modified address A.
 	A Address
 	// RE is the regular expression to match.
-	// It is compiled with re1.Options{Delimited: true}.
+	//
+	// The regular expression must use the syntax of the re1 package:
+	// http://godoc.org/github.com/eaburns/T/re1.
+	// It is compiled with re1.Options{}
+	// when the edit is computed on a buffer.
+	// Compilation errors will not be returned until that time.
+	// If the regexp is malformed, the string representation of the Edit
+	// will be similarly malformed.
 	RE string
 	// With is the runes with which to replace each match.
-	// Within With, a backslash followed by a digit d
-	// stands for the string that matched the d-th subexpression.
-	// Subexpression 0 is the entire match.
-	// It is an error if such a subexpression contains
-	// more than MaxRunes runes.
+	// The rune \ in str is interpreted as an escape.
 	// \n is a literal newline.
+	// \ followed by a digit d stands for d-th subexpression match.
+	// All other escaped runes are the rune themselves.
+	// For example,
+	// 	\n is a literal newline
+	// 	\1 is the first subexpression match.
+	// 	\\ is \
+	// 	\a is a
+	// It is an error if such a subexpression match used within With
+	// contains more than MaxRunes runes.
 	With string
 	// Global is whether to replace all matches, or just one.
 	// If Global is false, only one match is replaced.
@@ -445,7 +450,7 @@ func (e Substitute) String() string {
 	if e.RE == "" {
 		e.RE = "/"
 	}
-	s += withTrailingDelim(e.RE) + e.With
+	s += withTrailingDelim(e.RE) + escape('/', e.With)
 	if e.Global {
 		delim, _ := utf8.DecodeRuneInString(e.RE)
 		s += string(delim) + "g"
@@ -485,15 +490,15 @@ func subSingle(ed *Editor, at addr, re *re1.Regexp, with string, n int) ([][2]in
 	if err != nil || m == nil {
 		return m, err
 	}
-	rs, err := replRunes(ed, m, with)
+	repl, err := replRunes(ed, m, with)
 	if err != nil {
 		return nil, err
 	}
 	at = addr{m[0][0], m[0][1]}
-	return m, pend(ed, at, runes.SliceReader(rs))
+	return m, pend(ed, at, runes.StringReader(repl))
 }
 
-// nthMatch skips past the first n-1 matches of the regular expression.
+// NthMatch skips past the first n-1 matches of the regular expression.
 // If n ≤ 0, the first match is returned.
 func nthMatch(ed *Editor, at addr, re *re1.Regexp, n int) ([][2]int64, error) {
 	var err error
@@ -512,48 +517,21 @@ func nthMatch(ed *Editor, at addr, re *re1.Regexp, n int) ([][2]int64, error) {
 }
 
 // ReplRunes returns the runes that replace a matched regexp.
-func replRunes(ed *Editor, m [][2]int64, with string) ([]rune, error) {
-	var rs []rune
-	repl := []rune(with)
-	for i := 0; i < len(repl); i++ {
-		d := escDigit(repl[i:])
-		if d < 0 {
-			rs = append(rs, repl[i])
-			continue
+func replRunes(ed *Editor, m [][2]int64, with string) (string, error) {
+	var err error
+	repl := unescape(with, func(i int) (match []rune) {
+		if err != nil || i < 0 || i >= len(m) {
+			return nil
 		}
-		sub, err := subExprMatch(ed, m, d)
-		if err != nil {
-			return nil, err
+		n := m[i][1] - m[i][0]
+		if n > MaxRunes {
+			err = errors.New("subexpression too big")
+			return nil
 		}
-		rs = append(rs, sub...)
-		i++
-	}
-	return rs, nil
-}
-
-// EscDigit returns the digit from \[0-9]
-// or -1 if the text does not represent an escaped digit.
-func escDigit(sub []rune) int {
-	if len(sub) >= 2 && sub[0] == '\\' && unicode.IsDigit(sub[1]) {
-		return int(sub[1] - '0')
-	}
-	return -1
-}
-
-// SubExprMatch returns the runes of a matched subexpression.
-func subExprMatch(ed *Editor, m [][2]int64, i int) ([]rune, error) {
-	if i < 0 || i >= len(m) {
-		return []rune{}, nil
-	}
-	n := m[i][1] - m[i][0]
-	if n > MaxRunes {
-		return nil, errors.New("subexpression too big")
-	}
-	rs, err := ed.buf.runes.Read(int(n), m[i][0])
-	if err != nil {
-		return nil, err
-	}
-	return rs, nil
+		match, err = ed.buf.runes.Read(int(n), m[i][0])
+		return match
+	})
+	return repl, err
 }
 
 type runeSlice struct {
@@ -1088,7 +1066,6 @@ func parseLines(rs io.RuneScanner) (string, error) {
 // raw newline (rune 0xA),
 // or the end of input.
 // A delimiter preceeded by \ is escaped and is non-terminating.
-// The letter n preceeded by \ is a newline literal.
 func parseDelimited(delim rune, rs io.RuneScanner) (string, error) {
 	var s []rune
 	var esc bool
@@ -1099,23 +1076,68 @@ func parseDelimited(delim rune, rs io.RuneScanner) (string, error) {
 		case err != nil:
 			return "", err
 		case esc && r == delim:
-			s = append(s, delim)
+			s = append(s[:len(s)-1], r)
+			esc = false
+		case esc && r == 'n':
+			s = append(s[:len(s)-1], '\n')
 			esc = false
 		case r == delim || r == '\n':
 			return string(s), nil
-		case !esc && r == '\\':
-			esc = true
-		case esc && r == 'n':
-			s = append(s, '\n')
-			esc = false
 		default:
-			if esc {
-				s = append(s, '\\')
-			}
 			s = append(s, r)
-			esc = false
+			esc = !esc && r == '\\'
 		}
 	}
+}
+
+// Escape returns str with all unescaped delimiters and newlines escaped.
+func escape(delim rune, str string) string {
+	var s []rune
+	var esc bool
+	for _, r := range str {
+		if !esc && r == delim {
+			s = append(s, '\\')
+		}
+		if r == '\n' {
+			if !esc {
+				s = append(s, '\\')
+			}
+			r = 'n'
+		}
+		s = append(s, r)
+		esc = !esc && r == '\\'
+	}
+	if esc {
+		s = append(s, '\\')
+	}
+	return string(s)
+}
+
+// Unescape returns str with all escapes removed.
+// \n is interpreted as a literal newline.
+// If lookup is non-nil, escaped digits are replaced with the result of lookup.
+func unescape(str string, lookup func(int) []rune) string {
+	var s []rune
+	var esc bool
+	for _, r := range str {
+		switch {
+		case !esc && r == '\\':
+			esc = true
+			continue
+		case esc && lookup != nil && unicode.IsDigit(r):
+			s = append(s, lookup(int(r-'0'))...)
+		case esc && r == 'n':
+			r = '\n'
+			fallthrough
+		default:
+			s = append(s, r)
+		}
+		esc = false
+	}
+	if esc {
+		s = append(s, '\\')
+	}
+	return string(s)
 }
 
 func parseMarkRune(rs io.RuneScanner) (rune, error) {

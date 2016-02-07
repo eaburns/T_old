@@ -14,25 +14,6 @@ import (
 	"testing"
 )
 
-func TestEscape(t *testing.T) {
-	tests := []struct {
-		str, want string
-	}{
-		{str: "", want: "//"},
-		{str: "Hello, World!", want: "/Hello, World!/"},
-		{str: "Hello, 世界!", want: "/Hello, 世界!/"},
-		{str: "/Hello, World!/", want: `/\/Hello, World!\//`},
-		{str: "Hello,\nWorld!", want: `/Hello,\nWorld!/`},
-		{str: "/Hello,\nWorld!/", want: `/\/Hello,\nWorld!\//`},
-		{str: "Hello,\nWorld!\n", want: "\nHello,\nWorld!\n.\n"},
-	}
-	for _, test := range tests {
-		if got := escape(test.str); got != test.want {
-			t.Errorf("escape(%q)=%q, want %q", test.str, got, test.want)
-		}
-	}
-}
-
 func TestChangeEdit(t *testing.T) {
 	tests := []eTest{
 		{e: Change(Rune(1), ""), err: "address out of range"},
@@ -79,6 +60,17 @@ func TestChangeEdit(t *testing.T) {
 			want: "HXYZ!",
 			dot:  addr{1, 4},
 		},
+
+		// Test escaping.
+		{e: Change(All, "/"), want: "/", dot: addr{0, 1}},
+		{e: Change(All, "/abc/"), want: "/abc/", dot: addr{0, 5}},
+		{e: Change(All, `\a\b\c`), want: "abc", dot: addr{0, 3}},
+		{e: Change(All, `\`), want: `\`, dot: addr{0, 1}},
+		{e: Change(All, `\/`), want: `/`, dot: addr{0, 1}},
+		{e: Change(All, `\n`), want: "\n", dot: addr{0, 1}},
+		{e: Change(All, `\\n`), want: `\n`, dot: addr{0, 2}},
+		{e: Change(All, "\\\n"), want: "\n", dot: addr{0, 1}},
+		{e: Change(All, `\\n`), want: `\n`, dot: addr{0, 2}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -424,6 +416,18 @@ func TestSubstituteEdit(t *testing.T) {
 			e:    Substitute{A: All, RE: "/abc/", With: "def", From: 4},
 			want: "abcabcabc", dot: addr{0, 9},
 		},
+
+		// Test escaping.
+		{init: "a", e: Sub(All, "/a/", `/`), want: `/`, dot: addr{0, 1}},
+		{init: "a", e: Sub(All, "/a/", `\`), want: `\`, dot: addr{0, 1}},
+		{init: "a", e: Sub(All, "/a/", `\0`), want: `a`, dot: addr{0, 1}},
+		{init: "a", e: Sub(All, "/a/", `\\0`), want: `\0`, dot: addr{0, 2}},
+		{init: "a", e: Sub(All, "/a/", "\n"), want: "\n", dot: addr{0, 1}},
+		{init: "a", e: Sub(All, "/a/", `\n`), want: "\n", dot: addr{0, 1}},
+		{init: "a", e: Sub(All, "/a/", "\\\n"), want: "\n", dot: addr{0, 1}},
+		{init: "a", e: Sub(All, "/a/", `\\n`), want: `\n`, dot: addr{0, 2}},
+
+		{init: "a", e: Sub(All, "/a/", `/`), want: `/`, dot: addr{0, 1}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -921,12 +925,19 @@ func TestEd(t *testing.T) {
 		{e: "#1,#2c/αβξ/", want: Change(Rune(1).To(Rune(2)), "αβξ")},
 		{e: " #1 , #2 c/αβξ/", want: Change(Rune(1).To(Rune(2)), "αβξ")},
 		{e: "c/αβξ\\/", want: Change(Dot, "αβξ/")},
-		{e: "c/αβξ\\n", want: Change(Dot, "αβξ\n")},
+		{e: `c/αβξ\n`, want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n.\n", want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n.", want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n\n.", want: Change(Dot, "αβξ\n\n")},
 		{e: "c\nαβξ\nabc\n.", want: Change(Dot, "αβξ\nabc\n")},
 		{e: "c \n", want: Change(Dot, "")},
+		{e: `c/\n`, want: Change(Dot, "\n")},
+		{e: `c/\\n`, want: Change(Dot, `\\n`)},
+		{e: `c/\/`, want: Change(Dot, `/`)},
+		{e: `c/\//`, want: Change(Dot, `/`)},
+		{e: `c/\`, want: Change(Dot, `\`)},
+		{e: `c/\\`, want: Change(Dot, `\\`)},
+		{e: `c/\\/`, want: Change(Dot, `\\`)},
 
 		{e: "a/αβξ", want: Append(Dot, "αβξ")},
 		{e: "a   /αβξ", want: Append(Dot, "αβξ")},
@@ -939,7 +950,7 @@ func TestEd(t *testing.T) {
 		{e: "#1,#2a/αβξ/", want: Append(Rune(1).To(Rune(2)), "αβξ")},
 		{e: " #1 , #2 a/αβξ/", want: Append(Rune(1).To(Rune(2)), "αβξ")},
 		{e: "a/αβξ\\/", want: Append(Dot, "αβξ/")},
-		{e: "a/αβξ\\n", want: Append(Dot, "αβξ\n")},
+		{e: `a/αβξ\n`, want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n.\n", want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n.", want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n\n.", want: Append(Dot, "αβξ\n\n")},
@@ -957,7 +968,7 @@ func TestEd(t *testing.T) {
 		{e: "#1,#2i/αβξ/", want: Insert(Rune(1).To(Rune(2)), "αβξ")},
 		{e: " #1 , #2 i/αβξ/", want: Insert(Rune(1).To(Rune(2)), "αβξ")},
 		{e: "i/αβξ\\/", want: Insert(Dot, "αβξ/")},
-		{e: "i/αβξ\\n", want: Insert(Dot, "αβξ\n")},
+		{e: `i/αβξ\n`, want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n.\n", want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n.", want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n\n.", want: Insert(Dot, "αβξ\n\n")},
@@ -1091,13 +1102,13 @@ func TestEd(t *testing.T) {
 
 		if test.err != "" {
 			if !regexp.MustCompile(test.err).MatchString(err.Error()) {
-				t.Errorf(`Ed(%q)=%q,%q, want %q,%q`, test.e, e, err, test.want, test.err)
+				t.Errorf(`Ed(%q)=%q,%v, want %q,%q`, test.e, e, err, test.want, test.err)
 			}
 			continue
 		}
 
 		if err != nil || !reflect.DeepEqual(e, test.want) {
-			t.Errorf(`Ed(%q)=%q,%q, want %q,%q`, test.e, e, err, test.want, test.err)
+			t.Errorf(`Ed(%q)=%q,%v, want %q,%q`, test.e, e, err, test.want, test.err)
 			continue
 		}
 		left, err := ioutil.ReadAll(rs)
