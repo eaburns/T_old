@@ -1150,11 +1150,10 @@ func TestEditString(t *testing.T) {
 		{Insert(Dot, `//`), `.i/\/\//`},
 		{Insert(Dot, "\n"), `.i/\n/`},
 
-		// BUG(eaburns): #160, d shouldn't be trailed by //.
-		{Delete(All), `0,$d//`},
-		{Delete(Dot), `.d//`},
-		{Delete(Regexp("a*")), `/a*/d//`},
-		{Delete(Regexp("/*")), `/\/*/d//`},
+		{Delete(All), `0,$d`},
+		{Delete(Dot), `.d`},
+		{Delete(Regexp("a*")), `/a*/d`},
+		{Delete(Regexp("/*")), `/\/*/d`},
 
 		{Copy(Dot, Line(2)), `.t2`},
 		{Copy(Line(1), Dot), `1t.`},

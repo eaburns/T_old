@@ -193,6 +193,9 @@ func Insert(a Address, str string) Edit { return change{a: a, op: 'i', str: str}
 func Delete(a Address) Edit { return change{a: a, op: 'd'} }
 
 func (e change) String() string {
+	if e.op == 'd' {
+		return e.a.String() + "d"
+	}
 	return e.a.String() + string(e.op) + "/" + escape('/', e.str) + "/"
 }
 
