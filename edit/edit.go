@@ -722,6 +722,19 @@ func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
 
 // Ed parses and returns an Edit.
 //
+// Edits are terminated by a newline, end of input, or the end of the edit.
+// For example:
+// 	1,5
+// 	d
+// 		Is terminated at the newline precceding d.
+// 		The newline is not consumed.
+//
+//	1,5a/xyz
+// 		Is terminated at z at the end of the input.
+//
+// 	1,5dabc
+// 		Is terminated at d, the end of the edit.
+//
 // In the following, text surrounded by / represents delimited text.
 // The delimiter can be any character, it need not be /.
 // Trailing delimiters may be elided, but the opening delimiter must be present.
@@ -816,21 +829,7 @@ func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
 //		Dot is set to the address covering
 // 		the last redone change.
 func Ed(rs io.RuneScanner) (Edit, error) {
-	e, err := ed(rs)
-	if err != nil {
-		return nil, err
-	}
-	if err := skipSpace(rs); err != nil {
-		return nil, err
-	}
-	if err := skipSingleNewline(rs); err != nil {
-		return nil, err
-	}
-	return e, err
-}
-
-func ed(rs io.RuneScanner) (Edit, error) {
-	a, err := parseCompoundAddr(rs)
+	a, err := Addr(rs)
 	switch {
 	case err != nil:
 		return nil, err
@@ -860,10 +859,15 @@ func ed(rs io.RuneScanner) (Edit, error) {
 		}
 	}
 	switch r, _, err := rs.ReadRune(); {
-	case err == io.EOF || err == nil && r == '\n':
-		return Set(a, '.'), nil
-	case err != nil:
+	case err != nil && err != io.EOF:
 		return nil, err
+	case err == nil && r == '\n':
+		if err := rs.UnreadRune(); err != nil {
+			return nil, err
+		}
+		fallthrough
+	case err == io.EOF:
+		return Set(a, '.'), nil
 	case r == 'a' || r == 'c' || r == 'i':
 		text, err := parseText(rs)
 		if err != nil {
@@ -1008,7 +1012,7 @@ func parseRegexp(rs io.RuneScanner) (rune, string, error) {
 }
 
 func parseAddrOrDot(rs io.RuneScanner) (Address, error) {
-	switch a, err := parseCompoundAddr(rs); {
+	switch a, err := Addr(rs); {
 	// parseCompoundAddr returns never returns io.EOF, but nil, nil.
 	case err != nil:
 		return nil, err
@@ -1074,7 +1078,9 @@ func parseDelimited(delim rune, rs io.RuneScanner) (string, error) {
 		case esc && r == 'n':
 			s = append(s[:len(s)-1], '\n')
 			esc = false
-		case r == delim || r == '\n':
+		case r == '\n':
+			return string(s), rs.UnreadRune()
+		case r == delim:
 			return string(s), nil
 		default:
 			s = append(s, r)
@@ -1191,7 +1197,7 @@ func parseCmd(rs io.RuneScanner) (string, error) {
 		case err != nil:
 			return "", nil
 		case r == '\n':
-			return string(s), nil
+			return string(s), rs.UnreadRune()
 		case r == '\\':
 			esc = true
 		case esc && r == 'n':
