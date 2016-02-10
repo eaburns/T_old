@@ -451,9 +451,9 @@ func (e Substitute) String() string {
 	if e.From > 1 {
 		s += strconv.Itoa(e.From)
 	}
-	s += re1.AddDelimiter('/', e.RE) + escape('/', e.With)
+	s += re1.AddDelimiter('/', e.RE) + escape('/', e.With) + "/"
 	if e.Global {
-		s += "/g"
+		s += "g"
 	}
 	return s
 }

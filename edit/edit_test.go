@@ -1210,14 +1210,13 @@ func TestEditString(t *testing.T) {
 		{Redo(0), "r1"},
 		{Redo(-4), "r1"},
 
-		// BUG(eaburns): #163, s should always have trailing /.
-		{Sub(All, "a*", "b"), `0,$s/a*/b`},
-		{Sub(All, "/*", "b"), `0,$s/\/*/b`},
-		{Sub(All, "a*", "/"), `0,$s/a*/\/`},
+		{Sub(All, "a*", "b"), `0,$s/a*/b/`},
+		{Sub(All, "/*", "b"), `0,$s/\/*/b/`},
+		{Sub(All, "a*", "/"), `0,$s/a*/\//`},
 		// BUG(eaburns): #164, \n should be escaped.
-		{Sub(All, "\n*", "b"), "0,$s/\n*/b"},
-		{Sub(All, "a*", "\n"), `0,$s/a*/\n`},
-		{Sub(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1`},
+		{Sub(All, "\n*", "b"), "0,$s/\n*/b/"},
+		{Sub(All, "a*", "\n"), `0,$s/a*/\n/`},
+		{Sub(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1/`},
 
 		{SubGlobal(All, "a*", "b"), `0,$s/a*/b/g`},
 		{SubGlobal(All, "/*", "b"), `0,$s/\/*/b/g`},
@@ -1228,15 +1227,15 @@ func TestEditString(t *testing.T) {
 
 		{
 			Substitute{A: All, RE: "a*", With: "b", From: 2},
-			`0,$s2/a*/b`,
+			`0,$s2/a*/b/`,
 		},
 		{
 			Substitute{A: All, RE: "a*", With: "b", From: 0},
-			`0,$s/a*/b`,
+			`0,$s/a*/b/`,
 		},
 		{
 			Substitute{A: All, RE: "a*", With: "b", From: -1},
-			`0,$s/a*/b`,
+			`0,$s/a*/b/`,
 		},
 	}
 	for _, test := range tests {
