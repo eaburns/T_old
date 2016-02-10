@@ -1123,3 +1123,126 @@ func TestEd(t *testing.T) {
 		}
 	}
 }
+
+func TestEditString(t *testing.T) {
+	tests := []struct {
+		e Edit
+		s string
+	}{
+		{Change(All, `xyz`), `0,$c/xyz/`},
+		{Change(Dot, `a\nb\nc`), `.c/a\nb\nc/`},
+		{Change(Regexp("a*"), `b`), `/a*/c/b/`},
+		{Change(Regexp("/*"), `b`), `/\/*/c/b/`},
+		{Change(Dot, `//`), `.c/\/\//`},
+		{Change(Dot, "\n"), `.c/\n/`},
+
+		{Append(All, "xyz"), "0,$a/xyz/"},
+		{Append(Dot, `a\nb\nc`), `.a/a\nb\nc/`},
+		{Append(Regexp("a*"), `b`), `/a*/a/b/`},
+		{Append(Regexp("/*"), `b`), `/\/*/a/b/`},
+		{Append(Dot, `//`), `.a/\/\//`},
+		{Append(Dot, "\n"), `.a/\n/`},
+
+		{Insert(All, "xyz"), "0,$i/xyz/"},
+		{Insert(Dot, `a\nb\nc`), `.i/a\nb\nc/`},
+		{Insert(Regexp("a*"), `b`), `/a*/i/b/`},
+		{Insert(Regexp("/*"), `b`), `/\/*/i/b/`},
+		{Insert(Dot, `//`), `.i/\/\//`},
+		{Insert(Dot, "\n"), `.i/\n/`},
+
+		// BUG(eaburns): #160, d shouldn't be trailed by //.
+		{Delete(All), `0,$d//`},
+		{Delete(Dot), `.d//`},
+		{Delete(Regexp("a*")), `/a*/d//`},
+		{Delete(Regexp("/*")), `/\/*/d//`},
+
+		{Copy(Dot, Line(2)), `.t2`},
+		{Copy(Line(1), Dot), `1t.`},
+		{Copy(Line(1), Line(2)), `1t2`},
+		{Copy(Regexp("a*"), Dot), `/a*/t.`},
+		{Copy(Regexp("/*"), Dot), `/\/*/t.`},
+		{Copy(Dot, Regexp("b*")), `.t/b*/`},
+		{Copy(Dot, Regexp("/*")), `.t/\/*/`},
+		{Copy(Regexp("a*"), Regexp("b*")), `/a*/t/b*/`},
+
+		{Move(Dot, Line(2)), `.m2`},
+		{Move(Line(1), Dot), `1m.`},
+		{Move(Line(1), Line(2)), `1m2`},
+		{Move(Regexp("a*"), Dot), `/a*/m.`},
+		{Move(Regexp("/*"), Dot), `/\/*/m.`},
+		{Move(Dot, Regexp("b*")), `.m/b*/`},
+		{Move(Dot, Regexp("/*")), `.m/\/*/`},
+		{Move(Regexp("a*"), Regexp("b*")), `/a*/m/b*/`},
+
+		{Pipe(All, "cat"), "0,$|cat\n"},
+		{Pipe(Regexp("a*"), "cat"), "/a*/|cat\n"},
+		{Pipe(Regexp("/*"), "cat"), "/\\/*/|cat\n"},
+
+		{PipeTo(All, "cat"), "0,$>cat\n"},
+		{PipeTo(Regexp("a*"), "cat"), "/a*/>cat\n"},
+		{PipeTo(Regexp("/*"), "cat"), "/\\/*/>cat\n"},
+
+		{PipeFrom(All, "cat"), "0,$<cat\n"},
+		{PipeFrom(Regexp("a*"), "cat"), "/a*/<cat\n"},
+		{PipeFrom(Regexp("/*"), "cat"), "/\\/*/<cat\n"},
+
+		{Print(All), `0,$p`},
+		{Print(Dot), `.p`},
+		{Print(Regexp("a*")), `/a*/p`},
+		{Print(Regexp("/*")), `/\/*/p`},
+
+		{Where(All), `0,$=#`},
+		{Where(Dot), `.=#`},
+		{Where(Regexp("a*")), `/a*/=#`},
+		{Where(Regexp("/*")), `/\/*/=#`},
+
+		{WhereLine(All), `0,$=`},
+		{WhereLine(Dot), `.=`},
+		{WhereLine(Regexp("a*")), `/a*/=`},
+		{WhereLine(Regexp("/*")), `/\/*/=`},
+
+		{Undo(1), "u1"},
+		{Undo(2), "u2"},
+		{Undo(0), "u1"},
+		{Undo(-4), "u1"},
+
+		{Redo(1), "r1"},
+		{Redo(2), "r2"},
+		{Redo(0), "r1"},
+		{Redo(-4), "r1"},
+
+		// BUG(eaburns): #163, s should always have trailing /.
+		{Sub(All, "a*", "b"), `0,$s/a*/b`},
+		{Sub(All, "/*", "b"), `0,$s/\/*/b`},
+		{Sub(All, "a*", "/"), `0,$s/a*/\/`},
+		// BUG(eaburns): #164, \n should be escaped.
+		{Sub(All, "\n*", "b"), "0,$s/\n*/b"},
+		{Sub(All, "a*", "\n"), `0,$s/a*/\n`},
+		{Sub(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1`},
+
+		{SubGlobal(All, "a*", "b"), `0,$s/a*/b/g`},
+		{SubGlobal(All, "/*", "b"), `0,$s/\/*/b/g`},
+		{SubGlobal(All, "a*", "/"), `0,$s/a*/\//g`},
+		{SubGlobal(All, "\n*", "b"), "0,$s/\n*/b/g"},
+		{SubGlobal(All, "a*", "\n"), `0,$s/a*/\n/g`},
+		{SubGlobal(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1/g`},
+
+		{
+			Substitute{A: All, RE: "a*", With: "b", From: 2},
+			`0,$s2/a*/b`,
+		},
+		{
+			Substitute{A: All, RE: "a*", With: "b", From: 0},
+			`0,$s/a*/b`,
+		},
+		{
+			Substitute{A: All, RE: "a*", With: "b", From: -1},
+			`0,$s/a*/b`,
+		},
+	}
+	for _, test := range tests {
+		if s := test.e.String(); s != test.s {
+			t.Errorf("String()=%q, want %q\n", s, test.s)
+		}
+	}
+}
