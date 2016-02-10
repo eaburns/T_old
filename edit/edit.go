@@ -447,15 +447,17 @@ func SubGlobal(a Address, re, with string) Edit {
 }
 
 func (e Substitute) String() string {
-	s := e.A.String() + "s"
+	var n string
 	if e.From > 1 {
-		s += strconv.Itoa(e.From)
+		n = strconv.Itoa(e.From)
 	}
-	s += re1.AddDelimiter('/', e.RE) + escape('/', e.With) + "/"
+	var g string
 	if e.Global {
-		s += "g"
+		g = "g"
 	}
-	return s
+	re := re1.AddDelimiter('/', escape(-1, e.RE)) // Escape newlines.
+	with := escape('/', e.With)
+	return e.A.String() + "s" + n + re + with + "/" + g
 }
 
 func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {

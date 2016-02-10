@@ -1213,15 +1213,14 @@ func TestEditString(t *testing.T) {
 		{Sub(All, "a*", "b"), `0,$s/a*/b/`},
 		{Sub(All, "/*", "b"), `0,$s/\/*/b/`},
 		{Sub(All, "a*", "/"), `0,$s/a*/\//`},
-		// BUG(eaburns): #164, \n should be escaped.
-		{Sub(All, "\n*", "b"), "0,$s/\n*/b/"},
+		{Sub(All, "\n*", "b"), `0,$s/\n*/b/`},
 		{Sub(All, "a*", "\n"), `0,$s/a*/\n/`},
 		{Sub(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1/`},
 
 		{SubGlobal(All, "a*", "b"), `0,$s/a*/b/g`},
 		{SubGlobal(All, "/*", "b"), `0,$s/\/*/b/g`},
 		{SubGlobal(All, "a*", "/"), `0,$s/a*/\//g`},
-		{SubGlobal(All, "\n*", "b"), "0,$s/\n*/b/g"},
+		{SubGlobal(All, "\n*", "b"), `0,$s/\n*/b/g`},
 		{SubGlobal(All, "a*", "\n"), `0,$s/a*/\n/g`},
 		{SubGlobal(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1/g`},
 
