@@ -177,6 +177,7 @@ func TestRegexpString(t *testing.T) {
 		{`?abc?`, `?abc?`},
 		{`?ab\?c?`, `?ab\?c?`},
 		{`?ab[?]c?`, `?ab[?]c?`},
+		{"\n", `/\n/`}, // Raw newlines are escaped.
 	}
 	for _, test := range tests {
 		re := Regexp(test.re)

@@ -435,10 +435,11 @@ func Regexp(regexp string) SimpleAddress {
 }
 
 func (r reAddr) String() string {
+	re := escape(-1, r.regexp) // Escape raw newlines.
 	if r.opts.Reverse {
-		return re1.AddDelimiter('?', r.regexp)
+		return re1.AddDelimiter('?', re)
 	}
-	return re1.AddDelimiter('/', r.regexp)
+	return re1.AddDelimiter('/', re)
 }
 
 type forward struct {
