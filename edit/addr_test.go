@@ -177,6 +177,7 @@ func TestRegexpString(t *testing.T) {
 		{`?abc?`, `?abc?`},
 		{`?ab\?c?`, `?ab\?c?`},
 		{`?ab[?]c?`, `?ab[?]c?`},
+		{"\n", `/\n/`}, // Raw newlines are escaped.
 	}
 	for _, test := range tests {
 		re := Regexp(test.re)
@@ -305,8 +306,8 @@ func TestAddr(t *testing.T) {
 		{a: "r", want: nil, left: "r"},
 		{a: " r", want: nil, left: "r"},
 		{a: "\t\t", want: nil},
-		{a: "\t\n\txyz", left: "\txyz", want: nil},
-		{a: "\n#1", left: "#1", want: nil},
+		{a: "\t\n\txyz", left: "\n\txyz", want: nil},
+		{a: "\n#1", left: "\n#1", want: nil},
 
 		{a: "#0", want: Rune(0)},
 		{a: "#1", want: Rune(1)},
@@ -314,7 +315,7 @@ func TestAddr(t *testing.T) {
 		{a: "#12345", want: Rune(12345)},
 		{a: "#12345xyz", left: "xyz", want: Rune(12345)},
 		{a: " #12345xyz", left: "xyz", want: Rune(12345)},
-		{a: " #1\t\n\txyz", left: "\txyz", want: Rune(1)},
+		{a: " #1\t\n\txyz", left: "\n\txyz", want: Rune(1)},
 		{a: "#" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "out of range"},
 
 		{a: "0", want: Line(0)},
@@ -322,7 +323,7 @@ func TestAddr(t *testing.T) {
 		{a: "12345", want: Line(12345)},
 		{a: "12345xyz", left: "xyz", want: Line(12345)},
 		{a: " 12345xyz", left: "xyz", want: Line(12345)},
-		{a: " 1\t\n\txyz", left: "\txyz", want: Line(1)},
+		{a: " 1\t\n\txyz", left: "\n\txyz", want: Line(1)},
 		{a: strconv.FormatInt(math.MaxInt64, 10) + "0", err: "out of range"},
 
 		{a: "/", want: Regexp("")},
@@ -332,12 +333,12 @@ func TestAddr(t *testing.T) {
 		{a: "/abcdef", want: Regexp("abcdef")},
 		{a: "/abc/def", left: "def", want: Regexp("abc")},
 		{a: "/abc def", want: Regexp("abc def")},
-		{a: "/abc def\nxyz", left: "xyz", want: Regexp("abc def")},
+		{a: "/abc def\nxyz", left: "\nxyz", want: Regexp("abc def")},
 		{a: "?abcdef", want: Regexp("?abcdef")},
 		{a: "?abc?def", left: "def", want: Regexp("?abc")},
 		{a: "?abc def", want: Regexp("?abc def")},
 		{a: " ?abc def", want: Regexp("?abc def")},
-		{a: "?abc def\nxyz", left: "xyz", want: Regexp("?abc def")},
+		{a: "?abc def\nxyz", left: "\nxyz", want: Regexp("?abc def")},
 		{a: "/()", err: "operand"},
 
 		{a: "$", want: End},
@@ -358,7 +359,7 @@ func TestAddr(t *testing.T) {
 		{a: "'", err: "bad mark"},
 
 		{a: "+", want: Dot.Plus(Line(1))},
-		{a: "+\n2", left: "2", want: Dot.Plus(Line(1))},
+		{a: "+\n2", left: "\n2", want: Dot.Plus(Line(1))},
 		{a: "+xyz", left: "xyz", want: Dot.Plus(Line(1))},
 		{a: "+5", want: Dot.Plus(Line(5))},
 		{a: "5+", want: Line(5).Plus(Line(1))},
@@ -384,7 +385,7 @@ func TestAddr(t *testing.T) {
 		{a: ",", want: Line(0).To(End)},
 		{a: ",xyz", left: "xyz", want: Line(0).To(End)},
 		{a: " , ", want: Line(0).To(End)},
-		{a: ",\n1", left: "1", want: Line(0).To(End)},
+		{a: ",\n1", left: "\n1", want: Line(0).To(End)},
 		{a: ",1", want: Line(0).To(Line(1))},
 		{a: "1,", want: Line(1).To(End)},
 		{a: "0,$", want: Line(0).To(End)},
@@ -396,7 +397,7 @@ func TestAddr(t *testing.T) {
 		{a: ";", want: Line(0).Then(End)},
 		{a: ";xyz", left: "xyz", want: Line(0).Then(End)},
 		{a: " ; ", want: Line(0).Then(End)},
-		{a: " ;\n1", left: "1", want: Line(0).Then(End)},
+		{a: " ;\n1", left: "\n1", want: Line(0).Then(End)},
 		{a: ";1", want: Line(0).Then(Line(1))},
 		{a: "1;", want: Line(1).Then(End)},
 		{a: "0;$", want: Line(0).Then(End)},

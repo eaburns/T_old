@@ -435,10 +435,11 @@ func Regexp(regexp string) SimpleAddress {
 }
 
 func (r reAddr) String() string {
+	re := escape(-1, r.regexp) // Escape raw newlines.
 	if r.opts.Reverse {
-		return re1.AddDelimiter('?', r.regexp)
+		return re1.AddDelimiter('?', re)
 	}
-	return re1.AddDelimiter('/', r.regexp)
+	return re1.AddDelimiter('/', re)
 }
 
 type forward struct {
@@ -502,7 +503,19 @@ const (
 )
 
 // Addr parses and returns an address.
-// Addresses are terminated by a newline or end of input.
+//
+// Addresses are terminated by a newline, end of input, or end of the address.
+// For example:
+// 	1,5
+// 	-1
+// 		Is terminated at the newline precceding -.
+// 		The newline is not consumed.
+//
+//	1,5-6
+// 		Is terminated at 6 at the end of the input.
+//
+// 	1,5dabc
+// 		Is terminated at 5, the end of the address.
 //
 // The address syntax for address a0 is:
 //	a0:	{a0} ',' {a0} | {a0} ';' {a0} | {a0} '+' {a1} | {a0} '-' {a1} | a0 a1 | a1
@@ -539,17 +552,6 @@ const (
 //		If the second address is missing, 1 is used.
 // If two addresses of the form a0 a1 are present and distinct then a '+' is inserted, as in a0 '+' a1.
 func Addr(rs io.RuneScanner) (Address, error) {
-	a, err := parseCompoundAddr(rs)
-	if err != nil {
-		return nil, err
-	}
-	if err := skipSingleNewline(rs); err != nil {
-		return nil, err
-	}
-	return a, err
-}
-
-func parseCompoundAddr(rs io.RuneScanner) (Address, error) {
 	var a1 Address
 	for {
 		switch r, _, err := rs.ReadRune(); {
@@ -589,7 +591,7 @@ func parseCompoundAddr(rs io.RuneScanner) (Address, error) {
 			if a1 == nil {
 				a1 = Line(0)
 			}
-			a2, err := parseCompoundAddr(rs)
+			a2, err := Addr(rs)
 			if a2 == nil {
 				a2 = End
 			}

@@ -903,8 +903,8 @@ func TestEd(t *testing.T) {
 		{e: "#0", want: Set(Rune(0), '.')},
 		{e: "#0+1", want: Set(Rune(0).Plus(Line(1)), '.')},
 		{e: " #0 + 1 ", want: Set(Rune(0).Plus(Line(1)), '.')},
-		{e: "#0+1\nc/abc", left: "c/abc", want: Set(Rune(0).Plus(Line(1)), '.')},
-		{e: "/abc\n1c/xyz", left: "1c/xyz", want: Set(Regexp("abc"), '.')},
+		{e: "#0+1\nc/abc", left: "\nc/abc", want: Set(Rune(0).Plus(Line(1)), '.')},
+		{e: "/abc\n1c/xyz", left: "\n1c/xyz", want: Set(Regexp("abc"), '.')},
 
 		{e: "k", want: Set(Dot, '.')},
 		{e: " k ", want: Set(Dot, '.')},
@@ -919,14 +919,14 @@ func TestEd(t *testing.T) {
 		{e: "c", want: Change(Dot, "")},
 		{e: "c  /", want: Change(Dot, "")},
 		{e: "c/αβξ/", want: Change(Dot, "αβξ")},
-		{e: "c/αβξ\n", want: Change(Dot, "αβξ")},
+		{e: "c/αβξ\n", left: "\n", want: Change(Dot, "αβξ")},
 		{e: "c/αβξ/xyz", left: "xyz", want: Change(Dot, "αβξ")},
-		{e: "c/αβξ\nxyz", left: "xyz", want: Change(Dot, "αβξ")},
+		{e: "c/αβξ\nxyz", left: "\nxyz", want: Change(Dot, "αβξ")},
 		{e: "#1,#2c/αβξ/", want: Change(Rune(1).To(Rune(2)), "αβξ")},
 		{e: " #1 , #2 c/αβξ/", want: Change(Rune(1).To(Rune(2)), "αβξ")},
 		{e: "c/αβξ\\/", want: Change(Dot, "αβξ/")},
 		{e: `c/αβξ\n`, want: Change(Dot, "αβξ\n")},
-		{e: "c\nαβξ\n.\n", want: Change(Dot, "αβξ\n")},
+		{e: "c\nαβξ\n.\n", left: "\n", want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n.", want: Change(Dot, "αβξ\n")},
 		{e: "c\nαβξ\n\n.", want: Change(Dot, "αβξ\n\n")},
 		{e: "c\nαβξ\nabc\n.", want: Change(Dot, "αβξ\nabc\n")},
@@ -944,14 +944,14 @@ func TestEd(t *testing.T) {
 		{e: "a", want: Append(Dot, "")},
 		{e: "a  /", want: Append(Dot, "")},
 		{e: "a/αβξ/", want: Append(Dot, "αβξ")},
-		{e: "a/αβξ\n", want: Append(Dot, "αβξ")},
+		{e: "a/αβξ\n", left: "\n", want: Append(Dot, "αβξ")},
 		{e: "a/αβξ/xyz", left: "xyz", want: Append(Dot, "αβξ")},
-		{e: "a/αβξ\nxyz", left: "xyz", want: Append(Dot, "αβξ")},
+		{e: "a/αβξ\nxyz", left: "\nxyz", want: Append(Dot, "αβξ")},
 		{e: "#1,#2a/αβξ/", want: Append(Rune(1).To(Rune(2)), "αβξ")},
 		{e: " #1 , #2 a/αβξ/", want: Append(Rune(1).To(Rune(2)), "αβξ")},
 		{e: "a/αβξ\\/", want: Append(Dot, "αβξ/")},
 		{e: `a/αβξ\n`, want: Append(Dot, "αβξ\n")},
-		{e: "a\nαβξ\n.\n", want: Append(Dot, "αβξ\n")},
+		{e: "a\nαβξ\n.\n", left: "\n", want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n.", want: Append(Dot, "αβξ\n")},
 		{e: "a\nαβξ\n\n.", want: Append(Dot, "αβξ\n\n")},
 		{e: "a\nαβξ\nabc\n.", want: Append(Dot, "αβξ\nabc\n")},
@@ -962,14 +962,14 @@ func TestEd(t *testing.T) {
 		{e: "i", want: Insert(Dot, "")},
 		{e: "i  /", want: Insert(Dot, "")},
 		{e: "i/αβξ/", want: Insert(Dot, "αβξ")},
-		{e: "i/αβξ\n", want: Insert(Dot, "αβξ")},
+		{e: "i/αβξ\n", left: "\n", want: Insert(Dot, "αβξ")},
 		{e: "i/αβξ/xyz", left: "xyz", want: Insert(Dot, "αβξ")},
-		{e: "i/αβξ\nxyz", left: "xyz", want: Insert(Dot, "αβξ")},
+		{e: "i/αβξ\nxyz", left: "\nxyz", want: Insert(Dot, "αβξ")},
 		{e: "#1,#2i/αβξ/", want: Insert(Rune(1).To(Rune(2)), "αβξ")},
 		{e: " #1 , #2 i/αβξ/", want: Insert(Rune(1).To(Rune(2)), "αβξ")},
 		{e: "i/αβξ\\/", want: Insert(Dot, "αβξ/")},
 		{e: `i/αβξ\n`, want: Insert(Dot, "αβξ\n")},
-		{e: "i\nαβξ\n.\n", want: Insert(Dot, "αβξ\n")},
+		{e: "i\nαβξ\n.\n", left: "\n", want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n.", want: Insert(Dot, "αβξ\n")},
 		{e: "i\nαβξ\n\n.", want: Insert(Dot, "αβξ\n\n")},
 		{e: "i\nαβξ\nabc\n.", want: Insert(Dot, "αβξ\nabc\n")},
@@ -978,8 +978,8 @@ func TestEd(t *testing.T) {
 		{e: "d", want: Delete(Dot)},
 		{e: "#1,#2d", want: Delete(Rune(1).To(Rune(2)))},
 		{e: "dxyz", left: "xyz", want: Delete(Dot)},
-		{e: "d\nxyz", left: "xyz", want: Delete(Dot)},
-		{e: "d  \nxyz", left: "xyz", want: Delete(Dot)},
+		{e: "d\nxyz", left: "\nxyz", want: Delete(Dot)},
+		{e: "d  \nxyz", left: "  \nxyz", want: Delete(Dot)},
 
 		{e: "m", want: Move(Dot, Dot)},
 		{e: "m/abc/", want: Move(Dot, Regexp("abc"))},
@@ -987,7 +987,7 @@ func TestEd(t *testing.T) {
 		{e: "#1+1m$", want: Move(Rune(1).Plus(Line(1)), End)},
 		{e: " #1 + 1 m $", want: Move(Rune(1).Plus(Line(1)), End)},
 		{e: "1m$xyz", left: "xyz", want: Move(Line(1), End)},
-		{e: "1m\n$xyz", left: "$xyz", want: Move(Line(1), Dot)},
+		{e: "1m\n$xyz", left: "\n$xyz", want: Move(Line(1), Dot)},
 		{e: "m" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 
 		{e: "t", want: Copy(Dot, Dot)},
@@ -996,7 +996,7 @@ func TestEd(t *testing.T) {
 		{e: "#1+1t$", want: Copy(Rune(1).Plus(Line(1)), End)},
 		{e: " #1 + 1 t $", want: Copy(Rune(1).Plus(Line(1)), End)},
 		{e: "1t$xyz", left: "xyz", want: Copy(Line(1), End)},
-		{e: "1t\n$xyz", left: "$xyz", want: Copy(Line(1), Dot)},
+		{e: "1t\n$xyz", left: "\n$xyz", want: Copy(Line(1), Dot)},
 		{e: "t" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
 
 		{e: "p", want: Print(Dot)},
@@ -1017,14 +1017,14 @@ func TestEd(t *testing.T) {
 		{e: "s/a/b", want: Sub(Dot, "a", "b")},
 		{e: "s;a;b", want: Sub(Dot, "a", "b")},
 		{e: "s/a//", want: Sub(Dot, "a", "")},
-		{e: "s/a/\n/g", left: "/g", want: Sub(Dot, "a", "")},
+		{e: "s/a/\n/g", left: "\n/g", want: Sub(Dot, "a", "")},
 		{e: "s/(.*)/a\\1", want: Sub(Dot, "(.*)", "a\\1")},
 		{e: ".s/a/b", want: Sub(Dot, "a", "b")},
 		{e: "#1+1s/a/b", want: Sub(Rune(1).Plus(Line(1)), "a", "b")},
 		{e: " #1 + 1 s/a/b", want: Sub(Rune(1).Plus(Line(1)), "a", "b")},
 		{e: " #1 + 1 s/a/b", want: Sub(Rune(1).Plus(Line(1)), "a", "b")},
 		{e: "s/a/b/xyz", left: "xyz", want: Sub(Dot, "a", "b")},
-		{e: "s/a/b\nxyz", left: "xyz", want: Sub(Dot, "a", "b")},
+		{e: "s/a/b\nxyz", left: "\nxyz", want: Sub(Dot, "a", "b")},
 		{e: "s1/a/b", want: Sub(Dot, "a", "b")},
 		{e: "s/a/b/g", want: SubGlobal(Dot, "a", "b")},
 		{e: " #1 + 1 s/a/b/g", want: SubGlobal(Rune(1).Plus(Line(1)), "a", "b")},
@@ -1034,17 +1034,17 @@ func TestEd(t *testing.T) {
 		{e: "s 2 /a/b", want: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
 		{e: "s 1000 /a/b/g", want: Substitute{A: Dot, RE: "a", With: "b", Global: true, From: 1000}},
 		{e: "s", want: Sub(Dot, "", "")},
-		{e: "s\nabc", want: Sub(Dot, "", ""), left: "abc"},
+		{e: "s\nabc", left: "\nabc", want: Sub(Dot, "", "")},
 		{e: "s/", want: Sub(Dot, "", "")},
 		{e: "s//b", want: Sub(Dot, "", "b")},
-		{e: "s/\n/b", want: Sub(Dot, "", ""), left: "/b"},
+		{e: "s/\n/b", left: "\n/b", want: Sub(Dot, "", "")},
 		{e: "s" + strconv.FormatInt(math.MaxInt64, 10) + "0" + "/a/b/g", err: "value out of range"},
 		{e: "s/*", err: "missing operand"},
 
 		{e: "|cmd", want: Pipe(Dot, "cmd")},
 		{e: "|	   cmd", want: Pipe(Dot, "cmd")},
-		{e: "|cmd\nleft", left: "left", want: Pipe(Dot, "cmd")},
-		{e: "|	   cmd\nleft", left: "left", want: Pipe(Dot, "cmd")},
+		{e: "|cmd\nleft", left: "\nleft", want: Pipe(Dot, "cmd")},
+		{e: "|	   cmd\nleft", left: "\nleft", want: Pipe(Dot, "cmd")},
 		{e: "|cmd\\nleft", want: Pipe(Dot, "cmd\nleft")},
 		{e: "|	   cmd\\nleft", want: Pipe(Dot, "cmd\nleft")},
 		{e: "  	|cmd", want: Pipe(Dot, "cmd")},
@@ -1057,8 +1057,8 @@ func TestEd(t *testing.T) {
 
 		{e: ">cmd", want: PipeTo(Dot, "cmd")},
 		{e: ">	   cmd", want: PipeTo(Dot, "cmd")},
-		{e: ">cmd\nleft", left: "left", want: PipeTo(Dot, "cmd")},
-		{e: ">	   cmd\nleft", left: "left", want: PipeTo(Dot, "cmd")},
+		{e: ">cmd\nleft", left: "\nleft", want: PipeTo(Dot, "cmd")},
+		{e: ">	   cmd\nleft", left: "\nleft", want: PipeTo(Dot, "cmd")},
 		{e: ">cmd\\nleft", want: PipeTo(Dot, "cmd\nleft")},
 		{e: ">	   cmd\\nleft", want: PipeTo(Dot, "cmd\nleft")},
 		{e: "  	>cmd", want: PipeTo(Dot, "cmd")},
@@ -1071,8 +1071,8 @@ func TestEd(t *testing.T) {
 
 		{e: "<cmd", want: PipeFrom(Dot, "cmd")},
 		{e: "<	   cmd", want: PipeFrom(Dot, "cmd")},
-		{e: "<cmd\nleft", left: "left", want: PipeFrom(Dot, "cmd")},
-		{e: "<	   cmd\nleft", left: "left", want: PipeFrom(Dot, "cmd")},
+		{e: "<cmd\nleft", left: "\nleft", want: PipeFrom(Dot, "cmd")},
+		{e: "<	   cmd\nleft", left: "\nleft", want: PipeFrom(Dot, "cmd")},
 		{e: "<cmd\\nleft", want: PipeFrom(Dot, "cmd\nleft")},
 		{e: "<	   cmd\\nleft", want: PipeFrom(Dot, "cmd\nleft")},
 		{e: "  	<cmd", want: PipeFrom(Dot, "cmd")},
@@ -1120,6 +1120,126 @@ func TestEd(t *testing.T) {
 		if string(left) != test.left {
 			t.Errorf(`Ed(%q) leftover %q want %q`, test.e, string(left), test.left)
 			continue
+		}
+	}
+}
+
+func TestEditString(t *testing.T) {
+	tests := []struct {
+		e Edit
+		s string
+	}{
+		{Change(All, `xyz`), `0,$c/xyz/`},
+		{Change(Dot, `a\nb\nc`), `.c/a\nb\nc/`},
+		{Change(Regexp("a*"), `b`), `/a*/c/b/`},
+		{Change(Regexp("/*"), `b`), `/\/*/c/b/`},
+		{Change(Dot, `//`), `.c/\/\//`},
+		{Change(Dot, "\n"), `.c/\n/`},
+
+		{Append(All, "xyz"), "0,$a/xyz/"},
+		{Append(Dot, `a\nb\nc`), `.a/a\nb\nc/`},
+		{Append(Regexp("a*"), `b`), `/a*/a/b/`},
+		{Append(Regexp("/*"), `b`), `/\/*/a/b/`},
+		{Append(Dot, `//`), `.a/\/\//`},
+		{Append(Dot, "\n"), `.a/\n/`},
+
+		{Insert(All, "xyz"), "0,$i/xyz/"},
+		{Insert(Dot, `a\nb\nc`), `.i/a\nb\nc/`},
+		{Insert(Regexp("a*"), `b`), `/a*/i/b/`},
+		{Insert(Regexp("/*"), `b`), `/\/*/i/b/`},
+		{Insert(Dot, `//`), `.i/\/\//`},
+		{Insert(Dot, "\n"), `.i/\n/`},
+
+		{Delete(All), `0,$d`},
+		{Delete(Dot), `.d`},
+		{Delete(Regexp("a*")), `/a*/d`},
+		{Delete(Regexp("/*")), `/\/*/d`},
+
+		{Copy(Dot, Line(2)), `.t2`},
+		{Copy(Line(1), Dot), `1t.`},
+		{Copy(Line(1), Line(2)), `1t2`},
+		{Copy(Regexp("a*"), Dot), `/a*/t.`},
+		{Copy(Regexp("/*"), Dot), `/\/*/t.`},
+		{Copy(Dot, Regexp("b*")), `.t/b*/`},
+		{Copy(Dot, Regexp("/*")), `.t/\/*/`},
+		{Copy(Regexp("a*"), Regexp("b*")), `/a*/t/b*/`},
+
+		{Move(Dot, Line(2)), `.m2`},
+		{Move(Line(1), Dot), `1m.`},
+		{Move(Line(1), Line(2)), `1m2`},
+		{Move(Regexp("a*"), Dot), `/a*/m.`},
+		{Move(Regexp("/*"), Dot), `/\/*/m.`},
+		{Move(Dot, Regexp("b*")), `.m/b*/`},
+		{Move(Dot, Regexp("/*")), `.m/\/*/`},
+		{Move(Regexp("a*"), Regexp("b*")), `/a*/m/b*/`},
+
+		{Pipe(All, "cat"), "0,$|cat\n"},
+		{Pipe(Regexp("a*"), "cat"), "/a*/|cat\n"},
+		{Pipe(Regexp("/*"), "cat"), "/\\/*/|cat\n"},
+
+		{PipeTo(All, "cat"), "0,$>cat\n"},
+		{PipeTo(Regexp("a*"), "cat"), "/a*/>cat\n"},
+		{PipeTo(Regexp("/*"), "cat"), "/\\/*/>cat\n"},
+
+		{PipeFrom(All, "cat"), "0,$<cat\n"},
+		{PipeFrom(Regexp("a*"), "cat"), "/a*/<cat\n"},
+		{PipeFrom(Regexp("/*"), "cat"), "/\\/*/<cat\n"},
+
+		{Print(All), `0,$p`},
+		{Print(Dot), `.p`},
+		{Print(Regexp("a*")), `/a*/p`},
+		{Print(Regexp("/*")), `/\/*/p`},
+
+		{Where(All), `0,$=#`},
+		{Where(Dot), `.=#`},
+		{Where(Regexp("a*")), `/a*/=#`},
+		{Where(Regexp("/*")), `/\/*/=#`},
+
+		{WhereLine(All), `0,$=`},
+		{WhereLine(Dot), `.=`},
+		{WhereLine(Regexp("a*")), `/a*/=`},
+		{WhereLine(Regexp("/*")), `/\/*/=`},
+
+		{Undo(1), "u1"},
+		{Undo(2), "u2"},
+		{Undo(0), "u1"},
+		{Undo(-4), "u1"},
+
+		{Redo(1), "r1"},
+		{Redo(2), "r2"},
+		{Redo(0), "r1"},
+		{Redo(-4), "r1"},
+
+		{Sub(All, "a*", "b"), `0,$s/a*/b/`},
+		{Sub(All, "/*", "b"), `0,$s/\/*/b/`},
+		{Sub(All, "a*", "/"), `0,$s/a*/\//`},
+		{Sub(All, "\n*", "b"), `0,$s/\n*/b/`},
+		{Sub(All, "a*", "\n"), `0,$s/a*/\n/`},
+		{Sub(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1/`},
+
+		{SubGlobal(All, "a*", "b"), `0,$s/a*/b/g`},
+		{SubGlobal(All, "/*", "b"), `0,$s/\/*/b/g`},
+		{SubGlobal(All, "a*", "/"), `0,$s/a*/\//g`},
+		{SubGlobal(All, "\n*", "b"), `0,$s/\n*/b/g`},
+		{SubGlobal(All, "a*", "\n"), `0,$s/a*/\n/g`},
+		{SubGlobal(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1/g`},
+
+		{
+			Substitute{A: All, RE: "a*", With: "b", From: 2},
+			`0,$s2/a*/b/`,
+		},
+		{
+			Substitute{A: All, RE: "a*", With: "b", From: 0},
+			`0,$s/a*/b/`,
+		},
+		{
+			Substitute{A: All, RE: "a*", With: "b", From: -1},
+			`0,$s/a*/b/`,
+		},
+	}
+	for _, test := range tests {
+		if s := test.e.String(); s != test.s {
+			t.Errorf("String()=%q, want %q\n", s, test.s)
 		}
 	}
 }
