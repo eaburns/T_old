@@ -46,6 +46,7 @@ func main() {
 
 	var nl bool
 	var prevAddr edit.Edit
+	var file string
 	for {
 		var e edit.Edit
 		r, _, err := in.ReadRune()
@@ -65,14 +66,26 @@ func main() {
 				fmt.Println("failed to read input:", err)
 				return
 			}
-			e = edit.PipeTo(edit.All, "cat > "+strings.TrimSpace(line))
+			if line != "" {
+				file = strings.TrimSpace(line)
+			}
+			if file == "" {
+				fmt.Println("w requires an argument")
+				continue
+			}
+			e = edit.PipeTo(edit.All, "cat > "+file)
 		case r == 'e':
 			line, err := readLine(in)
 			if err != nil {
 				fmt.Println("failed to read input:", err)
 				return
 			}
-			e = edit.PipeFrom(edit.All, "cat < "+strings.TrimSpace(line))
+			if line == "" {
+				fmt.Println("e requires an argument")
+				continue
+			}
+			file = strings.TrimSpace(line)
+			e = edit.PipeFrom(edit.All, "cat < "+file)
 		default:
 			if err := in.UnreadRune(); err != nil {
 				panic(err) // Can't fail with bufio.Reader.
