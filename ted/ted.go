@@ -2,7 +2,9 @@
 //
 // The Ted editor is mostly intended as an experiment.
 // It edits a single buffer, with the T edit language.
-// There are a small number of added commands:
+// The T language is documented here:
+// https://godoc.org/github.com/eaburns/T/edit#Ed.
+// Ted adds a few additional commands:
 // 	e filename 	replaces the buffer with the contents of the file
 // 	w filename	saves the buffer to the named file
 // 	q 		quits
