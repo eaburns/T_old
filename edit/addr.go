@@ -259,15 +259,10 @@ func (m markAddr) whereFrom(_ int64, ed *Editor) (addr, error) {
 	if a.from < 0 || a.to < a.from || a.to > ed.buf.size() {
 		panic("bad mark")
 	}
-	if !isMarkRune(rune(m)) && m != '.' {
-		return addr{}, errors.New("bad mark: " + string(rune(m)))
-	}
 	return a, nil
 }
 
 func (m markAddr) reverse() SimpleAddress { return simpleAddr{m} }
-
-func isMarkRune(r rune) bool { return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') }
 
 type runeAddr int64
 
@@ -529,7 +524,7 @@ const (
 // Production a1 describes simple addresses:
 //	$ is the empty string at the end of the buffer.
 //	. is the current address of the editor, called dot.
-//	'l is the address of the mark named l, where l is a lower-case or upper-case letter: [a-zA-Z.]
+//	'{r} is the address of the non-space rune, r. If r is missing, . is used.
 //	#{n} is the empty string after rune number n. If n is missing then 1 is used.
 //	n is the nth line in the buffer. 0 is the string before the first full line.
 //	'/' regexp {'/'} is the first match of the regular expression.
@@ -657,14 +652,11 @@ func parseSimpleAddr(rs io.RuneScanner) (SimpleAddress, error) {
 func parseMarkAddr(rs io.RuneScanner) (SimpleAddress, error) {
 	for {
 		switch r, _, err := rs.ReadRune(); {
-		case err == io.EOF:
-			return nil, errors.New("bad mark: EOF")
+		case err == io.EOF || err == nil && r == '\n':
+			return Mark('.'), nil
 		case err != nil:
 			return nil, err
-		case !unicode.IsSpace(r) || r == '\n':
-			if !isMarkRune(r) {
-				return nil, errors.New("bad mark: " + string(r))
-			}
+		case !unicode.IsSpace(r):
 			return Mark(r), nil
 		}
 	}

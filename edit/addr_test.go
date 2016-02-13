@@ -35,12 +35,12 @@ func TestDotAddress(t *testing.T) {
 func TestMarkAddress(t *testing.T) {
 	str := "Hello, 世界!"
 	tests := []addressTest{
-		{text: str, marks: map[rune]addr{}, addr: Mark('☺'), err: "bad mark"},
-
 		{text: str, marks: map[rune]addr{'a': {0, 0}}, addr: Mark('a'), want: pt(0)},
 		{text: str, marks: map[rune]addr{}, addr: Mark('a'), want: pt(0)},
 		{text: str, marks: map[rune]addr{'z': {0, 0}}, addr: Mark('z'), want: pt(0)},
 		{text: str, marks: map[rune]addr{'z': {1, 9}}, addr: Mark('z'), want: rng(1, 9)},
+		{text: str, marks: map[rune]addr{}, addr: Mark('☺'), want: pt(0)},
+		{text: str, marks: map[rune]addr{'☺': {1, 1}}, addr: Mark('☺'), want: pt(1)},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -353,10 +353,10 @@ func TestAddr(t *testing.T) {
 		{a: " 'z", want: Mark('z')},
 		{a: " ' a", want: Mark('a')},
 		{a: " ' a\t", want: Mark('a')},
-		{a: "'\na", err: "bad mark"},
-		{a: "'☺", err: "bad mark"},
-		{a: "' ☺", err: "bad mark"},
-		{a: "'", err: "bad mark"},
+		{a: "'\na", want: Mark('.'), left: "a"},
+		{a: "'☺", want: Mark('☺')},
+		{a: "' ☺", want: Mark('☺')},
+		{a: "'", want: Mark('.')},
 
 		{a: "+", want: Dot.Plus(Line(1))},
 		{a: "+\n2", left: "\n2", want: Dot.Plus(Line(1))},
@@ -421,7 +421,7 @@ func TestAddr(t *testing.T) {
 		rs := strings.NewReader(test.a)
 		a, err := Addr(rs)
 		if test.err != "" {
-			if !regexp.MustCompile(test.err).MatchString(err.Error()) {
+			if err == nil || !regexp.MustCompile(test.err).MatchString(err.Error()) {
 				t.Errorf(`Addr(%q)=%q,%v, want %q,%q`, test.a, a, err, test.want, test.err)
 			}
 			continue
