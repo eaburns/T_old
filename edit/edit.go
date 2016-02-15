@@ -1235,17 +1235,3 @@ func skipSpace(rs io.RuneScanner) error {
 		}
 	}
 }
-
-func skipSingleNewline(rs io.RuneScanner) error {
-	// Eat a single trailing newline.
-	switch r, _, err := rs.ReadRune(); {
-	case err == io.EOF:
-		return nil
-	case err != nil:
-		return err
-	case r == '\n':
-		return nil
-	default:
-		return rs.UnreadRune()
-	}
-}
