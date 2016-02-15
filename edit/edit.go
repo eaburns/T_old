@@ -200,15 +200,15 @@ func (e change) String() string {
 }
 
 func (e change) do(ed *Editor, _ io.Writer) (addr, error) {
-	switch e.op {
-	case 'a':
-		e.a = e.a.Plus(Rune(0))
-	case 'i':
-		e.a = e.a.Minus(Rune(0))
-	}
 	at, err := e.a.where(ed)
 	if err != nil {
 		return addr{}, err
+	}
+	switch e.op {
+	case 'a':
+		at.from = at.to
+	case 'i':
+		at.to = at.from
 	}
 	unesc := unescape(e.str, nil)
 	return at, pend(ed, at, runes.StringReader(unesc))
