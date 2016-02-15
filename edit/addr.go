@@ -30,18 +30,11 @@ type Address interface {
 	String() string
 	// To returns an address identifying the string
 	// from the start of the receiver to the end of the argument.
-	To(Address) Address
+	To(AdditiveAddress) Address
 	// Then returns an address like To,
 	// but with dot set to the receiver address
 	// and with the argument evaluated from the end of the reciver
-	Then(Address) Address
-	// Plus returns an address identifying the string
-	// of the argument address evaluated from the end of the receiver.
-	Plus(SimpleAddress) Address
-	// Minus returns an address identifying the string
-	// of the argument address evaluated in reverse
-	// from the start of the receiver.
-	Minus(SimpleAddress) Address
+	Then(AdditiveAddress) Address
 	where(*Editor) (addr, error)
 	whereFrom(from int64, ed *Editor) (addr, error)
 }
@@ -87,20 +80,12 @@ type compoundAddr struct {
 	a1, a2 Address
 }
 
-func (a compoundAddr) To(a2 Address) Address {
+func (a compoundAddr) To(a2 AdditiveAddress) Address {
 	return compoundAddr{op: ',', a1: a, a2: a2}
 }
 
-func (a compoundAddr) Then(a2 Address) Address {
+func (a compoundAddr) Then(a2 AdditiveAddress) Address {
 	return compoundAddr{op: ';', a1: a, a2: a2}
-}
-
-func (a compoundAddr) Plus(a2 SimpleAddress) Address {
-	return addAddr{op: '+', a1: a, a2: a2}
-}
-
-func (a compoundAddr) Minus(a2 SimpleAddress) Address {
-	return addAddr{op: '-', a1: a, a2: a2}
 }
 
 func (a compoundAddr) String() string {
@@ -137,25 +122,41 @@ func (a compoundAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	}
 }
 
+// A AdditiveAddress identifies a substring within a buffer.
+// AdditiveAddress can be composed
+// using the methods of the Address interface,
+// and the Plus and Minus methods
+// to form more-complex, composite addresses.
+type AdditiveAddress interface {
+	Address
+	// Plus returns an address identifying the string
+	// of the argument address evaluated from the end of the receiver.
+	Plus(SimpleAddress) AdditiveAddress
+	// Minus returns an address identifying the string
+	// of the argument address evaluated in reverse
+	// from the start of the receiver.
+	Minus(SimpleAddress) AdditiveAddress
+}
+
 type addAddr struct {
 	op rune
 	a1 Address
 	a2 SimpleAddress
 }
 
-func (a addAddr) To(a2 Address) Address {
+func (a addAddr) To(a2 AdditiveAddress) Address {
 	return compoundAddr{op: ',', a1: a, a2: a2}
 }
 
-func (a addAddr) Then(a2 Address) Address {
+func (a addAddr) Then(a2 AdditiveAddress) Address {
 	return compoundAddr{op: ';', a1: a, a2: a2}
 }
 
-func (a addAddr) Plus(a2 SimpleAddress) Address {
+func (a addAddr) Plus(a2 SimpleAddress) AdditiveAddress {
 	return addAddr{op: '+', a1: a, a2: a2}
 }
 
-func (a addAddr) Minus(a2 SimpleAddress) Address {
+func (a addAddr) Minus(a2 SimpleAddress) AdditiveAddress {
 	return addAddr{op: '-', a1: a, a2: a2}
 }
 
@@ -184,10 +185,10 @@ func (a addAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 
 // A SimpleAddress identifies a substring within a buffer.
 // SimpleAddresses can be composed
-// using the methods of the Address interface
+// using the methods of the AdditiveAddress interface
 // to form more-complex, composite addresses.
 type SimpleAddress interface {
-	Address
+	AdditiveAddress
 	reverse() SimpleAddress
 }
 
@@ -201,19 +202,19 @@ type simpleAddr struct {
 	simpAddrImpl
 }
 
-func (a simpleAddr) To(a2 Address) Address {
+func (a simpleAddr) To(a2 AdditiveAddress) Address {
 	return compoundAddr{op: ',', a1: a, a2: a2}
 }
 
-func (a simpleAddr) Then(a2 Address) Address {
+func (a simpleAddr) Then(a2 AdditiveAddress) Address {
 	return compoundAddr{op: ';', a1: a, a2: a2}
 }
 
-func (a simpleAddr) Plus(a2 SimpleAddress) Address {
+func (a simpleAddr) Plus(a2 SimpleAddress) AdditiveAddress {
 	return addAddr{op: '+', a1: a, a2: a2}
 }
 
-func (a simpleAddr) Minus(a2 SimpleAddress) Address {
+func (a simpleAddr) Minus(a2 SimpleAddress) AdditiveAddress {
 	return addAddr{op: '-', a1: a, a2: a2}
 }
 
@@ -492,14 +493,52 @@ func (r reAddr) reverse() SimpleAddress {
 }
 
 const (
-	digits        = "0123456789"
-	simpleFirst   = "#/?$.'" + digits
-	additiveFirst = "+-" + simpleFirst
+	digits      = "0123456789"
+	simpleFirst = "#/?$.'" + digits
 )
 
 // Addr parses and returns an address.
 //
-// Addresses are terminated by a newline, end of input, or end of the address.
+// The address syntax for address a is:
+// 	a: {a} , {aa} | {a} ; {aa} | {aa}
+// 	aa: {aa} + {sa} | {aa} - {sa} | {aa} {sa} | {sa}
+// 	sa: $ | . | 'r | #{n} | n | / regexp {/} | ? regexp {?}
+// 	n: [0-9]+
+// 	r: any non-space rune
+// 	regexp: any valid re1 regular expression
+// All operators are left-associative.
+//
+// Production sa describes a simple addresse:
+//	$ is the empty string at the end of the buffer.
+//	. is the current address of the editor, called dot.
+//	'{r} is the address of the non-space rune, r. If r is missing, . is used.
+//	#{n} is the empty string after rune number n. If n is missing then 1 is used.
+//	n is the nth line in the buffer. 0 is the string before the first full line.
+//	'/' regexp {'/'} is the first match of the regular expression.
+//	'?' regexp {'?'} is the first match of the regular expression going in reverse.
+//
+// Production aa describes an additive address:
+//	{aa} '+' {sa} is the second address evaluated from the end of the first.
+//		If the first address is missing, . is used.
+//		If the second address is missing, 1 is used.
+//	{aa} '-' {sa} is the second address evaluated in reverse from the start of the first.
+//		If the first address is missing, . is used.
+//		If the second address is missing, 1 is used.
+// 	If two addresses of the form aa sa are present and distinct
+// 	then a '+' is inserted, as in aa + as.
+//
+// Production a describes a range address:
+//	{a} ',' {aa} is the string from the start of the first address to the end of the second.
+//		If the first address is missing, 0 is used.
+//		If the second address is missing, $ is used.
+//	{a} ';' {aa} is like the previous,
+//		but with the second address evaluated from the end of the first
+//		with dot set to the first address.
+//		If the first address is missing, 0 is used.
+//		If the second address is missing, $ is used.
+//
+// Addresses are terminated by a newline, end of input,
+// or end of the address.
 // For example:
 // 	1,5
 // 	-1
@@ -511,141 +550,144 @@ const (
 //
 // 	1,5dabc
 // 		Is terminated at 5, the end of the address.
-//
-// The address syntax for address a0 is:
-//	a0:	{a0} ',' {a0} | {a0} ';' {a0} | {a0} '+' {a1} | {a0} '-' {a1} | a0 a1 | a1
-//	a1:	'$' | '.'| '\'' l | '#'{n} | n | '/' regexp {'/'} | '?' regexp {'?'}
-//	n:	[0-9]+
-//	l:	[a-z]
-//	regexp:	<a valid re1 regular expression>
-// All address operators are left-associative.
-// The '+' and '-' operators are higher-precedence than ',' and ';'.
-//
-// Production a1 describes simple addresses:
-//	$ is the empty string at the end of the buffer.
-//	. is the current address of the editor, called dot.
-//	'{r} is the address of the non-space rune, r. If r is missing, . is used.
-//	#{n} is the empty string after rune number n. If n is missing then 1 is used.
-//	n is the nth line in the buffer. 0 is the string before the first full line.
-//	'/' regexp {'/'} is the first match of the regular expression.
-//	'?' regexp {'?'} is the first match of the regular expression going in reverse.
-//
-// Production a0 describes compound addresses:
-//	{a0} ',' {a0} is the string from the start of the first address to the end of the second.
-//		If the first address is missing, 0 is used.
-//		If the second address is missing, $ is used.
-//	{a0} ';' {a0} is like the previous,
-//		but with the second address evaluated from the end of the first
-//		with dot set to the first address.
-//		If the first address is missing, 0 is used.
-//		If the second address is missing, $ is used.
-//	{a0} '+' {a0} is the second address evaluated from the end of the first.
-//		If the first address is missing, . is used.
-//		If the second address is missing, 1 is used.
-//	{a0} '-' {a0} is the second address evaluated in reverse from the start of the first.
-//		If the first address is missing, . is used.
-//		If the second address is missing, 1 is used.
-// If two addresses of the form a0 a1 are present and distinct then a '+' is inserted, as in a0 '+' a1.
 func Addr(rs io.RuneScanner) (Address, error) {
-	var a1 Address
-	for {
-		switch r, _, err := rs.ReadRune(); {
-		case err == io.EOF:
-			return a1, nil
-		case err != nil:
-			return nil, err
-		case strings.ContainsRune(simpleFirst, r):
-			if err := rs.UnreadRune(); err != nil {
-				return nil, err
-			}
-			switch a2, err := parseSimpleAddr(rs); {
-			case err != nil:
-				return nil, err
-			case a1 != nil:
-				a1 = a1.Plus(a2)
-			default:
-				a1 = a2
-			}
-		case r == '+' || r == '-':
-			if a1 == nil {
-				a1 = Dot
-			}
-			a2, err := parseSimpleAddr(rs)
-			if a2 == nil {
-				a2 = Line(1)
-			}
-			switch {
-			case err != nil:
-				return nil, err
-			case r == '+':
-				a1 = a1.Plus(a2)
-			default:
-				a1 = a1.Minus(a2)
-			}
-		case r == ',' || r == ';':
-			if a1 == nil {
-				a1 = Line(0)
-			}
-			a2, err := Addr(rs)
-			if a2 == nil {
-				a2 = End
-			}
-			switch {
-			case err != nil:
-				return nil, err
-			case r == ',':
-				a1 = a1.To(a2)
-			default:
-				a1 = a1.Then(a2)
-			}
-		case unicode.IsSpace(r) && r != '\n':
-			continue
-		default:
-			return a1, rs.UnreadRune()
-		}
+	aa, err := parseAdditiveAddress(rs)
+	if err != nil {
+		return nil, err
 	}
+	a, err := parseAddressTail(aa, rs)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
-func parseSimpleAddr(rs io.RuneScanner) (SimpleAddress, error) {
-	for {
-		var r rune
-		var err error
-		var a SimpleAddress
-		switch r, _, err = rs.ReadRune(); {
-		case err == io.EOF:
-			return a, nil
-		case err != nil:
+func parseAddressTail(left Address, rs io.RuneScanner) (Address, error) {
+	if err := skipSpace(rs); err != nil {
+		return nil, err
+	}
+	switch r, _, err := rs.ReadRune(); {
+	case err == io.EOF:
+		break
+	case err != nil:
+		return nil, err
+	case r == ',' || r == ';':
+		if left == nil {
+			left = Line(0)
+		}
+		right, err := parseAdditiveAddress(rs)
+		if err != nil {
 			return nil, err
-		case r == '\'':
-			a, err = parseMarkAddr(rs)
-		case r == '#':
-			a, err = parseRuneAddr(rs)
-		case strings.ContainsRune(digits, r):
-			a, err = parseLineAddr(r, rs)
-		case r == '/' || r == '?':
-			if err := rs.UnreadRune(); err != nil {
-				return nil, err
-			}
-			_, regexp, err := parseRegexp(rs)
-			if err != nil {
-				return nil, err
-			}
-			if r == '?' {
-				regexp = re1.AddDelimiter(r, regexp)
-			}
-			return Regexp(regexp), nil
-		case r == '$':
-			a = End
-		case r == '.':
-			a = Dot
-		case unicode.IsSpace(r) && r != '\n':
-			break // nothing to do
-		default:
-			return nil, rs.UnreadRune()
 		}
-		if a != nil || err != nil {
-			return a, err
+		if right == nil {
+			right = End
 		}
+		var a Address
+		if r == ',' {
+			a = left.To(right)
+		} else {
+			a = left.Then(right)
+		}
+		return parseAddressTail(a, rs)
+	default:
+		return left, rs.UnreadRune()
+	}
+	return left, nil
+}
+
+func parseAdditiveAddress(rs io.RuneScanner) (AdditiveAddress, error) {
+	a, err := parseSimpleAddress(rs)
+	if err != nil {
+		return nil, err
+	}
+	return parseAdditiveAddressTail(a, rs)
+}
+
+func parseAdditiveAddressTail(left AdditiveAddress, rs io.RuneScanner) (AdditiveAddress, error) {
+	if err := skipSpace(rs); err != nil {
+		return nil, err
+	}
+	switch r, _, err := rs.ReadRune(); {
+	case err == io.EOF:
+		break
+	case err != nil:
+		return nil, err
+	case r == '-' || r == '+':
+		if left == nil {
+			left = Dot
+		}
+		right, err := parseSimpleAddress(rs)
+		if err != nil {
+			return nil, err
+		}
+		if right == nil {
+			right = Line(1)
+		}
+		var a AdditiveAddress
+		if r == '+' {
+			a = left.Plus(right)
+		} else {
+			a = left.Minus(right)
+		}
+		return parseAdditiveAddressTail(a, rs)
+	case strings.ContainsRune(simpleFirst, r):
+		if err := rs.UnreadRune(); err != nil {
+			return nil, err
+		}
+		right, err := parseSimpleAddress(rs)
+		if err != nil {
+			return nil, err
+		}
+		// Left cannot be nil.
+		// We either came from parseAdditiveAddress or a recursive call.
+		// In the first case, parseSimpleAddress would return an error, not nil.
+		// In the sceond case, we are always called with non-nill left.
+		//
+		// Right cannot be nil.
+		// parseSimpleAddress never returns nil when the first rune is in simpleFirst.
+		if left == nil || right == nil {
+			panic("impossible")
+		}
+		return parseAdditiveAddressTail(left.Plus(right), rs)
+	default:
+		return left, rs.UnreadRune()
+	}
+	return left, nil
+}
+
+func parseSimpleAddress(rs io.RuneScanner) (SimpleAddress, error) {
+	if err := skipSpace(rs); err != nil {
+		return nil, err
+	}
+	switch r, _, err := rs.ReadRune(); {
+	case err == io.EOF:
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case r == '\'':
+		return parseMarkAddr(rs)
+	case r == '#':
+		return parseRuneAddr(rs)
+	case strings.ContainsRune(digits, r):
+		return parseLineAddr(r, rs)
+	case r == '/' || r == '?':
+		if err := rs.UnreadRune(); err != nil {
+			return nil, err
+		}
+		_, regexp, err := parseRegexp(rs)
+		if err != nil {
+			return nil, err
+		}
+		if r == '?' {
+			regexp = re1.AddDelimiter(r, regexp)
+		}
+		return Regexp(regexp), nil
+	case r == '$':
+		return End, nil
+	case r == '.':
+		return Dot, nil
+	default:
+		return nil, rs.UnreadRune()
 	}
 }
 
