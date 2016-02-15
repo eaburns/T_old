@@ -137,7 +137,7 @@ type Options struct {
 // Compile compiles a regular expression using the options.
 // The regular expression is parsed until either
 // the end of the input or an un-escaped closing delimiter.
-func Compile(rs io.RuneScanner, opts Options) (*Regexp, error) {
+func Compile(rs io.RuneReader, opts Options) (*Regexp, error) {
 	p, err := newParser(rs, opts)
 	if err != nil {
 		return nil, err
@@ -208,10 +208,10 @@ type parser struct {
 	nsub    int
 	delim   rune
 	current token
-	scanner io.RuneScanner
+	scanner io.RuneReader
 }
 
-func newParser(rs io.RuneScanner, opts Options) (*parser, error) {
+func newParser(rs io.RuneReader, opts Options) (*parser, error) {
 	p := parser{nsub: 1, Options: opts, scanner: rs}
 	if opts.Delimited {
 		switch r, _, err := rs.ReadRune(); {
