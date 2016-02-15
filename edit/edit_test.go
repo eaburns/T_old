@@ -4,1113 +4,236 @@ package edit
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"math"
 	"os"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-func TestChangeEdit(t *testing.T) {
-	tests := []eTest{
-		{e: Change(Rune(1), ""), err: "address out of range"},
-
-		{
-			init: "Hello, 世界!",
-			e:    Change(Rune(0), ""),
-			want: "Hello, 世界!",
-			dot:  addr{0, 0},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Change(All, ""),
-			want: "",
-			dot:  addr{0, 0},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Change(Rune(0), "XYZ"),
-			want: "XYZHello, 世界!",
-			dot:  addr{0, 3},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Change(Rune(1), "XYZ"),
-			want: "HXYZello, 世界!",
-			dot:  addr{1, 4},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Change(End, "XYZ"),
-			want: "Hello, 世界!XYZ",
-			dot:  addr{10, 13},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Change(Rune(0).To(Rune(1)), "XYZ"),
-			want: "XYZello, 世界!",
-			dot:  addr{0, 3},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Change(Rune(1).To(End.Minus(Rune(1))), "XYZ"),
-			want: "HXYZ!",
-			dot:  addr{1, 4},
-		},
-
-		// Test escaping.
-		{e: Change(All, "/"), want: "/", dot: addr{0, 1}},
-		{e: Change(All, "/abc/"), want: "/abc/", dot: addr{0, 5}},
-		{e: Change(All, `\a\b\c`), want: "abc", dot: addr{0, 3}},
-		{e: Change(All, `\`), want: `\`, dot: addr{0, 1}},
-		{e: Change(All, `\/`), want: `/`, dot: addr{0, 1}},
-		{e: Change(All, `\n`), want: "\n", dot: addr{0, 1}},
-		{e: Change(All, `\\n`), want: `\n`, dot: addr{0, 2}},
-		{e: Change(All, "\\\n"), want: "\n", dot: addr{0, 1}},
-		{e: Change(All, `\\n`), want: `\n`, dot: addr{0, 2}},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestAppendEdit(t *testing.T) {
-	tests := []eTest{
-		{e: Append(Rune(1), ""), err: "address out of range"},
-
-		{
-			init: "Hello, 世界!",
-			e:    Append(Rune(0), ""),
-			want: "Hello, 世界!",
-			dot:  addr{0, 0},
-		},
-		{
-			init: "Hello,",
-			e:    Append(All, " 世界!"),
-			want: "Hello, 世界!",
-			dot:  addr{6, 10},
-		},
-		{
-			init: " 世界!",
-			e:    Append(Rune(0), "Hello,"),
-			want: "Hello, 世界!",
-			dot:  addr{0, 6},
-		},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestInsertEdit(t *testing.T) {
-	tests := []eTest{
-		{e: Insert(Rune(1), ""), err: "address out of range"},
-
-		{
-			init: "Hello, 世界!",
-			e:    Insert(Rune(0), ""),
-			want: "Hello, 世界!",
-			dot:  addr{0, 0},
-		},
-		{
-			init: " 世界!",
-			e:    Insert(All, "Hello,"),
-			want: "Hello, 世界!",
-			dot:  addr{0, 6},
-		},
-		{
-			init: "Hello,",
-			e:    Insert(End, " 世界!"),
-			want: "Hello, 世界!",
-			dot:  addr{6, 10},
-		},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestDeleteEdit(t *testing.T) {
-	tests := []eTest{
-		{e: Delete(Rune(1)), err: "address out of range"},
-
-		{
-			init: "",
-			e:    Delete(All),
-			want: "",
-			dot:  addr{0, 0},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Delete(All),
-			want: "",
-			dot:  addr{0, 0},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Delete(Rune(0)),
-			want: "Hello, 世界!",
-			dot:  addr{0, 0},
-		},
-		{
-			init: "XYZHello, 世界!",
-			e:    Delete(Rune(0).To(Rune(3))),
-			want: "Hello, 世界!",
-			dot:  addr{0, 0},
-		},
-		{
-			init: "Hello,XYZ 世界!",
-			e:    Delete(Rune(6).To(Rune(9))),
-			want: "Hello, 世界!",
-			dot:  addr{6, 6},
-		},
-		{
-			init: "Hello, 世界!XYZ",
-			e:    Delete(Rune(10).To(Rune(13))),
-			want: "Hello, 世界!",
-			dot:  addr{10, 10},
-		},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestMoveEdit(t *testing.T) {
-	tests := []eTest{
-		{e: Move(Rune(1), Rune(2)), err: "address out of range"},
-		{init: "a", e: Move(Rune(1), Rune(2)), err: "address out of range"},
-
-		{init: "abc", e: Move(Regexp("abc"), Rune(0)), want: "abc", dot: addr{0, 3}},
-		{init: "abc", e: Move(Regexp("abc"), Rune(1)), err: "overlap"},
-		{init: "abc", e: Move(Regexp("abc"), Rune(2)), err: "overlap"},
-		{init: "abc", e: Move(Regexp("abc"), Rune(3)), want: "abc", dot: addr{0, 3}},
-		{init: "abcdef", e: Move(Regexp("abc"), End), want: "defabc", dot: addr{3, 6}},
-		{init: "abcdef", e: Move(Regexp("def"), Line(0)), want: "defabc", dot: addr{0, 3}},
-		{init: "abc\ndef\nghi", e: Move(Regexp("def"), Line(3)), want: "abc\n\nghidef", dot: addr{8, 11}},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestCopyEdit(t *testing.T) {
-	tests := []eTest{
-		{e: Copy(Rune(1), Rune(2)), err: "address out of range"},
-		{init: "a", e: Copy(Rune(1), Rune(3)), err: "address out of range"},
-
-		{init: "abc", e: Copy(Regexp("abc"), End), want: "abcabc", dot: addr{3, 6}},
-		{init: "abc", e: Copy(Regexp("abc"), Line(0)), want: "abcabc", dot: addr{0, 3}},
-		{init: "abc", e: Copy(Regexp("abc"), Rune(1)), want: "aabcbc", dot: addr{1, 4}},
-		{init: "abcdef", e: Copy(Regexp("abc"), Rune(4)), want: "abcdabcef", dot: addr{4, 7}},
-		{init: "abc\ndef\nghi", e: Copy(Regexp("def"), Line(1)), want: "abc\ndefdef\nghi", dot: addr{4, 7}},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestSetEdit(t *testing.T) {
-	const s = "Hello, 世界!"
-	tests := []eTest{
-		{e: Set(Rune(1), '.'), err: "address out of range"},
-
-		{e: Set(All, '.'), dot: addr{0, 0}},
-		{e: Set(All, 'm'), marks: map[rune]addr{'m': addr{0, 0}}},
-		{init: s, want: s, e: Set(All, '.'), dot: addr{0, 10}},
-		{init: s, want: s, e: Set(All, ' '), dot: addr{0, 10}},
-		{init: s, want: s, e: Set(All, '\t'), dot: addr{0, 10}},
-		{init: s, want: s, e: Set(All, 'a'), marks: map[rune]addr{'a': addr{0, 10}}},
-		{init: s, want: s, e: Set(All, 'α'), marks: map[rune]addr{'α': addr{0, 10}}},
-		{init: s, want: s, e: Set(Regexp("Hello"), 'a'), marks: map[rune]addr{'a': addr{0, 5}}},
-		{init: s, want: s, e: Set(Line(0), 'z'), marks: map[rune]addr{'z': addr{0, 0}}},
-		{init: s, want: s, e: Set(End, 'm'), marks: map[rune]addr{'m': addr{10, 10}}},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestPrintEdit(t *testing.T) {
-	const s = "Hello, 世界!"
-	tests := []eTest{
-		{e: Print(Rune(1)), err: "address out of range"},
-
-		{e: Print(All), print: "", dot: addr{0, 0}},
-		{init: s, want: s, e: Print(All), print: s, dot: addr{0, 10}},
-		{init: s, want: s, e: Print(End), print: "", dot: addr{10, 10}},
-		{init: s, want: s, e: Print(Regexp("H")), print: "H", dot: addr{0, 1}},
-		{init: s, want: s, e: Print(Regexp("Hello")), print: "Hello", dot: addr{0, 5}},
-		{init: s, want: s, e: Print(Regexp("世界")), print: "世界", dot: addr{7, 9}},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestWhereEdit(t *testing.T) {
-	const s = "Hello\n 世界!"
-	tests := []eTest{
-		{e: Where(Rune(1)), err: "address out of range"},
-
-		{e: Where(All), print: "#0", dot: addr{0, 0}},
-		{init: "H\ne\nl\nl\no\n 世\n界\n!", want: "H\ne\nl\nl\no\n 世\n界\n!",
-			e: Where(All), print: "#0,#16", dot: addr{0, 16}},
-		{init: s, want: s, e: Where(All), print: "#0,#10", dot: addr{0, 10}},
-		{init: s, want: s, e: Where(End), print: "#10", dot: addr{10, 10}},
-		{init: s, want: s, e: Where(Line(1)), print: "#0,#6", dot: addr{0, 6}},
-		{init: s, want: s, e: Where(Line(2)), print: "#6,#10", dot: addr{6, 10}},
-		{init: s, want: s, e: Where(Regexp("Hello")), print: "#0,#5", dot: addr{0, 5}},
-		{init: s, want: s, e: Where(Regexp("世界")), print: "#7,#9", dot: addr{7, 9}},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestWhereLinesEdit(t *testing.T) {
-	const s = "Hello\n 世界!"
-	tests := []eTest{
-		{e: WhereLine(Rune(1)), err: "address out of range"},
-
-		{e: WhereLine(All), print: "1", dot: addr{0, 0}},
-		{init: "H\ne\nl\nl\no\n 世\n界\n!", want: "H\ne\nl\nl\no\n 世\n界\n!",
-			e: WhereLine(All), print: "1,8", dot: addr{0, 16}},
-		{init: s, want: s, e: WhereLine(All), print: "1,2", dot: addr{0, 10}},
-		{init: s, want: s, e: WhereLine(End), print: "2", dot: addr{10, 10}},
-		{init: s, want: s, e: WhereLine(Line(1)), print: "1", dot: addr{0, 6}},
-		{init: s, want: s, e: WhereLine(Line(2)), print: "2", dot: addr{6, 10}},
-		{init: s, want: s, e: WhereLine(Regexp("Hello")), print: "1", dot: addr{0, 5}},
-		{init: s, want: s, e: WhereLine(Regexp("世界")), print: "2", dot: addr{7, 9}},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestSubstituteEdit(t *testing.T) {
-	tests := []eTest{
-		{e: Sub(Rune(1), "abc", "xyz"), err: "address out of range"},
-		{e: Substitute{A: All, RE: "*"}, err: "missing operand"},
-
-		{
-			init: "世界!",
-			e:    Substitute{A: All, RE: "", With: "Hello, "},
-			want: "Hello, 世界!", dot: addr{0, 10},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Substitute{A: All, RE: ".*", With: "", Global: true},
-			want: "", dot: addr{0, 0},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Substitute{A: All, RE: "世界", With: "World"},
-			want: "Hello, World!", dot: addr{0, 13},
-		},
-		{
-			init: "Hello, 世界!",
-			e:    Substitute{A: All, RE: "(.)", With: `\1-`, Global: true},
-			want: "H-e-l-l-o-,- -世-界-!-", dot: addr{0, 20},
-		},
-		{
-			init: "abcabc",
-			e:    Substitute{A: All, RE: "abc", With: "defg"},
-			want: "defgabc", dot: addr{0, 7},
-		},
-		{
-			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "abc", With: "defg", Global: true},
-			want: "defgdefgdefg", dot: addr{0, 12},
-		},
-		{
-			init: "abcabcabc",
-			e:    Substitute{A: Regexp("abcabc"), RE: "abc", With: "defg", Global: true},
-			want: "defgdefgabc", dot: addr{0, 8},
-		},
-		{
-			init: "abc abc",
-			e:    Substitute{A: All, RE: "abc", With: "defg"},
-			want: "defg abc", dot: addr{0, 8},
-		},
-		{
-			init: "abc abc",
-			e:    Substitute{A: All, RE: "abc", With: "defg", Global: true},
-			want: "defg defg", dot: addr{0, 9},
-		},
-		{
-			init: "abc abc abc",
-			e:    Substitute{A: Regexp("abc abc"), RE: "abc", With: "defg", Global: true},
-			want: "defg defg abc", dot: addr{0, 9},
-		},
-		{
-			init: "abcabc",
-			e:    Substitute{A: All, RE: "abc", With: "de"},
-			want: "deabc", dot: addr{0, 5},
-		},
-		{
-			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "abc", With: "de", Global: true},
-			want: "dedede", dot: addr{0, 6},
-		},
-		{
-			init: "abcabcabc",
-			e:    Substitute{A: Regexp("abcabc"), RE: "abc", With: "de", Global: true},
-			want: "dedeabc", dot: addr{0, 4},
-		},
-		{
-			init: "func f()",
-			e:    Substitute{A: All, RE: `func (.*)\(\)`, With: `func (T) \1()`, Global: true},
-			want: "func (T) f()", dot: addr{0, 12},
-		},
-		{
-			init: "abcdefghi",
-			e:    Substitute{A: All, RE: "(abc)(def)(ghi)", With: `\0 \3 \2 \1`},
-			want: "abcdefghi ghi def abc", dot: addr{0, 21},
-		},
-		{
-			init: "...===...",
-			e:    Substitute{A: All, RE: "(=*)", With: `---\1---`},
-			want: "------...===...", dot: addr{0, 15},
-		},
-		{
-			init: "...===...",
-			e:    Substitute{A: All, RE: "(=+)", With: `---\1---`},
-			want: "...---===---...", dot: addr{0, 15},
-		},
-		{
-			init: "abc",
-			e:    Substitute{A: All, RE: "abc", With: `\1`},
-			want: "", dot: addr{0, 0},
-		},
-		{
-			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "abc", With: "def", From: 0},
-			want: "defabcabc", dot: addr{0, 9},
-		},
-		{
-			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "abc", With: "def", From: 1},
-			want: "defabcabc", dot: addr{0, 9},
-		},
-		{
-			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "abc", With: "def", From: 2},
-			want: "abcdefabc", dot: addr{0, 9},
-		},
-		{
-			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "abc", With: "def", Global: true, From: 2},
-			want: "abcdefdef", dot: addr{0, 9},
-		},
-		{
-			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "notpresent", With: "def", From: 4},
-			want: "abcabcabc", dot: addr{0, 9},
-		},
-		{
-			init: "abcabcabc",
-			e:    Substitute{A: All, RE: "abc", With: "def", From: 4},
-			want: "abcabcabc", dot: addr{0, 9},
-		},
-
-		// Test escaping.
-		{init: "a", e: Sub(All, "a", `/`), want: `/`, dot: addr{0, 1}},
-		{init: "a", e: Sub(All, "a", `\`), want: `\`, dot: addr{0, 1}},
-		{init: "a", e: Sub(All, "a", `\0`), want: `a`, dot: addr{0, 1}},
-		{init: "a", e: Sub(All, "a", `\\0`), want: `\0`, dot: addr{0, 2}},
-		{init: "a", e: Sub(All, "a", "\n"), want: "\n", dot: addr{0, 1}},
-		{init: "a", e: Sub(All, "a", `\n`), want: "\n", dot: addr{0, 1}},
-		{init: "a", e: Sub(All, "a", "\\\n"), want: "\n", dot: addr{0, 1}},
-		{init: "a", e: Sub(All, "a", `\\n`), want: `\n`, dot: addr{0, 2}},
-
-		{init: "a", e: Sub(All, "a", `/`), want: `/`, dot: addr{0, 1}},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestPipeFromEdit(t *testing.T) {
-	if err := os.Setenv("SHELL", DefaultShell); err != nil {
-		t.Fatal(err)
-	}
-	const (
-		s    = "Hello\n世界!"
-		echo = "echo -n '" + s + "'"
-	)
-	tests := []eTest{
-		{e: PipeFrom(Rune(1), "echo hi"), err: "address out of range"},
-
-		{e: PipeFrom(End, "false"), err: "exit status 1"},
-		{e: PipeFrom(End, "echo -n stderr 1>&2"), print: "stderr"},
-		{init: "", e: PipeFrom(All, echo), want: s, dot: addr{0, 9}},
-		{init: "ab", e: PipeFrom(Line(0), echo), want: s + "ab", dot: addr{0, 9}},
-		{init: "ab", e: PipeFrom(End, echo), want: "ab" + s, dot: addr{2, 11}},
-		{init: "ab", e: PipeFrom(Rune(1), echo), want: "a" + s + "b", dot: addr{1, 10}},
-		{e: PipeFrom(All, "   echo -n hi"), want: "hi", dot: addr{0, 2}},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestPipeToEdit(t *testing.T) {
-	if err := os.Setenv("SHELL", DefaultShell); err != nil {
-		t.Fatal(err)
-	}
-	const s = "Hello\n世界!"
-	tests := []eTest{
-		{e: PipeTo(Rune(1), "echo hi"), err: "address out of range"},
-
-		{e: PipeTo(End, "false"), err: "exit status 1"},
-		{e: PipeTo(End, "echo -n stdout"), print: "stdout"},
-		{e: PipeTo(End, "echo -n stderr 1>&2"), print: "stderr"},
-		{init: s, e: PipeTo(End, "cat"), want: s, dot: addr{9, 9}},
-		{init: s, e: PipeTo(Line(0), "cat"), want: s, dot: addr{0, 0}},
-		{init: s, e: PipeTo(All, "cat"), want: s, print: s, dot: addr{0, 9}},
-		{init: s, e: PipeTo(Line(1), "cat"), want: s, print: "Hello\n", dot: addr{0, 6}},
-		{init: s, e: PipeTo(Line(2), "cat"), want: s, print: "世界!", dot: addr{6, 9}},
-		{init: "hi", e: PipeTo(All, "   cat"), want: "hi", print: "hi", dot: addr{0, 2}},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestPipeEdit(t *testing.T) {
-	if err := os.Setenv("SHELL", DefaultShell); err != nil {
-		t.Fatal(err)
-	}
-	const s = "Hello\n世界!"
-	tests := []eTest{
-		{e: Pipe(Rune(1), "echo hi"), err: "address out of range"},
-
-		{e: Pipe(End, "false"), err: "exit status 1"},
-		{e: Pipe(End, "echo -n stderr 1>&2"), print: "stderr"},
-
-		{
-			init: s,
-			e:    Pipe(All, "sed s/世界/World/"),
-			want: "Hello\nWorld!",
-			dot:  addr{0, 12},
-		},
-		{
-			init: s,
-			e:    Pipe(Line(1), "sed s/世界/World/"),
-			want: s,
-			dot:  addr{0, 6},
-		},
-		{
-			init: s,
-			e:    Pipe(Line(2), "sed s/世界/World/"),
-			want: "Hello\nWorld!",
-			dot:  addr{6, 12},
-		},
-		{
-			init: s,
-			e: Pipe(All, "  	sed s/世界/World/"),
-			want: "Hello\nWorld!",
-			dot:  addr{0, 12},
-		},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestPipeDefaultShell(t *testing.T) {
-	// Unset the shell and make sure that everything still works.
-	if err := os.Unsetenv("SHELL"); err != nil {
-		t.Fatal(err)
-	}
-	tests := []eTest{
-		{
-			init: "Hello\n世界!",
-			e:    Pipe(All, "sed s/世界/World/"),
-			want: "Hello\nWorld!",
-			dot:  addr{0, 12},
-		},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-
-}
-
-type eTest struct {
-	init, want, print, err string
-	e                      Edit
-	dot                    addr
-	marks                  map[rune]addr
-}
-
-func (test eTest) run(t *testing.T) {
-	test.run1(t)
-
-	// Stringify, parse, and re-test the parsed Edit.
-	var err error
-	str := test.e.String()
-	test.e, err = Ed(strings.NewReader(str))
-	if err != nil {
-		if ok, reErr := regexp.MatchString(test.err, err.Error()); reErr != nil {
-			panic(reErr)
-		} else if ok {
-			return
-		}
-		t.Fatalf("Failed to parse %q: %v", str, err)
-	}
-	test.run1(t)
-}
-
-func (test eTest) run1(t *testing.T) {
-	ed := NewEditor(NewBuffer())
-	defer ed.buf.Close()
-	if err := ed.change(All, test.init); err != nil {
-		t.Errorf("failed to init %#v: %v", test, err)
-		return
-	}
-	ed.marks['.'] = addr{} // Start with dot=#0
-
-	pr := bytes.NewBuffer(nil)
-	err := ed.Do(test.e, pr)
-	if test.err != "" {
-		if err == nil {
-			t.Errorf("ed.Do(%q, b)=nil, want %v", test.e, test.err)
-			return
-		}
-		if ok, reErr := regexp.MatchString(test.err, err.Error()); reErr != nil {
-			panic(reErr)
-		} else if !ok {
-			t.Errorf("ed.Do(%q, b)=%v, want matching %q", test.e, err, test.err)
-		}
-		return
-	}
-	if err != nil {
-		t.Errorf("ed.Do(%q, pr)=%v, want <nil>", test.e, err)
-		return
-	}
-	if s := ed.String(); s != test.want {
-		t.Errorf("ed.Do(%q, pr); ed.String()=%q, want %q", test.e, s, test.want)
-	}
-	if s := pr.String(); s != test.print {
-		t.Errorf("ed.Do(%q, pr); pr.String()=%q, want %q", test.e, s, test.print)
-	}
-	if dot := ed.marks['.']; dot != test.dot {
-		t.Errorf("ed.Do(%q, pr); ed.dot=%v, want %v", test.e, dot, test.dot)
-	}
-	if test.marks != nil {
-		for m, at := range test.marks {
-			if ed.marks[m] != at {
-				t.Errorf("ed.Do(%q, pr); ed.marks[%c]=%v, want %v",
-					test.e, m, ed.marks[m], at)
-			}
-		}
-	}
-}
-
-func dotAt(from, to int64) map[rune]addr {
-	return map[rune]addr{'.': addr{from, to}}
-}
-
-func TestUndoEdit(t *testing.T) {
-	tests := []undoTest{
-		{
-			name: "empty undo 1",
-			e:    Undo(1),
-			want: "",
-		},
-		{
-			name: "empty undo 100",
-			e:    Undo(100),
-			want: "",
-		},
-		{
-			name:  "1 append, undo 1",
-			init:  []Edit{Append(End, "abc")},
-			e:     Undo(1),
-			want:  "",
-			marks: dotAt(0, 0),
-		},
-		{
-			name:  "1 append, undo 0",
-			init:  []Edit{Append(End, "abc")},
-			e:     Undo(0),
-			want:  "",
-			marks: dotAt(0, 0),
-		},
-		{
-			name:  "1 append, undo -1",
-			init:  []Edit{Append(End, "abc")},
-			e:     Undo(-1),
-			want:  "",
-			marks: dotAt(0, 0),
-		},
-		{
-			name:  "2 appends, undo 1",
-			init:  []Edit{Append(End, "abc"), Append(End, "xyz")},
-			e:     Undo(1),
-			want:  "abc",
-			marks: dotAt(3, 3),
-		},
-		{
-			name:  "2 appends, undo 2",
-			init:  []Edit{Append(End, "abc"), Append(End, "xyz")},
-			e:     Undo(2),
-			want:  "",
-			marks: dotAt(0, 0),
-		},
-		{
-			name:  "2 appends, undo 3",
-			init:  []Edit{Append(End, "abc"), Append(End, "xyz")},
-			e:     Undo(3),
-			want:  "",
-			marks: dotAt(0, 0),
-		},
-		{
-			name:  "1 delete, undo 1",
-			init:  []Edit{Append(End, "abc"), Delete(All)},
-			e:     Undo(1),
-			want:  "abc",
-			marks: dotAt(0, 3),
-		},
-		{
-			name: "2 deletes, undo 1",
-			init: []Edit{
-				Append(End, "abc"),
-				Delete(Rune(2).To(End)),
-				Delete(Rune(1).To(End)),
-			},
-			e:     Undo(1),
-			want:  "ab",
-			marks: dotAt(1, 2),
-		},
-		{
-			name: "2 deletes, undo 2",
-			init: []Edit{
-				Append(End, "abc"),
-				Delete(Rune(2).To(End)),
-				Delete(Rune(1).To(End)),
-			},
-			e:     Undo(2),
-			want:  "abc",
-			marks: dotAt(2, 3),
-		},
-		{
-			name: "delete middle, undo",
-			init: []Edit{
-				Append(End, "abc"),
-				Delete(Rune(1).To(Rune(2))),
-			},
-			e:     Undo(1),
-			want:  "abc",
-			marks: dotAt(1, 2),
-		},
-		{
-			name: "multi-change undo",
-			init: []Edit{
-				Append(End, "a.a.a"),
-				SubGlobal(All, "[.]", "z"),
-			},
-			e:     Undo(1),
-			want:  "a.a.a",
-			marks: dotAt(1, 4),
-		},
-		{
-			name: "undo maintains marks",
-			init: []Edit{
-				Append(End, "abcXXX"),
-				Set(Regexp("XXX"), 'm'),
-				Delete(Regexp("b")),
-			},
-			e:    Undo(1),
-			want: "abcXXX",
-			marks: map[rune]addr{
-				'.': addr{1, 2},
-				'm': addr{3, 6},
-			},
-		},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestRedoEdit(t *testing.T) {
-	tests := []undoTest{
-		{
-			name: "empty redo 1",
-			init: []Edit{Append(End, "abc")},
-			e:    Redo(1),
-			want: "abc",
-		},
-		{
-			name: "empty redo 100",
-			init: []Edit{Append(End, "abc")},
-			e:    Redo(100),
-			want: "abc",
-		},
-		{
-			name:  "undo 1 append redo 1",
-			init:  []Edit{Append(End, "abc"), Undo(1)},
-			e:     Redo(1),
-			want:  "abc",
-			marks: dotAt(0, 3),
-		},
-		{
-			name:  "undo 1 append redo 0",
-			init:  []Edit{Append(End, "abc"), Undo(1)},
-			e:     Redo(0),
-			want:  "abc",
-			marks: dotAt(0, 3),
-		},
-		{
-			name:  "undo 1 append redo -1",
-			init:  []Edit{Append(End, "abc"), Undo(1)},
-			e:     Redo(-1),
-			want:  "abc",
-			marks: dotAt(0, 3),
-		},
-		{
-			name:  "undo 1 append redo 2",
-			init:  []Edit{Append(End, "abc"), Undo(1)},
-			e:     Redo(2),
-			want:  "abc",
-			marks: dotAt(0, 3),
-		},
-		{
-			name:  "undo 2 appends redo 1",
-			init:  []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(2)},
-			e:     Redo(1),
-			want:  "abcxyz",
-			marks: dotAt(0, 6),
-		},
-		{
-			name:  "undo undo appends redo 1",
-			init:  []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(1), Undo(1)},
-			e:     Redo(1),
-			want:  "abc",
-			marks: dotAt(0, 3),
-		},
-		{
-			name: "multi-change redo",
-			init: []Edit{
-				Append(End, "a.a.a"),
-				SubGlobal(All, "[.]", "z"),
-				Undo(1),
-			},
-			e:     Redo(1),
-			want:  "azaza",
-			marks: dotAt(1, 4),
-		},
-		{
-			name: "redo maintains marks",
-			init: []Edit{
-				Append(End, "abcXXX"),
-				Set(Regexp("XXX"), 'm'),
-				Delete(Regexp("b")),
-				Undo(1),
-			},
-			e:    Redo(1),
-			want: "acXXX",
-			marks: map[rune]addr{
-				'.': addr{1, 1},
-				'm': addr{2, 5},
-			},
-		},
-		{
-			name: "append append undo undo redo undo redo",
-			init: []Edit{
-				Append(End, "abc"),
-				Append(End, "xyz"),
-				Undo(1),
-				Redo(1),
-				Undo(1),
-			},
-			e:     Redo(1),
-			want:  "abcxyz",
-			marks: dotAt(3, 6),
-		},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-type undoTest struct {
-	name  string
-	init  []Edit
-	e     Edit
-	want  string
-	marks map[rune]addr
-}
-
-func (test *undoTest) run(t *testing.T) {
-	test.run1(t)
-
-	// Stringify, parse, and re-test the parsed Edit.
-	var err error
-	str := test.e.String()
-	test.e, err = Ed(strings.NewReader(str))
-	if err != nil {
-		t.Fatalf("Failed to parse %q: %v", str, err)
-	}
-	test.name = test.name + " parsed from [" + str + "]"
-	test.run1(t)
-}
-
-func (test *undoTest) run1(t *testing.T) {
-	ed := NewEditor(NewBuffer())
-	defer ed.buf.Close()
-
-	for _, e := range test.init {
-		if err := ed.Do(e, ioutil.Discard); err != nil {
-			t.Fatalf("%s init ed.Do(%q, _)=%v, want nil", test.name, e, err)
-		}
-	}
-
-	if err := ed.Do(test.e, ioutil.Discard); err != nil {
-		t.Fatalf("%s ed.Do(%q, _)=%v, want nil", test.name, test.e, err)
-	}
-
-	if s := ed.String(); s != test.want {
-		t.Errorf("%s ed.Do(%q, _) leaves %q, want %q", test.name, test.e, s, test.want)
-	}
-	if test.marks != nil {
-		for m, want := range test.marks {
-			if got := ed.marks[m]; got != want {
-				t.Errorf("%s mark %c=%v, want %v", test.name, m, got, want)
-			}
-		}
-	}
-}
-
 func TestEd(t *testing.T) {
 	tests := []struct {
-		e, left string
-		want    Edit
-		err     string
+		str, left string
+		edit      Edit
+		error     string
 	}{
-		{e: "#0 UNKNOWN", err: "unknown command"},
-		{e: strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
+		{str: "#0 UNKNOWN", error: "unknown command"},
+		{str: strconv.FormatInt(math.MaxInt64, 10) + "0", error: "value out of range"},
 
-		{e: "", want: Set(Dot, '.')},
-		{e: ".", want: Set(Dot, '.')},
-		{e: "  .", want: Set(Dot, '.')},
-		{e: "#0", want: Set(Rune(0), '.')},
-		{e: "#0+1", want: Set(Rune(0).Plus(Line(1)), '.')},
-		{e: " #0 + 1 ", want: Set(Rune(0).Plus(Line(1)), '.')},
-		{e: "#0+1\nc/abc", left: "\nc/abc", want: Set(Rune(0).Plus(Line(1)), '.')},
-		{e: "/abc\n1c/xyz", left: "\n1c/xyz", want: Set(Regexp("abc"), '.')},
+		{str: "", edit: Set(Dot, '.')},
+		{str: ".", edit: Set(Dot, '.')},
+		{str: "  .", edit: Set(Dot, '.')},
+		{str: "#0", edit: Set(Rune(0), '.')},
+		{str: "#0+1", edit: Set(Rune(0).Plus(Line(1)), '.')},
+		{str: " #0 + 1 ", edit: Set(Rune(0).Plus(Line(1)), '.')},
+		{str: "#0+1\nc/abc", left: "\nc/abc", edit: Set(Rune(0).Plus(Line(1)), '.')},
+		{str: "/abc\n1c/xyz", left: "\n1c/xyz", edit: Set(Regexp("abc"), '.')},
 
-		{e: "k", want: Set(Dot, '.')},
-		{e: " k ", want: Set(Dot, '.')},
-		{e: "#0k ", want: Set(Rune(0), '.')},
-		{e: "#0ka", want: Set(Rune(0), 'a')},
-		{e: "#0k a", want: Set(Rune(0), 'a')},
-		{e: "#0k	 a", want: Set(Rune(0), 'a')},
-		{e: "#0k	 α", want: Set(Rune(0), 'α')},
+		{str: "k", edit: Set(Dot, '.')},
+		{str: " k ", edit: Set(Dot, '.')},
+		{str: "#0k ", edit: Set(Rune(0), '.')},
+		{str: "#0ka", edit: Set(Rune(0), 'a')},
+		{str: "#0k a", edit: Set(Rune(0), 'a')},
+		{str: "#0k	 a", edit: Set(Rune(0), 'a')},
+		{str: "#0k	 α", edit: Set(Rune(0), 'α')},
 
-		{e: "c/αβξ", want: Change(Dot, "αβξ")},
-		{e: "c   /αβξ", want: Change(Dot, "αβξ")},
-		{e: "c", want: Change(Dot, "")},
-		{e: "c  /", want: Change(Dot, "")},
-		{e: "c/αβξ/", want: Change(Dot, "αβξ")},
-		{e: "c/αβξ\n", left: "\n", want: Change(Dot, "αβξ")},
-		{e: "c/αβξ/xyz", left: "xyz", want: Change(Dot, "αβξ")},
-		{e: "c/αβξ\nxyz", left: "\nxyz", want: Change(Dot, "αβξ")},
-		{e: "#1,#2c/αβξ/", want: Change(Rune(1).To(Rune(2)), "αβξ")},
-		{e: " #1 , #2 c/αβξ/", want: Change(Rune(1).To(Rune(2)), "αβξ")},
-		{e: "c/αβξ\\/", want: Change(Dot, "αβξ/")},
-		{e: `c/αβξ\n`, want: Change(Dot, "αβξ\n")},
-		{e: "c\nαβξ\n.\n", left: "\n", want: Change(Dot, "αβξ\n")},
-		{e: "c\nαβξ\n.", want: Change(Dot, "αβξ\n")},
-		{e: "c\nαβξ\n\n.", want: Change(Dot, "αβξ\n\n")},
-		{e: "c\nαβξ\nabc\n.", want: Change(Dot, "αβξ\nabc\n")},
-		{e: "c \n", want: Change(Dot, "")},
-		{e: `c/\n`, want: Change(Dot, "\n")},
-		{e: `c/\\n`, want: Change(Dot, `\\n`)},
-		{e: `c/\/`, want: Change(Dot, `/`)},
-		{e: `c/\//`, want: Change(Dot, `/`)},
-		{e: `c/\`, want: Change(Dot, `\`)},
-		{e: `c/\\`, want: Change(Dot, `\\`)},
-		{e: `c/\\/`, want: Change(Dot, `\\`)},
+		{str: "c/αβξ", edit: Change(Dot, "αβξ")},
+		{str: "c   /αβξ", edit: Change(Dot, "αβξ")},
+		{str: "c", edit: Change(Dot, "")},
+		{str: "c  /", edit: Change(Dot, "")},
+		{str: "c/αβξ/", edit: Change(Dot, "αβξ")},
+		{str: "c/αβξ\n", left: "\n", edit: Change(Dot, "αβξ")},
+		{str: "c/αβξ/xyz", left: "xyz", edit: Change(Dot, "αβξ")},
+		{str: "c/αβξ\nxyz", left: "\nxyz", edit: Change(Dot, "αβξ")},
+		{str: "#1,#2c/αβξ/", edit: Change(Rune(1).To(Rune(2)), "αβξ")},
+		{str: " #1 , #2 c/αβξ/", edit: Change(Rune(1).To(Rune(2)), "αβξ")},
+		{str: "c/αβξ\\/", edit: Change(Dot, "αβξ/")},
+		{str: `c/αβξ\n`, edit: Change(Dot, "αβξ\n")},
+		{str: "c\nαβξ\n.\n", left: "\n", edit: Change(Dot, "αβξ\n")},
+		{str: "c\nαβξ\n.", edit: Change(Dot, "αβξ\n")},
+		{str: "c\nαβξ\n\n.", edit: Change(Dot, "αβξ\n\n")},
+		{str: "c\nαβξ\nabc\n.", edit: Change(Dot, "αβξ\nabc\n")},
+		{str: "c \n", edit: Change(Dot, "")},
+		{str: `c/\n`, edit: Change(Dot, "\n")},
+		{str: `c/\\n`, edit: Change(Dot, `\\n`)},
+		{str: `c/\/`, edit: Change(Dot, `/`)},
+		{str: `c/\//`, edit: Change(Dot, `/`)},
+		{str: `c/\`, edit: Change(Dot, `\`)},
+		{str: `c/\\`, edit: Change(Dot, `\\`)},
+		{str: `c/\\/`, edit: Change(Dot, `\\`)},
 
-		{e: "a/αβξ", want: Append(Dot, "αβξ")},
-		{e: "a   /αβξ", want: Append(Dot, "αβξ")},
-		{e: "a", want: Append(Dot, "")},
-		{e: "a  /", want: Append(Dot, "")},
-		{e: "a/αβξ/", want: Append(Dot, "αβξ")},
-		{e: "a/αβξ\n", left: "\n", want: Append(Dot, "αβξ")},
-		{e: "a/αβξ/xyz", left: "xyz", want: Append(Dot, "αβξ")},
-		{e: "a/αβξ\nxyz", left: "\nxyz", want: Append(Dot, "αβξ")},
-		{e: "#1,#2a/αβξ/", want: Append(Rune(1).To(Rune(2)), "αβξ")},
-		{e: " #1 , #2 a/αβξ/", want: Append(Rune(1).To(Rune(2)), "αβξ")},
-		{e: "a/αβξ\\/", want: Append(Dot, "αβξ/")},
-		{e: `a/αβξ\n`, want: Append(Dot, "αβξ\n")},
-		{e: "a\nαβξ\n.\n", left: "\n", want: Append(Dot, "αβξ\n")},
-		{e: "a\nαβξ\n.", want: Append(Dot, "αβξ\n")},
-		{e: "a\nαβξ\n\n.", want: Append(Dot, "αβξ\n\n")},
-		{e: "a\nαβξ\nabc\n.", want: Append(Dot, "αβξ\nabc\n")},
-		{e: "a \n", want: Append(Dot, "")},
+		{str: "a/αβξ", edit: Append(Dot, "αβξ")},
+		{str: "a   /αβξ", edit: Append(Dot, "αβξ")},
+		{str: "a", edit: Append(Dot, "")},
+		{str: "a  /", edit: Append(Dot, "")},
+		{str: "a/αβξ/", edit: Append(Dot, "αβξ")},
+		{str: "a/αβξ\n", left: "\n", edit: Append(Dot, "αβξ")},
+		{str: "a/αβξ/xyz", left: "xyz", edit: Append(Dot, "αβξ")},
+		{str: "a/αβξ\nxyz", left: "\nxyz", edit: Append(Dot, "αβξ")},
+		{str: "#1,#2a/αβξ/", edit: Append(Rune(1).To(Rune(2)), "αβξ")},
+		{str: " #1 , #2 a/αβξ/", edit: Append(Rune(1).To(Rune(2)), "αβξ")},
+		{str: "a/αβξ\\/", edit: Append(Dot, "αβξ/")},
+		{str: `a/αβξ\n`, edit: Append(Dot, "αβξ\n")},
+		{str: "a\nαβξ\n.\n", left: "\n", edit: Append(Dot, "αβξ\n")},
+		{str: "a\nαβξ\n.", edit: Append(Dot, "αβξ\n")},
+		{str: "a\nαβξ\n\n.", edit: Append(Dot, "αβξ\n\n")},
+		{str: "a\nαβξ\nabc\n.", edit: Append(Dot, "αβξ\nabc\n")},
+		{str: "a \n", edit: Append(Dot, "")},
 
-		{e: "i/αβξ", want: Insert(Dot, "αβξ")},
-		{e: "i   /αβξ", want: Insert(Dot, "αβξ")},
-		{e: "i", want: Insert(Dot, "")},
-		{e: "i  /", want: Insert(Dot, "")},
-		{e: "i/αβξ/", want: Insert(Dot, "αβξ")},
-		{e: "i/αβξ\n", left: "\n", want: Insert(Dot, "αβξ")},
-		{e: "i/αβξ/xyz", left: "xyz", want: Insert(Dot, "αβξ")},
-		{e: "i/αβξ\nxyz", left: "\nxyz", want: Insert(Dot, "αβξ")},
-		{e: "#1,#2i/αβξ/", want: Insert(Rune(1).To(Rune(2)), "αβξ")},
-		{e: " #1 , #2 i/αβξ/", want: Insert(Rune(1).To(Rune(2)), "αβξ")},
-		{e: "i/αβξ\\/", want: Insert(Dot, "αβξ/")},
-		{e: `i/αβξ\n`, want: Insert(Dot, "αβξ\n")},
-		{e: "i\nαβξ\n.\n", left: "\n", want: Insert(Dot, "αβξ\n")},
-		{e: "i\nαβξ\n.", want: Insert(Dot, "αβξ\n")},
-		{e: "i\nαβξ\n\n.", want: Insert(Dot, "αβξ\n\n")},
-		{e: "i\nαβξ\nabc\n.", want: Insert(Dot, "αβξ\nabc\n")},
-		{e: "i \n", want: Insert(Dot, "")},
+		{str: "i/αβξ", edit: Insert(Dot, "αβξ")},
+		{str: "i   /αβξ", edit: Insert(Dot, "αβξ")},
+		{str: "i", edit: Insert(Dot, "")},
+		{str: "i  /", edit: Insert(Dot, "")},
+		{str: "i/αβξ/", edit: Insert(Dot, "αβξ")},
+		{str: "i/αβξ\n", left: "\n", edit: Insert(Dot, "αβξ")},
+		{str: "i/αβξ/xyz", left: "xyz", edit: Insert(Dot, "αβξ")},
+		{str: "i/αβξ\nxyz", left: "\nxyz", edit: Insert(Dot, "αβξ")},
+		{str: "#1,#2i/αβξ/", edit: Insert(Rune(1).To(Rune(2)), "αβξ")},
+		{str: " #1 , #2 i/αβξ/", edit: Insert(Rune(1).To(Rune(2)), "αβξ")},
+		{str: "i/αβξ\\/", edit: Insert(Dot, "αβξ/")},
+		{str: `i/αβξ\n`, edit: Insert(Dot, "αβξ\n")},
+		{str: "i\nαβξ\n.\n", left: "\n", edit: Insert(Dot, "αβξ\n")},
+		{str: "i\nαβξ\n.", edit: Insert(Dot, "αβξ\n")},
+		{str: "i\nαβξ\n\n.", edit: Insert(Dot, "αβξ\n\n")},
+		{str: "i\nαβξ\nabc\n.", edit: Insert(Dot, "αβξ\nabc\n")},
+		{str: "i \n", edit: Insert(Dot, "")},
 
-		{e: "d", want: Delete(Dot)},
-		{e: "#1,#2d", want: Delete(Rune(1).To(Rune(2)))},
-		{e: "dxyz", left: "xyz", want: Delete(Dot)},
-		{e: "d\nxyz", left: "\nxyz", want: Delete(Dot)},
-		{e: "d  \nxyz", left: "  \nxyz", want: Delete(Dot)},
+		{str: "d", edit: Delete(Dot)},
+		{str: "#1,#2d", edit: Delete(Rune(1).To(Rune(2)))},
+		{str: "dxyz", left: "xyz", edit: Delete(Dot)},
+		{str: "d\nxyz", left: "\nxyz", edit: Delete(Dot)},
+		{str: "d  \nxyz", left: "  \nxyz", edit: Delete(Dot)},
 
-		{e: "m", want: Move(Dot, Dot)},
-		{e: "m/abc/", want: Move(Dot, Regexp("abc"))},
-		{e: "/abc/m/def/", want: Move(Regexp("abc"), Regexp("def"))},
-		{e: "#1+1m$", want: Move(Rune(1).Plus(Line(1)), End)},
-		{e: " #1 + 1 m $", want: Move(Rune(1).Plus(Line(1)), End)},
-		{e: "1m$xyz", left: "xyz", want: Move(Line(1), End)},
-		{e: "1m\n$xyz", left: "\n$xyz", want: Move(Line(1), Dot)},
-		{e: "m" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
+		{str: "m", edit: Move(Dot, Dot)},
+		{str: "m/abc/", edit: Move(Dot, Regexp("abc"))},
+		{str: "/abc/m/def/", edit: Move(Regexp("abc"), Regexp("def"))},
+		{str: "#1+1m$", edit: Move(Rune(1).Plus(Line(1)), End)},
+		{str: " #1 + 1 m $", edit: Move(Rune(1).Plus(Line(1)), End)},
+		{str: "1m$xyz", left: "xyz", edit: Move(Line(1), End)},
+		{str: "1m\n$xyz", left: "\n$xyz", edit: Move(Line(1), Dot)},
+		{str: "m" + strconv.FormatInt(math.MaxInt64, 10) + "0", error: "value out of range"},
 
-		{e: "t", want: Copy(Dot, Dot)},
-		{e: "t/abc/", want: Copy(Dot, Regexp("abc"))},
-		{e: "/abc/t/def/", want: Copy(Regexp("abc"), Regexp("def"))},
-		{e: "#1+1t$", want: Copy(Rune(1).Plus(Line(1)), End)},
-		{e: " #1 + 1 t $", want: Copy(Rune(1).Plus(Line(1)), End)},
-		{e: "1t$xyz", left: "xyz", want: Copy(Line(1), End)},
-		{e: "1t\n$xyz", left: "\n$xyz", want: Copy(Line(1), Dot)},
-		{e: "t" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
+		{str: "t", edit: Copy(Dot, Dot)},
+		{str: "t/abc/", edit: Copy(Dot, Regexp("abc"))},
+		{str: "/abc/t/def/", edit: Copy(Regexp("abc"), Regexp("def"))},
+		{str: "#1+1t$", edit: Copy(Rune(1).Plus(Line(1)), End)},
+		{str: " #1 + 1 t $", edit: Copy(Rune(1).Plus(Line(1)), End)},
+		{str: "1t$xyz", left: "xyz", edit: Copy(Line(1), End)},
+		{str: "1t\n$xyz", left: "\n$xyz", edit: Copy(Line(1), Dot)},
+		{str: "t" + strconv.FormatInt(math.MaxInt64, 10) + "0", error: "value out of range"},
 
-		{e: "p", want: Print(Dot)},
-		{e: "pxyz", left: "xyz", want: Print(Dot)},
-		{e: "#1+1p", want: Print(Rune(1).Plus(Line(1)))},
-		{e: " #1 + 1 p", want: Print(Rune(1).Plus(Line(1)))},
+		{str: "p", edit: Print(Dot)},
+		{str: "pxyz", left: "xyz", edit: Print(Dot)},
+		{str: "#1+1p", edit: Print(Rune(1).Plus(Line(1)))},
+		{str: " #1 + 1 p", edit: Print(Rune(1).Plus(Line(1)))},
 
-		{e: "=", want: WhereLine(Dot)},
-		{e: "=xyz", left: "xyz", want: WhereLine(Dot)},
-		{e: "#1+1=", want: WhereLine(Rune(1).Plus(Line(1)))},
-		{e: " #1 + 1 =", want: WhereLine(Rune(1).Plus(Line(1)))},
+		{str: "=", edit: WhereLine(Dot)},
+		{str: "=xyz", left: "xyz", edit: WhereLine(Dot)},
+		{str: "#1+1=", edit: WhereLine(Rune(1).Plus(Line(1)))},
+		{str: " #1 + 1 =", edit: WhereLine(Rune(1).Plus(Line(1)))},
 
-		{e: "=#", want: Where(Dot)},
-		{e: "=#xyz", left: "xyz", want: Where(Dot)},
-		{e: "#1+1=#", want: Where(Rune(1).Plus(Line(1)))},
-		{e: " #1 + 1 =#", want: Where(Rune(1).Plus(Line(1)))},
+		{str: "=#", edit: Where(Dot)},
+		{str: "=#xyz", left: "xyz", edit: Where(Dot)},
+		{str: "#1+1=#", edit: Where(Rune(1).Plus(Line(1)))},
+		{str: " #1 + 1 =#", edit: Where(Rune(1).Plus(Line(1)))},
 
-		{e: "s/a/b", want: Sub(Dot, "a", "b")},
-		{e: "s;a;b", want: Sub(Dot, "a", "b")},
-		{e: "s/a//", want: Sub(Dot, "a", "")},
-		{e: "s/a/\n/g", left: "\n/g", want: Sub(Dot, "a", "")},
-		{e: "s/(.*)/a\\1", want: Sub(Dot, "(.*)", "a\\1")},
-		{e: ".s/a/b", want: Sub(Dot, "a", "b")},
-		{e: "#1+1s/a/b", want: Sub(Rune(1).Plus(Line(1)), "a", "b")},
-		{e: " #1 + 1 s/a/b", want: Sub(Rune(1).Plus(Line(1)), "a", "b")},
-		{e: " #1 + 1 s/a/b", want: Sub(Rune(1).Plus(Line(1)), "a", "b")},
-		{e: "s/a/b/xyz", left: "xyz", want: Sub(Dot, "a", "b")},
-		{e: "s/a/b\nxyz", left: "\nxyz", want: Sub(Dot, "a", "b")},
-		{e: "s1/a/b", want: Sub(Dot, "a", "b")},
-		{e: "s/a/b/g", want: SubGlobal(Dot, "a", "b")},
-		{e: " #1 + 1 s/a/b/g", want: SubGlobal(Rune(1).Plus(Line(1)), "a", "b")},
-		{e: "s2/a/b", want: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
-		{e: "s2;a;b", want: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
-		{e: "s1000/a/b", want: Substitute{A: Dot, RE: "a", With: "b", From: 1000}},
-		{e: "s 2 /a/b", want: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
-		{e: "s 1000 /a/b/g", want: Substitute{A: Dot, RE: "a", With: "b", Global: true, From: 1000}},
-		{e: "s", want: Sub(Dot, "", "")},
-		{e: "s\nabc", left: "\nabc", want: Sub(Dot, "", "")},
-		{e: "s/", want: Sub(Dot, "", "")},
-		{e: "s//b", want: Sub(Dot, "", "b")},
-		{e: "s/\n/b", left: "\n/b", want: Sub(Dot, "", "")},
-		{e: "s" + strconv.FormatInt(math.MaxInt64, 10) + "0" + "/a/b/g", err: "value out of range"},
-		{e: "s/*", err: "missing operand"},
+		{str: "s/a/b", edit: Sub(Dot, "a", "b")},
+		{str: "s;a;b", edit: Sub(Dot, "a", "b")},
+		{str: "s/a*|b*//", edit: Sub(Dot, "a*|b*", "")},
+		{str: "s/a//", edit: Sub(Dot, "a", "")},
+		{str: "s/a/\n/g", left: "\n/g", edit: Sub(Dot, "a", "")},
+		{str: "s/(.*)/a\\1", edit: Sub(Dot, "(.*)", "a\\1")},
+		{str: ".s/a/b", edit: Sub(Dot, "a", "b")},
+		{str: "#1+1s/a/b", edit: Sub(Rune(1).Plus(Line(1)), "a", "b")},
+		{str: " #1 + 1 s/a/b", edit: Sub(Rune(1).Plus(Line(1)), "a", "b")},
+		{str: " #1 + 1 s/a/b", edit: Sub(Rune(1).Plus(Line(1)), "a", "b")},
+		{str: "s/a/b/xyz", left: "xyz", edit: Sub(Dot, "a", "b")},
+		{str: "s/a/b\nxyz", left: "\nxyz", edit: Sub(Dot, "a", "b")},
+		{str: "s1/a/b", edit: Sub(Dot, "a", "b")},
+		{str: "s/a/b/g", edit: SubGlobal(Dot, "a", "b")},
+		{str: " #1 + 1 s/a/b/g", edit: SubGlobal(Rune(1).Plus(Line(1)), "a", "b")},
+		{str: "s2/a/b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
+		{str: "s2;a;b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
+		{str: "s1000/a/b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 1000}},
+		{str: "s 2 /a/b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
+		{str: "s 1000 /a/b/g", edit: Substitute{A: Dot, RE: "a", With: "b", Global: true, From: 1000}},
+		{str: "s", edit: Sub(Dot, "", "")},
+		{str: "s\nabc", left: "\nabc", edit: Sub(Dot, "", "")},
+		{str: "s/", edit: Sub(Dot, "", "")},
+		{str: "s//b", edit: Sub(Dot, "", "b")},
+		{str: "s/\n/b", left: "\n/b", edit: Sub(Dot, "", "")},
+		{str: "s" + strconv.FormatInt(math.MaxInt64, 10) + "0" + "/a/b/g", error: "value out of range"},
+		{str: "s/*", error: "missing operand"},
 
-		{e: "|cmd", want: Pipe(Dot, "cmd")},
-		{e: "|	   cmd", want: Pipe(Dot, "cmd")},
-		{e: "|cmd\nleft", left: "\nleft", want: Pipe(Dot, "cmd")},
-		{e: "|	   cmd\nleft", left: "\nleft", want: Pipe(Dot, "cmd")},
-		{e: "|cmd\\nleft", want: Pipe(Dot, "cmd\nleft")},
-		{e: "|	   cmd\\nleft", want: Pipe(Dot, "cmd\nleft")},
-		{e: "  	|cmd", want: Pipe(Dot, "cmd")},
-		{e: ",|cmd", want: Pipe(All, "cmd")},
-		{e: "$|cmd", want: Pipe(End, "cmd")},
-		{e: ",	  |cmd", want: Pipe(All, "cmd")},
-		{e: "  	,	  |cmd", want: Pipe(All, "cmd")},
-		{e: ",+3|cmd", want: Pipe(Line(0).To(Dot.Plus(Line(3))), "cmd")},
-		{e: `|\x\y\z`, want: Pipe(Dot, `\x\y\z`)},
+		{str: "|cmd", edit: Pipe(Dot, "cmd")},
+		{str: "|	   cmd", edit: Pipe(Dot, "cmd")},
+		{str: "|cmd\nleft", left: "\nleft", edit: Pipe(Dot, "cmd")},
+		{str: "|	   cmd\nleft", left: "\nleft", edit: Pipe(Dot, "cmd")},
+		{str: "|cmd\\nleft", edit: Pipe(Dot, "cmd\nleft")},
+		{str: "|	   cmd\\nleft", edit: Pipe(Dot, "cmd\nleft")},
+		{str: "  	|cmd", edit: Pipe(Dot, "cmd")},
+		{str: ",|cmd", edit: Pipe(All, "cmd")},
+		{str: "$|cmd", edit: Pipe(End, "cmd")},
+		{str: ",	  |cmd", edit: Pipe(All, "cmd")},
+		{str: "  	,	  |cmd", edit: Pipe(All, "cmd")},
+		{str: ",+3|cmd", edit: Pipe(Line(0).To(Dot.Plus(Line(3))), "cmd")},
+		{str: `|\x\y\z`, edit: Pipe(Dot, `\x\y\z`)},
 
-		{e: ">cmd", want: PipeTo(Dot, "cmd")},
-		{e: ">	   cmd", want: PipeTo(Dot, "cmd")},
-		{e: ">cmd\nleft", left: "\nleft", want: PipeTo(Dot, "cmd")},
-		{e: ">	   cmd\nleft", left: "\nleft", want: PipeTo(Dot, "cmd")},
-		{e: ">cmd\\nleft", want: PipeTo(Dot, "cmd\nleft")},
-		{e: ">	   cmd\\nleft", want: PipeTo(Dot, "cmd\nleft")},
-		{e: "  	>cmd", want: PipeTo(Dot, "cmd")},
-		{e: ",>cmd", want: PipeTo(All, "cmd")},
-		{e: "$>cmd", want: PipeTo(End, "cmd")},
-		{e: ",	  >cmd", want: PipeTo(All, "cmd")},
-		{e: "  	,	  >cmd", want: PipeTo(All, "cmd")},
-		{e: ",+3>cmd", want: PipeTo(Line(0).To(Dot.Plus(Line(3))), "cmd")},
-		{e: `>\x\y\z`, want: PipeTo(Dot, `\x\y\z`)},
+		{str: ">cmd", edit: PipeTo(Dot, "cmd")},
+		{str: ">	   cmd", edit: PipeTo(Dot, "cmd")},
+		{str: ">cmd\nleft", left: "\nleft", edit: PipeTo(Dot, "cmd")},
+		{str: ">	   cmd\nleft", left: "\nleft", edit: PipeTo(Dot, "cmd")},
+		{str: ">cmd\\nleft", edit: PipeTo(Dot, "cmd\nleft")},
+		{str: ">	   cmd\\nleft", edit: PipeTo(Dot, "cmd\nleft")},
+		{str: "  	>cmd", edit: PipeTo(Dot, "cmd")},
+		{str: ",>cmd", edit: PipeTo(All, "cmd")},
+		{str: "$>cmd", edit: PipeTo(End, "cmd")},
+		{str: ",	  >cmd", edit: PipeTo(All, "cmd")},
+		{str: "  	,	  >cmd", edit: PipeTo(All, "cmd")},
+		{str: ",+3>cmd", edit: PipeTo(Line(0).To(Dot.Plus(Line(3))), "cmd")},
+		{str: `>\x\y\z`, edit: PipeTo(Dot, `\x\y\z`)},
 
-		{e: "<cmd", want: PipeFrom(Dot, "cmd")},
-		{e: "<	   cmd", want: PipeFrom(Dot, "cmd")},
-		{e: "<cmd\nleft", left: "\nleft", want: PipeFrom(Dot, "cmd")},
-		{e: "<	   cmd\nleft", left: "\nleft", want: PipeFrom(Dot, "cmd")},
-		{e: "<cmd\\nleft", want: PipeFrom(Dot, "cmd\nleft")},
-		{e: "<	   cmd\\nleft", want: PipeFrom(Dot, "cmd\nleft")},
-		{e: "  	<cmd", want: PipeFrom(Dot, "cmd")},
-		{e: ",<cmd", want: PipeFrom(All, "cmd")},
-		{e: "$<cmd", want: PipeFrom(End, "cmd")},
-		{e: ",	  <cmd", want: PipeFrom(All, "cmd")},
-		{e: "  	,	  <cmd", want: PipeFrom(All, "cmd")},
-		{e: ",+3<cmd", want: PipeFrom(Line(0).To(Dot.Plus(Line(3))), "cmd")},
-		{e: `<\x\y\z`, want: PipeFrom(Dot, `\x\y\z`)},
+		{str: "<cmd", edit: PipeFrom(Dot, "cmd")},
+		{str: "<	   cmd", edit: PipeFrom(Dot, "cmd")},
+		{str: "<cmd\nleft", left: "\nleft", edit: PipeFrom(Dot, "cmd")},
+		{str: "<	   cmd\nleft", left: "\nleft", edit: PipeFrom(Dot, "cmd")},
+		{str: "<cmd\\nleft", edit: PipeFrom(Dot, "cmd\nleft")},
+		{str: "<	   cmd\\nleft", edit: PipeFrom(Dot, "cmd\nleft")},
+		{str: "  	<cmd", edit: PipeFrom(Dot, "cmd")},
+		{str: ",<cmd", edit: PipeFrom(All, "cmd")},
+		{str: "$<cmd", edit: PipeFrom(End, "cmd")},
+		{str: ",	  <cmd", edit: PipeFrom(All, "cmd")},
+		{str: "  	,	  <cmd", edit: PipeFrom(All, "cmd")},
+		{str: ",+3<cmd", edit: PipeFrom(Line(0).To(Dot.Plus(Line(3))), "cmd")},
+		{str: `<\x\y\z`, edit: PipeFrom(Dot, `\x\y\z`)},
 
-		{e: "u", want: Undo(1)},
-		{e: " u", want: Undo(1)},
-		{e: "u1", want: Undo(1)},
-		{e: " u1", want: Undo(1)},
-		{e: "u100", want: Undo(100)},
-		{e: " u100", want: Undo(100)},
-		{e: "u" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
-		{e: "r", want: Redo(1)},
-		{e: " r", want: Redo(1)},
-		{e: "r1", want: Redo(1)},
-		{e: " r1", want: Redo(1)},
-		{e: "r100", want: Redo(100)},
-		{e: " r100", want: Redo(100)},
-		{e: "r" + strconv.FormatInt(math.MaxInt64, 10) + "0", err: "value out of range"},
+		{str: "u", edit: Undo(1)},
+		{str: " u", edit: Undo(1)},
+		{str: "u1", edit: Undo(1)},
+		{str: " u1", edit: Undo(1)},
+		{str: "u100", edit: Undo(100)},
+		{str: " u100", edit: Undo(100)},
+		{str: "u" + strconv.FormatInt(math.MaxInt64, 10) + "0", error: "value out of range"},
+		{str: "r", edit: Redo(1)},
+		{str: " r", edit: Redo(1)},
+		{str: "r1", edit: Redo(1)},
+		{str: " r1", edit: Redo(1)},
+		{str: "r100", edit: Redo(100)},
+		{str: " r100", edit: Redo(100)},
+		{str: "r" + strconv.FormatInt(math.MaxInt64, 10) + "0", error: "value out of range"},
 	}
 	for _, test := range tests {
-		rs := strings.NewReader(test.e)
+		rs := strings.NewReader(test.str)
 		e, err := Ed(rs)
-
-		if test.err != "" {
-			if err == nil || !regexp.MustCompile(test.err).MatchString(err.Error()) {
-				t.Errorf(`Ed(%q)=%q,%v, want %q,%q`, test.e, e, err, test.want, test.err)
-			}
-			continue
+		if !matchesError(test.error, err) || !reflect.DeepEqual(e, test.edit) {
+			t.Errorf(`Ed(%q)=%q,%v, want %q,%q`, test.str, e, err, test.edit, test.error)
 		}
-
-		if err != nil || !reflect.DeepEqual(e, test.want) {
-			t.Errorf(`Ed(%q)=%q,%v, want %q,%q`, test.e, e, err, test.want, test.err)
+		if test.error != "" {
 			continue
 		}
 		left, err := ioutil.ReadAll(rs)
@@ -1118,16 +241,15 @@ func TestEd(t *testing.T) {
 			t.Fatal(err)
 		}
 		if string(left) != test.left {
-			t.Errorf(`Ed(%q) leftover %q want %q`, test.e, string(left), test.left)
-			continue
+			t.Errorf(`Ed(%q) leftover %q want %q`, test.str, string(left), test.left)
 		}
 	}
 }
 
 func TestEditString(t *testing.T) {
 	tests := []struct {
-		e Edit
-		s string
+		edit Edit
+		str  string
 	}{
 		{Change(All, `xyz`), `0,$c/xyz/`},
 		{Change(Dot, `a\nb\nc`), `.c/a\nb\nc/`},
@@ -1224,22 +346,1685 @@ func TestEditString(t *testing.T) {
 		{SubGlobal(All, "a*", "\n"), `0,$s/a*/\n/g`},
 		{SubGlobal(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1/g`},
 
-		{
-			Substitute{A: All, RE: "a*", With: "b", From: 2},
-			`0,$s2/a*/b/`,
-		},
-		{
-			Substitute{A: All, RE: "a*", With: "b", From: 0},
-			`0,$s/a*/b/`,
-		},
-		{
-			Substitute{A: All, RE: "a*", With: "b", From: -1},
-			`0,$s/a*/b/`,
-		},
+		{Substitute{A: All, RE: "a*", With: "b", From: 2}, `0,$s2/a*/b/`},
+		{Substitute{A: All, RE: "a*", With: "b", From: 0}, `0,$s/a*/b/`},
+		{Substitute{A: All, RE: "a*", With: "b", From: -1}, `0,$s/a*/b/`},
 	}
 	for _, test := range tests {
-		if s := test.e.String(); s != test.s {
-			t.Errorf("String()=%q, want %q\n", s, test.s)
+		if s := test.edit.String(); s != test.str {
+			t.Errorf("String()=%q, want %q\n", s, test.str)
 		}
 	}
+}
+
+var changeTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{Change(Rune(1), "")},
+		error: "out of range",
+	},
+	{
+		name:  "delete empty",
+		given: "{..}Hello 世界",
+		do:    []Edit{Change(Dot, "")},
+		want:  "{..}Hello 世界",
+	},
+	{
+		name:  "delete everything",
+		given: "{..}Hello 世界",
+		do:    []Edit{Change(All, "")},
+		want:  "{..}",
+	},
+	{
+		name:  "insert at beginning",
+		given: "{..}Hello 世界",
+		do:    []Edit{Change(Dot, "XYZ")},
+		want:  "{.}XYZ{.}Hello 世界",
+	},
+	{
+		name:  "insert in middle",
+		given: "H{..}ello 世界",
+		do:    []Edit{Change(Dot, "XYZ")},
+		want:  "H{.}XYZ{.}ello 世界",
+	},
+	{
+		name:  "insert at end",
+		given: "Hello 世界{..}",
+		do:    []Edit{Change(Dot, "XYZ")},
+		want:  "Hello 世界{.}XYZ{.}",
+	},
+	{
+		name:  "replace in middle",
+		given: "H{.}ello 世{.}界",
+		do:    []Edit{Change(Dot, "XYZ")},
+		want:  "H{.}XYZ{.}界",
+	},
+	{
+		name:  "delete updates marks",
+		given: "{..m}abc{mn}123{no}xyz{o}",
+		do:    []Edit{Change(Regexp("2"), "")},
+		want:  "{m}abc{mn}1{..}3{no}xyz{o}",
+	},
+	{
+		name:  "insert updates marks",
+		given: "{..m}abc{mn}123{no}xyz{o}",
+		do:    []Edit{Change(Regexp("2"), "xxx")},
+		want:  "{m}abc{mn}1{.}xxx{.}3{no}xyz{o}",
+	},
+
+	// Test escaping.
+	{
+		name:  "only delimiter",
+		given: "{..}",
+		do:    []Edit{Change(All, "/")},
+		want:  "{.}/{.}",
+	},
+	{
+		name:  "delimiter",
+		given: "{..}",
+		do:    []Edit{Change(All, "/abc/")},
+		want:  "{.}/abc/{.}",
+	},
+	{
+		name:  "escaped delimiter",
+		given: "{..}",
+		do:    []Edit{Change(All, `\/abc\/`)},
+		want:  "{.}/abc/{.}",
+	},
+	{
+		name:  "various escaped runes",
+		given: "{..}",
+		do:    []Edit{Change(All, `\α\b\…`)},
+		want:  "{.}αb…{.}",
+	},
+	{
+		name:  "only escape",
+		given: "{..}",
+		do:    []Edit{Change(All, `\`)},
+		want:  `{.}\{.}`,
+	},
+	{
+		name:  "escape at end",
+		given: "{..}",
+		do:    []Edit{Change(All, `text\`)},
+		want:  `{.}text\{.}`,
+	},
+	{
+		name:  "raw newline",
+		given: "{..}",
+		do:    []Edit{Change(All, "\n")},
+		want:  "{.}\n{.}",
+	},
+	{
+		name:  "escaped raw newline",
+		given: "{..}",
+		do:    []Edit{Change(All, "\\\n")},
+		want:  "{.}\n{.}",
+	},
+	{
+		name:  "literal newline",
+		given: "{..}",
+		do:    []Edit{Change(All, `\n`)},
+		want:  "{.}\n{.}",
+	},
+	{
+		name:  `escaped \ then n`,
+		given: "{..}",
+		do:    []Edit{Change(All, `\\n`)},
+		want:  `{.}\n{.}`,
+	},
+}
+
+func TestEditChange(t *testing.T) {
+	for _, test := range changeTests {
+		test.run(t)
+	}
+}
+
+func TestEditChangeFromString(t *testing.T) {
+	for _, test := range changeTests {
+		test.runFromString(t)
+	}
+}
+
+var appendTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{Append(Rune(1), "")},
+		error: "out of range",
+	},
+	{
+		name:  "append empty to beginning",
+		given: "{..}Hello 世界",
+		do:    []Edit{Append(Dot, "")},
+		want:  "{..}Hello 世界",
+	},
+	{
+		name:  "append empty to end",
+		given: "{..}Hello 世界",
+		do:    []Edit{Append(All, "")},
+		want:  "Hello 世界{..}",
+	},
+	{
+		name:  "append at beginning",
+		given: "{..}Hello 世界",
+		do:    []Edit{Append(Dot, "XYZ")},
+		want:  "{.}XYZ{.}Hello 世界",
+	},
+	{
+		name:  "append in middle",
+		given: "{.}H{.}ello 世界",
+		do:    []Edit{Append(Dot, "XYZ")},
+		want:  "H{.}XYZ{.}ello 世界",
+	},
+	{
+		name:  "append at end",
+		given: "{..}Hello 世界",
+		do:    []Edit{Append(All, "XYZ")},
+		want:  "Hello 世界{.}XYZ{.}",
+	},
+	{
+		name:  "updates marks",
+		given: "{..m}abc{mn}123{no}xyz{o}",
+		do:    []Edit{Append(Regexp("2"), "xxx")},
+		want:  "{m}abc{mn}12{.}xxx{.}3{no}xyz{o}",
+	},
+}
+
+func TestEditAppend(t *testing.T) {
+	for _, test := range appendTests {
+		test.run(t)
+	}
+}
+
+func TestEditAppendFromString(t *testing.T) {
+	for _, test := range appendTests {
+		test.runFromString(t)
+	}
+}
+
+var insertTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{Insert(Rune(1), "")},
+		error: "out of range",
+	},
+	{
+		name:  "insert empty at beginning",
+		given: "{..}Hello 世界",
+		do:    []Edit{Insert(Dot, "")},
+		want:  "{..}Hello 世界",
+	},
+	{
+		name:  "insert empty at end",
+		given: "Hello 世界{..}",
+		do:    []Edit{Insert(Dot, "")},
+		want:  "Hello 世界{..}",
+	},
+	{
+		name:  "insert at beginning",
+		given: "{..}Hello 世界",
+		do:    []Edit{Insert(All, "XYZ")},
+		want:  "{.}XYZ{.}Hello 世界",
+	},
+	{
+		name:  "insert in middle",
+		given: "H{.}e{.}llo 世界",
+		do:    []Edit{Insert(Dot, "XYZ")},
+		want:  "H{.}XYZ{.}ello 世界",
+	},
+	{
+		name:  "insert at end",
+		given: "Hello 世界{..}",
+		do:    []Edit{Insert(Dot, "XYZ")},
+		want:  "Hello 世界{.}XYZ{.}",
+	},
+	{
+		name:  "updates marks",
+		given: "{..m}abc{mn}123{no}xyz{o}",
+		do:    []Edit{Insert(Regexp("2"), "xxx")},
+		want:  "{m}abc{mn}1{.}xxx{.}23{no}xyz{o}",
+	},
+}
+
+func TestEditInsert(t *testing.T) {
+	for _, test := range insertTests {
+		test.run(t)
+	}
+}
+
+func TestEditInsertFromString(t *testing.T) {
+	for _, test := range insertTests {
+		test.runFromString(t)
+	}
+}
+
+var deleteTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{Delete(Rune(1))},
+		error: "out of range",
+	},
+	{
+		name:  "delete empty buffer",
+		given: "{..}",
+		do:    []Edit{Delete(All)},
+		want:  "{..}",
+	},
+	{
+		name:  "delete all",
+		given: "{..}Hello 世界",
+		do:    []Edit{Delete(All)},
+		want:  "{..}",
+	},
+	{
+		name:  "delete nothing",
+		given: "{..}Hello 世界",
+		do:    []Edit{Delete(Dot)},
+		want:  "{..}Hello 世界",
+	},
+	{
+		name:  "delete from beginning",
+		given: "{.}XYZ{.}Hello 世界",
+		do:    []Edit{Delete(Dot)},
+		want:  "{..}Hello 世界",
+	},
+	{
+		name:  "delete from middle",
+		given: "Hell{.}XYZ{.}o 世界",
+		do:    []Edit{Delete(Dot)},
+		want:  "Hell{..}o 世界",
+	},
+	{
+		name:  "delete from end",
+		given: "Hello 世界{.}XYZ{.}",
+		do:    []Edit{Delete(Dot)},
+		want:  "Hello 世界{..}",
+	},
+	{
+		name:  "updates marks",
+		given: "{..m}abc{mn}123{no}xyz{o}",
+		do:    []Edit{Delete(Regexp("2"))},
+		want:  "{m}abc{mn}1{..}3{no}xyz{o}",
+	},
+}
+
+func TestEditDelete(t *testing.T) {
+	for _, test := range deleteTests {
+		test.run(t)
+	}
+}
+
+func TestEditDeleteFromString(t *testing.T) {
+	for _, test := range deleteTests {
+		test.runFromString(t)
+	}
+}
+
+var moveTests = []editTest{
+	{
+		name:  "first address out of range",
+		do:    []Edit{Move(Rune(1), Rune(2))},
+		error: "out of range",
+	},
+	{
+		name:  "second address out of range",
+		given: "{..}a",
+		do:    []Edit{Move(Rune(1), Rune(2))},
+		error: "out of range",
+		want:  "{..}a",
+	},
+	{
+		name:  "overlap beginning",
+		given: "{.}abcd{.}",
+		do:    []Edit{Move(Dot, Rune(1))},
+		error: "overlap",
+		want:  "{.}abcd{.}",
+	},
+	{
+		name:  "overlap middle",
+		given: "{.}abcd{.}",
+		do:    []Edit{Move(Dot, Rune(2))},
+		error: "overlap",
+		want:  "{.}abcd{.}",
+	},
+	{
+		name:  "overlap end",
+		given: "{.}abcd{.}",
+		do:    []Edit{Move(Dot, Rune(3))},
+		error: "overlap",
+		want:  "{.}abcd{.}",
+	},
+	{
+		name:  "move to same place",
+		given: "{.}abc{.}",
+		do:    []Edit{Move(Regexp("abc"), Dot)},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "move to beginning",
+		given: "xyz{.}abc{.}",
+		do:    []Edit{Move(Dot, Rune(0))},
+		want:  "{.}abc{.}xyz",
+	},
+	{
+		name:  "move to middle",
+		given: "111{.}abc{.}yz222",
+		do:    []Edit{Move(Dot, Regexp("y"))},
+		want:  "111y{.}abc{.}z222",
+	},
+	{
+		name:  "move to end",
+		given: "{.}xyz{.}abc",
+		do:    []Edit{Move(Dot, End)},
+		want:  "abc{.}xyz{.}",
+	},
+	{
+		name:  "update marks",
+		given: "{..m}abc{mn}123{no}xyz{opp}",
+		do:    []Edit{Move(Regexp("123"), Regexp("x"))},
+		want:  "{m}abc{mnno}x{.}123{.}yz{opp}",
+	},
+}
+
+func TestEditMove(t *testing.T) {
+	for _, test := range moveTests {
+		test.run(t)
+	}
+}
+
+func TestEditMoveFromString(t *testing.T) {
+	for _, test := range moveTests {
+		test.runFromString(t)
+	}
+}
+
+var copyTests = []editTest{
+	{
+		name:  "first address out of range",
+		do:    []Edit{Copy(Rune(1), Rune(2))},
+		error: "out of range",
+	},
+	{
+		name:  "second address out of range",
+		given: "{..}a",
+		do:    []Edit{Copy(Rune(1), Rune(2))},
+		error: "out of range",
+		want:  "{..}a",
+	},
+	{
+		name:  "copy to beginning",
+		given: "xyz{.}abc{.}",
+		do:    []Edit{Copy(Dot, Rune(0))},
+		want:  "{.}abc{.}xyzabc",
+	},
+	{
+		name:  "copy to middle",
+		given: "111{.}abc{.}yz222",
+		do:    []Edit{Copy(Dot, Regexp("y"))},
+		want:  "111abcy{.}abc{.}z222",
+	},
+	{
+		name:  "copy to end",
+		given: "{.}xyz{.}abc",
+		do:    []Edit{Copy(Dot, End)},
+		want:  "xyzabc{.}xyz{.}",
+	},
+	{
+		name:  "overlap beginning",
+		given: "{.}abcd{.}",
+		do:    []Edit{Copy(Dot, Rune(1))},
+		want:  "a{.}abcd{.}bcd",
+	},
+	{
+		name:  "overlap middle",
+		given: "{.}abcd{.}",
+		do:    []Edit{Copy(Dot, Rune(2))},
+		want:  "ab{.}abcd{.}cd",
+	},
+	{
+		name:  "overlap end",
+		given: "{.}abcd{.}",
+		do:    []Edit{Copy(Dot, Rune(3))},
+		want:  "abc{.}abcd{.}d",
+	},
+	{
+		name:  "update marks",
+		given: "{..m}abc{mn}123{no}xyz{opp}",
+		do:    []Edit{Copy(Regexp("123"), Regexp("x"))},
+		want:  "{m}abc{mn}123{no}x{.}123{.}yz{opp}",
+	},
+}
+
+func TestEditCopy(t *testing.T) {
+	for _, test := range copyTests {
+		test.run(t)
+	}
+}
+
+func TestEditCopyFromString(t *testing.T) {
+	for _, test := range copyTests {
+		test.runFromString(t)
+	}
+}
+
+var setTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{Set(Rune(1), '.')},
+		error: "out of range",
+	},
+	{
+		name:  "set dot to beginning",
+		given: "abc{.}123{.}xyz",
+		do:    []Edit{Set(Rune(0), '.')},
+		want:  "{..}abc123xyz",
+	},
+	{
+		name:  "set non-dot to beginning",
+		given: "abc{.}123{.}xyz",
+		do:    []Edit{Set(Rune(0), 'm')},
+		want:  "{mm}abc{.}123{.}xyz",
+	},
+	{
+		name:  "set dot to middle",
+		given: "{..}abc123xyz",
+		do:    []Edit{Set(Regexp("123"), '.')},
+		want:  "abc{.}123{.}xyz",
+	},
+	{
+		name:  "set non-dot to middle",
+		given: "abc{.}123{.}xyz",
+		do:    []Edit{Set(Regexp("123"), 'm')},
+		want:  "abc{.m}123{.m}xyz",
+	},
+	{
+		name:  "set dot to end",
+		given: "abc{.}123{.}xyz",
+		do:    []Edit{Set(End, '.')},
+		want:  "abc123xyz{..}",
+	},
+	{
+		name:  "set non-dot to end",
+		given: "abc{.}123{.}xyz",
+		do:    []Edit{Set(End, 'm')},
+		want:  "abc{.}123{.}xyz{mm}",
+	},
+	{
+		name:  "set space sets dot",
+		given: "{..}abc",
+		do:    []Edit{Set(Regexp("b"), ' ')},
+		want:  "a{.}b{.}c",
+	},
+}
+
+func TestEditSet(t *testing.T) {
+	for _, test := range setTests {
+		test.run(t)
+	}
+}
+
+func TestEditSetFromString(t *testing.T) {
+	for _, test := range setTests {
+		test.runFromString(t)
+	}
+}
+
+var printTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{Print(Rune(1))},
+		error: "out of range",
+	},
+	{
+		name:  "print empty range",
+		given: "abc{..}xyz",
+		do:    []Edit{Print(Dot)},
+		want:  "abc{..}xyz",
+		print: "",
+	},
+	{
+		name:  "print empty buffer",
+		given: "{..}",
+		do:    []Edit{Print(All)},
+		want:  "{..}",
+		print: "",
+	},
+	{
+		name:  "print nonempty buffer",
+		given: "{..}abcxyz",
+		do:    []Edit{Print(All)},
+		want:  "{.}abcxyz{.}",
+		print: "abcxyz",
+	},
+	{
+		name:  "print non-empty",
+		given: "{..}abcαβξxyz",
+		do:    []Edit{Print(Regexp("αβξ"))},
+		want:  "abc{.}αβξ{.}xyz",
+		print: "αβξ",
+	},
+}
+
+func TestEditPrint(t *testing.T) {
+	for _, test := range printTests {
+		test.run(t)
+	}
+}
+
+func TestEditPrintFromString(t *testing.T) {
+	for _, test := range printTests {
+		test.runFromString(t)
+	}
+}
+
+var whereTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{Where(Rune(1))},
+		error: "out of range",
+	},
+	{
+		name:  "where empty buffer",
+		given: "{..}",
+		do:    []Edit{Where(All)},
+		want:  "{..}",
+		print: "#0",
+	},
+	{
+		name:  "where beginning point",
+		given: "abcxyz{..}",
+		do:    []Edit{Where(Rune(0))},
+		want:  "{..}abcxyz",
+		print: "#0",
+	},
+	{
+		name:  "where middle point",
+		given: "{..}abcxyz",
+		do:    []Edit{Where(Rune(3))},
+		want:  "abc{..}xyz",
+		print: "#3",
+	},
+	{
+		name:  "where end point",
+		given: "{..}abcxyz",
+		do:    []Edit{Where(End)},
+		want:  "abcxyz{..}",
+		print: "#6",
+	},
+	{
+		name:  "where beginning range",
+		given: "abcxyz{..}",
+		do:    []Edit{Where(Regexp("abc"))},
+		want:  "{.}abc{.}xyz",
+		print: "#0,#3",
+	},
+	{
+		name:  "where middle range",
+		given: "{..}abcxyz",
+		do:    []Edit{Where(Regexp("cx"))},
+		want:  "ab{.}cx{.}yz",
+		print: "#2,#4",
+	},
+	{
+		name:  "where end range",
+		given: "{..}abcxyz",
+		do:    []Edit{Where(Regexp("xyz"))},
+		want:  "abc{.}xyz{.}",
+		print: "#3,#6",
+	},
+}
+
+func TestEditWhere(t *testing.T) {
+	for _, test := range whereTests {
+		test.run(t)
+	}
+}
+
+func TestEditWhereFromString(t *testing.T) {
+	for _, test := range whereTests {
+		test.runFromString(t)
+	}
+}
+
+var whereLineTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{WhereLine(Rune(1))},
+		error: "out of range",
+	},
+	{
+		name:  "where line empty buffer",
+		given: "{..}",
+		do:    []Edit{WhereLine(All)},
+		want:  "{..}",
+		print: "1",
+	},
+	{
+		name:  "where line 0",
+		given: "{..}abc\nxyz\n123\n",
+		do:    []Edit{WhereLine(Line(0))},
+		want:  "{..}abc\nxyz\n123\n",
+		print: "1",
+	},
+	{
+		name:  "where line 1",
+		given: "{..}abc\nxyz\n123\n",
+		do:    []Edit{WhereLine(Line(1))},
+		want:  "{.}abc\n{.}xyz\n123\n",
+		print: "1",
+	},
+	{
+		name:  "where line 2",
+		given: "{..}abc\nxyz\n123\n",
+		do:    []Edit{WhereLine(Line(2))},
+		want:  "abc\n{.}xyz\n{.}123\n",
+		print: "2",
+	},
+	{
+		name:  "where line 3",
+		given: "{..}abc\nxyz\n123\n",
+		do:    []Edit{WhereLine(Line(3))},
+		want:  "abc\nxyz\n{.}123\n{.}",
+		print: "3",
+	},
+	{
+		name:  "where line empty at end",
+		given: "{..}abc\nxyz\n123\n",
+		do:    []Edit{WhereLine(Line(4))},
+		want:  "abc\nxyz\n123\n{..}",
+		print: "4",
+	},
+	{
+		name:  "where line multi-line",
+		given: "{..}abc\nxyz\n123\n",
+		do:    []Edit{WhereLine(Line(2).To(Line(3)))},
+		want:  "abc\n{.}xyz\n123\n{.}",
+		print: "2,3",
+	},
+}
+
+func TestEditWhereLine(t *testing.T) {
+	for _, test := range whereLineTests {
+		test.run(t)
+	}
+}
+
+func TestEditWhereLineFromString(t *testing.T) {
+	for _, test := range whereLineTests {
+		test.runFromString(t)
+	}
+}
+
+var substituteTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{Sub(Rune(1), "a", "b")},
+		error: "out of range",
+	},
+	{
+		name:  "bad regexp",
+		do:    []Edit{Substitute{A: Rune(0), RE: "*"}},
+		error: "missing operand",
+	},
+	{
+		name:  "empty buffer",
+		given: "{..}",
+		do:    []Edit{Sub(All, ".*", "abc")},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "empty regexp",
+		given: "{.}xyz{.}",
+		do:    []Edit{Sub(All, "", "abc")},
+		want:  "{.}abcxyz{.}",
+	},
+	{
+		name:  "delete everything",
+		given: "{.}xyz{.}",
+		do:    []Edit{Sub(All, ".*", "")},
+		want:  "{..}",
+	},
+	{
+		name:  "replace beginning",
+		given: "{.}Hi 世界{.}",
+		do:    []Edit{Sub(All, "Hi", "Hello")},
+		want:  "{.}Hello 世界{.}",
+	},
+	{
+		name:  "replace middle",
+		given: "{.}Hello 世界{.}",
+		do:    []Edit{Sub(All, " ", " there ")},
+		want:  "{.}Hello there 世界{.}",
+	},
+	{
+		name:  "replace end",
+		given: "{.}Hello 世界{.}",
+		do:    []Edit{Sub(All, "世界", "World")},
+		want:  "{.}Hello World{.}",
+	},
+	{
+		name:  "not global",
+		given: "{.}aaa{.}",
+		do:    []Edit{Sub(All, "a", "b")},
+		want:  "{.}baa{.}",
+	},
+	{
+		name:  "global all in a row",
+		given: "{.}aaa{.}",
+		do:    []Edit{SubGlobal(All, "a", "b")},
+		want:  "{.}bbb{.}",
+	},
+	{
+		name:  "global not in a row",
+		given: "{.}abaca{.}",
+		do:    []Edit{SubGlobal(All, "a", "x")},
+		want:  "{.}xbxcx{.}",
+	},
+	{
+		name:  "restricted to address",
+		given: "a{.}a{.}a",
+		do:    []Edit{SubGlobal(Dot, "a", "b")},
+		want:  "a{.}b{.}a",
+	},
+	{
+		name:  "update marks",
+		given: "{..}:abc:;123;,xyz,//",
+		do:    []Edit{Sub(All, "2", "xxx")},
+		want:  "{.}:abc:;1xxx3;,xyz,//{.}",
+	},
+
+	{
+		name:  "subexprs",
+		given: "{..}abcdefghi",
+		do:    []Edit{Sub(All, "(abc)(def)(ghi)", `\0 \1 \2 \3`)},
+		want:  "{.}abcdefghi abc def ghi{.}",
+	},
+	{
+		name:  "subexprs and literals",
+		given: "{..}abcxyz",
+		do:    []Edit{Sub(All, "(abc)(xyz)", `\2123\1`)},
+		want:  "{.}xyz123abc{.}",
+	},
+	{
+		name:  "missing subexpr BUG",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc(xyz)?", `123\1456`)},
+		// BUG(eaburns): shouldn't have abc!
+		want: "{.}123abc456{.}",
+	},
+	{
+		name:  "missing subexpr",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc(xyz)?", `123\2456`)},
+		want:  "{.}123456{.}",
+	},
+	{
+		name:  "replace every rune",
+		given: "{..}Hello 世界",
+		do:    []Edit{SubGlobal(All, "(.)", `\1x`)},
+		want:  "{.}Hxexlxlxox x世x界x{.}",
+	},
+	{
+		name:  "from negative",
+		given: "{..}aaaa",
+		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: -1}},
+		want:  "{.}baaa{.}",
+	},
+	{
+		name:  "from 0",
+		given: "{..}aaaa",
+		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 0}},
+		want:  "{.}baaa{.}",
+	},
+	{
+		name:  "from 1",
+		given: "{..}aaaa",
+		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 1}},
+		want:  "{.}baaa{.}",
+	},
+	{
+		name:  "from 2",
+		given: "{..}aaaa",
+		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 2}},
+		want:  "{.}abaa{.}",
+	},
+	{
+		name:  "from 3",
+		given: "{..}aaaa",
+		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 3}},
+		want:  "{.}aaba{.}",
+	},
+	{
+		name:  "from 3 global",
+		given: "{..}aaaa",
+		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 3, Global: true}},
+		want:  "{.}aabb{.}",
+	},
+
+	// Test regexp escaping.
+	{
+		name:  "only delimiter regexp",
+		given: "{..}/",
+		do:    []Edit{Sub(All, "/", "xyz")},
+		want:  "{.}xyz{.}",
+	},
+	{
+		name:  "delimiter regexp",
+		given: "{..}/abc/",
+		do:    []Edit{Sub(All, "/abc/", "xyz")},
+		want:  "{.}xyz{.}",
+	},
+	{
+		name:  "escaped delimiter regexp",
+		given: "{..}/abc/",
+		do:    []Edit{Sub(All, `\/abc\/`, "xyz")},
+		want:  "{.}xyz{.}",
+	},
+	{
+		name:  "various escaped runes regexp",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, `\a\b\c`, "xyz")},
+		want:  "{.}xyz{.}",
+	},
+	{
+		name:  "only escape regexp",
+		given: `{..}\`,
+		do:    []Edit{Sub(All, `\`, "xyz")},
+		want:  "{.}xyz{.}",
+	},
+	{
+		name:  "escape at end regexp",
+		given: `{..}abc\`,
+		do:    []Edit{Sub(All, `abc\`, "xyz")},
+		want:  "{.}xyz{.}",
+	},
+	{
+		name:  "raw newline regexp",
+		given: "{..}abc\n",
+		do:    []Edit{Sub(All, "abc\n", "xyz")},
+		want:  "{.}xyz{.}",
+	},
+	{
+		name:  "escaped raw newline regexp",
+		given: "{..}abc\n",
+		do:    []Edit{Sub(All, "abc\\\n", "xyz")},
+		want:  "{.}xyz{.}",
+	},
+	{
+		name:  "literal newline regexp",
+		given: "{..}abc\n",
+		do:    []Edit{Sub(All, `abc\n`, "xyz")},
+		want:  "{.}xyz{.}",
+	},
+	{
+		name:  `escape \ then n regexp`,
+		given: `{..}abc\n`,
+		do:    []Edit{Sub(All, `abc\\n`, "xyz")},
+		want:  `{.}xyz{.}`,
+	},
+
+	// Test with escaping.
+	{
+		name:  "only delimiter with",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc", "/")},
+		want:  "{.}/{.}",
+	},
+	{
+		name:  "delimiter with",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc", "/xyz/")},
+		want:  "{.}/xyz/{.}",
+	},
+	{
+		name:  "escaped delimiter with",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc", `\/xyz\/`)},
+		want:  "{.}/xyz/{.}",
+	},
+	{
+		name:  "various escaped runes with",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc", `\x\y\z`)},
+		want:  "{.}xyz{.}",
+	},
+	{
+		name:  "only escape with",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc", `\`)},
+		want:  `{.}\{.}`,
+	},
+	{
+		name:  "escape at end with",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc", `xyz\`)},
+		want:  `{.}xyz\{.}`,
+	},
+	{
+		name:  "raw newline with",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc", "xyz\n")},
+		want:  "{.}xyz\n{.}",
+	},
+	{
+		name:  "escaped raw newline with",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc", "xyz\\\n")},
+		want:  "{.}xyz\n{.}",
+	},
+	{
+		name:  "literal newline with",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc", "xyz\n")},
+		want:  "{.}xyz\n{.}",
+	},
+	{
+		name:  `escape \ then n with`,
+		given: "{..}abc",
+		do:    []Edit{Sub(All, `abc`, `xyz\\n`)},
+		want:  `{.}xyz\n{.}`,
+	},
+}
+
+func TestEditSubstitute(t *testing.T) {
+	for _, test := range substituteTests {
+		test.run(t)
+	}
+}
+
+func TestEditSubstituteFromString(t *testing.T) {
+	for _, test := range substituteTests {
+		test.runFromString(t)
+	}
+}
+
+var pipeFromTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{PipeFrom(Rune(1), "echo hi")},
+		error: "out of range",
+	},
+	{
+		name:  "command fails",
+		do:    []Edit{PipeFrom(End, "false")},
+		error: "exit status 1",
+	},
+	{
+		name:  "print stderr",
+		do:    []Edit{PipeFrom(End, "echo -n stderr 1>&2")},
+		print: "stderr",
+	},
+	{
+		name:  "fill empty buffer",
+		given: "{..}",
+		do:    []Edit{PipeFrom(All, "echo -n Hello 世界")},
+		want:  "{.}Hello 世界{.}",
+	},
+	{
+		name:  "insert before",
+		given: "{..} 世界",
+		do:    []Edit{PipeFrom(Dot, "echo -n Hello")},
+		want:  "{.}Hello{.} 世界",
+	},
+	{
+		name:  "insert middle",
+		given: "{..}He 世界",
+		do:    []Edit{PipeFrom(Regexp("He").Plus(Rune(0)), "echo -n llo")},
+		want:  "He{.}llo{.} 世界",
+	},
+	{
+		name:  "insert after",
+		given: "{..}Hello ",
+		do:    []Edit{PipeFrom(End, "echo -n 世界")},
+		want:  "Hello {.}世界{.}",
+	},
+}
+
+func TestEditPipeFrom(t *testing.T) {
+	for _, test := range pipeFromTests {
+		test.run(t)
+	}
+}
+
+func TestEditPipeFromFromString(t *testing.T) {
+	for _, test := range pipeFromTests {
+		test.runFromString(t)
+	}
+}
+
+var pipeToTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{PipeTo(Rune(1), "echo hi")},
+		error: "out of range",
+	},
+	{
+		name:  "command fails",
+		do:    []Edit{PipeTo(End, "false")},
+		error: "exit status 1",
+	},
+	{
+		name:  "print stdout",
+		do:    []Edit{PipeTo(End, "echo -n stdout")},
+		print: "stdout",
+	},
+	{
+		name:  "print stderr",
+		do:    []Edit{PipeTo(End, "echo -n stderr 1>&2")},
+		print: "stderr",
+	},
+	{
+		name:  "empty",
+		given: "{..}",
+		do:    []Edit{PipeTo(All, "cat")},
+		print: "",
+		want:  "{..}",
+	},
+	{
+		name:  "non-empty",
+		given: "{.}Hello 世界{.}",
+		do:    []Edit{PipeTo(Dot, "cat")},
+		print: "Hello 世界",
+		want:  "{.}Hello 世界{.}",
+	},
+}
+
+func TestEditPipeTo(t *testing.T) {
+	for _, test := range pipeToTests {
+		test.run(t)
+	}
+}
+
+func TestEditPipeToFromString(t *testing.T) {
+	for _, test := range pipeToTests {
+		test.runFromString(t)
+	}
+}
+
+var pipeTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{Pipe(Rune(1), "echo hi")},
+		error: "out of range",
+	},
+	{
+		name:  "command fails",
+		do:    []Edit{Pipe(End, "false")},
+		error: "exit status 1",
+	},
+	{
+		name:  "print stderr",
+		do:    []Edit{Pipe(End, "echo -n stderr 1>&2")},
+		print: "stderr",
+	},
+	{
+		name:  "empty",
+		given: "{..}",
+		do:    []Edit{Pipe(All, "cat")},
+		want:  "{..}",
+	},
+	{
+		name:  "empty inserts",
+		given: "{..}",
+		do:    []Edit{Pipe(All, "echo -n Hello 世界")},
+		want:  "{.}Hello 世界{.}",
+	},
+	{
+		name:  "empty replaces",
+		given: "{.}Hello 世界{.}",
+		do:    []Edit{Pipe(Dot, "sed 's/世界/World/'")},
+		want:  "{.}Hello World{.}",
+	},
+}
+
+func TestEditPipe(t *testing.T) {
+	for _, test := range pipeTests {
+		test.run(t)
+	}
+}
+
+func TestEditPipeFromString(t *testing.T) {
+	for _, test := range pipeTests {
+		test.runFromString(t)
+	}
+}
+
+func TestPipeDefaultShell(t *testing.T) {
+	// Unset the shell and make sure that everything still works.
+	if err := os.Unsetenv("SHELL"); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range pipeTests {
+		test.run(t)
+	}
+}
+
+var undoTests = []editTest{
+	{
+		name:  "empty undo 1",
+		given: "{..}",
+		do:    []Edit{Undo(1)},
+		want:  "{..}",
+	},
+	{
+		name:  "empty undo 100",
+		given: "{..}",
+		do:    []Edit{Undo(100)},
+		want:  "{..}",
+	},
+	{
+		name:  "1 append, undo 1",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Undo(1)},
+		want:  "{..}",
+	},
+	{
+		name:  "1 append, undo 0",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Undo(0)},
+		want:  "{..}",
+	},
+	{
+		name:  "1 append, undo -1",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Undo(-1)},
+		want:  "{..}",
+	},
+	{
+		name:  "2 appends, undo 1",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(1)},
+		want:  "abc{..}",
+	},
+	{
+		name:  "2 appends, undo 2",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(2)},
+		want:  "{..}",
+	},
+	{
+		name:  "2 appends, undo 3",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(3)},
+		want:  "{..}",
+	},
+	{
+		name:  "1 delete, undo 1",
+		given: "{.}abc{.}",
+		do:    []Edit{Delete(All), Undo(1)},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "2 deletes, undo 1",
+		given: "{.}abc{.}",
+		do: []Edit{
+			Delete(Rune(2).To(End)),
+			Delete(Rune(1).To(End)),
+			Undo(1),
+		},
+		want: "a{.}b{.}",
+	},
+	{
+		name:  "2 deletes, undo 2",
+		given: "{.}abc{.}",
+		do: []Edit{
+			Delete(Rune(2).To(End)),
+			Delete(Rune(1).To(End)),
+			Undo(2),
+		},
+		want: "ab{.}c{.}",
+	},
+	{
+		name:  "delete middle, undo",
+		given: "{.}abc{.}",
+		do: []Edit{
+			Delete(Rune(1).To(Rune(2))),
+			Undo(1),
+		},
+		want: "a{.}b{.}c",
+	},
+	{
+		name:  "multi-change undo",
+		given: "{.}a.a.a{.}",
+		do: []Edit{
+			SubGlobal(All, "[.]", "z"),
+			Undo(1),
+		},
+		want: "a{.}.a.{.}a",
+	},
+	{
+		name:  "update marks",
+		given: "{.}{z}ZZZ{z}{a}AbA{a}{x}XXX{x}{.}",
+		do: []Edit{
+			Delete(Regexp("b")),
+			Undo(1),
+		},
+		want: "{z}ZZZ{z}{a}A{.}b{.}A{a}{x}XXX{x}",
+	},
+}
+
+func TestEditUndo(t *testing.T) {
+	for _, test := range undoTests {
+		test.run(t)
+	}
+}
+
+func TestEditUndoFromString(t *testing.T) {
+	for _, test := range undoTests {
+		test.runFromString(t)
+	}
+}
+
+var redoTests = []editTest{
+	{
+		name:  "empty redo 1",
+		given: "{.}abc{.}",
+		do:    []Edit{Redo(1)},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "empty redo 100",
+		given: "{.}abc{.}",
+		do:    []Edit{Redo(100)},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "undo 1 append redo 1",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Undo(1), Redo(1)},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "undo 1 append redo 0",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Undo(1), Redo(0)},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "undo 1 append redo -1",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Undo(1), Redo(-1)},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "undo 1 append redo 2",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Undo(1), Redo(2)},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "undo 2 appends redo 1",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(2), Redo(1)},
+		want:  "{.}abcxyz{.}",
+	},
+	{
+		name:  "undo undo appends redo 1",
+		given: "{..}",
+		do:    []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(1), Undo(1), Redo(1)},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "multi-change redo",
+		given: "{.}a.a.a{.}",
+		do: []Edit{
+			SubGlobal(All, "[.]", "z"),
+			Undo(1),
+			Redo(1),
+		},
+		want: "a{.}zaz{.}a",
+	},
+	{
+		name:  "update marks",
+		given: "{.}{z}ZZZ{z}{a}AbA{a}{x}XXX{x}{.}",
+		do: []Edit{
+			Delete(Regexp("b")),
+			Undo(1),
+			Redo(1),
+		},
+		want: "{z}ZZZ{z}{a}A{..}A{a}{x}XXX{x}",
+	},
+	{
+		name:  "append append undo undo redo undo redo",
+		given: "{..}",
+		do: []Edit{
+			Append(End, "abc"),
+			Append(End, "xyz"),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+		},
+		want: "abc{.}xyz{.}",
+	},
+}
+
+func TestEditRedo(t *testing.T) {
+	for _, test := range redoTests {
+		test.run(t)
+	}
+}
+
+func TestEditRedoFromString(t *testing.T) {
+	for _, test := range redoTests {
+		test.runFromString(t)
+	}
+}
+
+var updateMarkTests = []editTest{
+	{
+		name:  "delete after mark",
+		given: "{m}abc{m}___{.}xyz{.}",
+		do:    []Edit{Delete(Dot)},
+		want:  "{m}abc{m}___{..}",
+	},
+	{
+		name:  "append after mark",
+		given: "{m}abc{m}___{..}",
+		do:    []Edit{Append(Dot, "xyz")},
+		want:  "{m}abc{m}___{.}xyz{.}",
+	},
+	{
+		name:  "change after mark",
+		given: "{m}abc{m}___{.}xyz{.}",
+		do:    []Edit{Change(Dot, "123")},
+		want:  "{m}abc{m}___{.}123{.}",
+	},
+	{
+		name:  "delete inside mark",
+		given: "{m}a{.}b{.}c{m}",
+		do:    []Edit{Delete(Dot)},
+		want:  "{m}a{..}c{m}",
+	},
+	{
+		name:  "append inside mark",
+		given: "{m}a{.}b{.}c{m}",
+		do:    []Edit{Append(Dot, "αβξ")},
+		want:  "{m}ab{.}αβξ{.}c{m}",
+	},
+	{
+		name:  "change inside mark",
+		given: "{m}a{.}b{.}c{m}",
+		do:    []Edit{Change(Dot, "αβξ")},
+		want:  "{m}a{.}αβξ{.}c{m}",
+	},
+	{
+		name:  "delete before mark",
+		given: "{.}xyz{.}___{m}abc{m}",
+		do:    []Edit{Delete(Dot)},
+		want:  "{..}___{m}abc{m}",
+	},
+	{
+		name:  "append before mark",
+		given: "{..}___{m}abc{m}",
+		do:    []Edit{Append(Dot, "xyz")},
+		want:  "{.}xyz{.}___{m}abc{m}",
+	},
+	{
+		name:  "change before mark",
+		given: "{.}xyz{.}___{m}abc{m}",
+		do:    []Edit{Change(Dot, "123")},
+		want:  "{.}123{.}___{m}abc{m}",
+	},
+	{
+		name:  "delete prefix of mark",
+		given: "{.}xyz{m}a{.}bc{m}",
+		do:    []Edit{Delete(Dot)},
+		want:  "{..m}bc{m}",
+	},
+	{
+		name:  "append prefix of mark",
+		given: "{.}xyz{m}a{.}bc{m}",
+		do:    []Edit{Append(Dot, "123")},
+		want:  "xyz{m}a{.}123{.}bc{m}",
+	},
+	{
+		name:  "change prefix of mark",
+		given: "{.}xyz{m}a{.}bc{m}",
+		do:    []Edit{Change(Dot, "123")},
+		want:  "{.}123{.}{m}bc{m}",
+	},
+	{
+		name:  "delete suffix of mark",
+		given: "{m}ab{.}c{m}xyz{.}",
+		do:    []Edit{Delete(Dot)},
+		want:  "{m}ab{..m}",
+	},
+	{
+		name:  "append suffix of mark",
+		given: "{m}ab{.}c{m}xyz{.}",
+		do:    []Edit{Append(Dot, "123")},
+		want:  "{m}abc{m}xyz{.}123{.}",
+	},
+	{
+		name:  "change suffix of mark",
+		given: "{m}ab{.}c{m}xyz{.}",
+		do:    []Edit{Change(Dot, "123")},
+		want:  "{m}ab{.m}123{.}",
+	},
+	{
+		name:  "delete beginning of mark",
+		given: "{.}xyz{m.}abc{m}",
+		do:    []Edit{Delete(Dot)},
+		want:  "{..m}abc{m}",
+	},
+	{
+		name:  "append beginning of mark",
+		given: "{.}xyz{m.}abc{m}",
+		do:    []Edit{Append(Dot, "123")},
+		want:  "xyz{.}123{.}{m}abc{m}",
+	},
+	{
+		name:  "change beginning of mark",
+		given: "{.}xyz{m.}abc{m}",
+		do:    []Edit{Change(Dot, "123")},
+		want:  "{.}123{.m}abc{m}",
+	},
+	{
+		name:  "delete end of mark",
+		given: "{m}abc{.m}xyz{.}",
+		do:    []Edit{Delete(Dot)},
+		want:  "{m}abc{..m}",
+	},
+	{
+		name:  "append end of mark",
+		given: "{m}abc{.m}xyz{.}",
+		do:    []Edit{Append(Dot, "123")},
+		want:  "{m}abc{m}xyz{.}123{.}",
+	},
+	{
+		name:  "change end of mark",
+		given: "{m}abc{.m}xyz{.}",
+		do:    []Edit{Change(Dot, "123")},
+		want:  "{m}abc{.m}123{.}",
+	},
+}
+
+func TestUpdateMarks(t *testing.T) {
+	for _, test := range updateMarkTests {
+		test.run(t)
+	}
+}
+
+type editTest struct {
+	name string
+	// Given describes the editor state before the edits,
+	// and want describes the desired editor state after the edits.
+	//
+	// The editor state descriptions describe
+	// the contents of the buffer and the editor's marks.
+	// Runes that are not between { and } represent the buffer contents.
+	// Each rune between { and } represent
+	// the beginning (first occurrence)
+	// or end (second occurrence)
+	// of a mark region with the name of the rune.
+	//
+	// For example:
+	// 	"{mm}abc{.}xyz{.n}123{n}αβξ"
+	// Is a buffer with the contents:
+	// 	"abcxyz123αβξ"
+	// The mark m is the empty string at the beginning of the buffer.
+	// The mark . contains the text "xyz".
+	// The mark n contains the text "123".
+	given, want string
+	// Print is the desired text printed to the io.Writer passed to Editor.Do
+	// after all edits are performed.
+	print string
+	// Error is the first error expected when performing the Edits.
+	// If error is the empty string, no error is expected,
+	// otherwise error is a regular expression of the first error expected
+	// when performing the do Edits in sequence.
+	// After an error is encountered, no further Edits in the sequence are performed.
+	error string
+	// Do is the sequence of edits to perform for the test.
+	do []Edit
+}
+
+func (test editTest) run(t *testing.T) {
+	ed := newTestEditor(test.given)
+	defer ed.buf.Close()
+
+	print := bytes.NewBuffer(nil)
+	for i, e := range test.do {
+		err := ed.Do(e, print)
+		if !matchesError(test.error, err) {
+			t.Errorf("%s: Do(do[%d]=%q)=%v, want %q", test.name, i, e, err, test.error)
+		}
+		if err != nil {
+			break
+		}
+	}
+	if !ed.hasState(test.want) {
+		t.Errorf("%s: got %q, want %q", test.name, ed.stateString(), test.want)
+	}
+	if got := print.String(); got != test.print {
+		t.Errorf("%s: printed %q, want %q", test.name, got, test.print)
+	}
+}
+
+// RunFromString replaces each edit with the parsed of its string and calls run.
+func (test editTest) runFromString(t *testing.T) {
+	for i, e := range test.do {
+		rs := strings.NewReader(e.String())
+		E, err := Ed(rs)
+		if err != nil {
+			// If the test expects an error, it is typically expected from Do.
+			// Here, we allow it from Ed.
+			// For example, a bad regexp will error will show when Ed
+			// parses the bad regexp string, before we even get to Do.
+			if !matchesError(test.error, err) {
+				t.Errorf("%s: Ed(do[%d]=%q)=%v, want nil", test.name, i, e, err)
+			}
+			return
+		}
+		if rs.Len() > 0 {
+			// Nothing should be left over after the parse…
+			left, err := ioutil.ReadAll(rs)
+			if err != nil {
+				panic(err)
+			}
+			// …  except perhaps \n for pipe edits.
+			if len(left) != 1 || left[0] != '\n' {
+				t.Errorf("%s: Ed(do[%d]=%q) left over %q, want \"\"", test.name, i, e, string(left))
+			}
+		}
+		test.do[i] = E
+	}
+	test.run(t)
+}
+
+func newTestEditor(str string) *Editor {
+	contents, marks := parseState(str)
+	ed := NewEditor(NewBuffer())
+	r := strings.NewReader(contents)
+	if _, err := ed.ReaderFrom(All).ReadFrom(r); err != nil {
+		ed.buf.Close()
+		panic(err)
+	}
+	ed.marks = marks
+	return ed
+}
+
+func (ed *Editor) hasState(want string) bool {
+	want, marks := parseState(want)
+	if got := ed.String(); got != want {
+		return false
+	}
+	for m, a := range ed.marks {
+		if marks[m] != a {
+			return false
+		}
+		delete(marks, m)
+	}
+	return len(marks) == 0
+}
+
+func (ed *Editor) stateString() string {
+	marks := make(map[int64]RuneSlice)
+	for m, a := range ed.marks {
+		marks[a.from] = append(marks[a.from], m)
+		marks[a.to] = append(marks[a.to], m)
+	}
+	var c []rune
+	str := []rune(ed.String())
+	for i := 0; i < len(str)+1; i++ {
+		if ms := marks[int64(i)]; len(ms) > 0 {
+			sort.Sort(ms)
+			c = append(c, '{')
+			c = append(c, ms...)
+			c = append(c, '}')
+		}
+		if i < len(str) {
+			c = append(c, str[i])
+		}
+	}
+	return string(c)
+}
+
+type RuneSlice []rune
+
+func (rs RuneSlice) Len() int           { return len(rs) }
+func (rs RuneSlice) Less(i, j int) bool { return rs[i] < rs[j] }
+func (rs RuneSlice) Swap(i, j int)      { rs[i], rs[j] = rs[j], rs[i] }
+
+func parseState(str string) (string, map[rune]addr) {
+	var mark bool
+	var contents []rune
+	marks := make(map[rune]addr)
+	count := make(map[rune]int)
+	for _, r := range str {
+		switch {
+		case !mark && r == '{':
+			mark = true
+		case mark && r == '}':
+			mark = false
+		case mark:
+			count[r]++
+			at := int64(len(contents))
+			if a, ok := marks[r]; !ok {
+				marks[r] = addr{from: at}
+			} else {
+				marks[r] = addr{from: a.from, to: at}
+			}
+		default:
+			contents = append(contents, r)
+		}
+	}
+	for m, c := range count {
+		if c != 2 {
+			panic(fmt.Sprintf("%q, mark %c appears %d times", str, m, c))
+		}
+	}
+	return string(contents), marks
+}
+
+// MatchesError returns whether the regexp matches the error string.
+// If re is the empty string, matchesError returns whether err is nil.
+// Otherwise, it returns whether the err is non-nil and matched by the regexp.
+func matchesError(re string, err error) bool {
+	if re == "" {
+		return err == nil
+	}
+	return err != nil && regexp.MustCompile(re).MatchString(err.Error())
 }

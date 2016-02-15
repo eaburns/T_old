@@ -969,19 +969,19 @@ func Ed(rs io.RuneScanner) (Edit, error) {
 	}
 }
 
-// Re1Scanner serves two purposes:
+// Re1Reader serves two purposes:
 //
 // 1) It keeps track of runes consumed by re1.Compile.
 // These runes are the parsed regular expression.
 //
 // 2) re1 does not terminate on raw newlines; Ed and Addr do.
 // The re1Scanner returns io.EOF when it encounters a raw newline.
-type re1Scanner struct {
-	rs      io.RuneScanner
-	scanned []rune
+type re1Reader struct {
+	rs   io.RuneScanner
+	read []rune
 }
 
-func (rs *re1Scanner) ReadRune() (rune, int, error) {
+func (rs *re1Reader) ReadRune() (rune, int, error) {
 	switch r, w, err := rs.rs.ReadRune(); {
 	case err != nil:
 		return r, w, err
@@ -991,28 +991,20 @@ func (rs *re1Scanner) ReadRune() (rune, int, error) {
 		}
 		return rune(0), 0, io.EOF
 	default:
-		rs.scanned = append(rs.scanned, r)
+		rs.read = append(rs.read, r)
 		return r, w, err
 	}
-}
-
-func (rs *re1Scanner) UnreadRune() error {
-	if err := rs.rs.UnreadRune(); err != nil {
-		return err
-	}
-	rs.scanned = rs.scanned[:len(rs.scanned)-1]
-	return nil
 }
 
 func parseRegexp(rs io.RuneScanner) (rune, string, error) {
 	if err := skipSpace(rs); err != nil {
 		return 0, "", err
 	}
-	rs1 := &re1Scanner{rs: rs}
+	rs1 := &re1Reader{rs: rs}
 	if _, err := re1.Compile(rs1, re1.Options{Delimited: true}); err != nil {
 		return 0, "", err
 	}
-	delim, regexp := re1.RemoveDelimiter(string(rs1.scanned))
+	delim, regexp := re1.RemoveDelimiter(string(rs1.read))
 	return delim, regexp, nil
 }
 
@@ -1233,19 +1225,5 @@ func skipSpace(rs io.RuneScanner) error {
 		default:
 			return rs.UnreadRune()
 		}
-	}
-}
-
-func skipSingleNewline(rs io.RuneScanner) error {
-	// Eat a single trailing newline.
-	switch r, _, err := rs.ReadRune(); {
-	case err == io.EOF:
-		return nil
-	case err != nil:
-		return err
-	case r == '\n':
-		return nil
-	default:
-		return rs.UnreadRune()
 	}
 }

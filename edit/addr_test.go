@@ -12,286 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/eaburns/T/edit/runes"
 )
-
-func TestDotAddress(t *testing.T) {
-	str := "Hello, 世界!"
-	sz := int64(utf8.RuneCountInString(str))
-	tests := []addressTest{
-		{text: str, dot: pt(0), addr: Dot, want: pt(0)},
-		{text: str, dot: pt(5), addr: Dot, want: pt(5)},
-		{text: str, dot: rng(5, 6), addr: Dot, want: rng(5, 6)},
-		{text: str, dot: pt(sz), addr: Dot, want: pt(sz)},
-		{text: str, dot: rng(0, sz), addr: Dot, want: rng(0, sz)},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestMarkAddress(t *testing.T) {
-	str := "Hello, 世界!"
-	tests := []addressTest{
-		{text: str, marks: map[rune]addr{'a': {0, 0}}, addr: Mark('a'), want: pt(0)},
-		{text: str, marks: map[rune]addr{}, addr: Mark('a'), want: pt(0)},
-		{text: str, marks: map[rune]addr{'z': {0, 0}}, addr: Mark('z'), want: pt(0)},
-		{text: str, marks: map[rune]addr{'z': {1, 9}}, addr: Mark('z'), want: rng(1, 9)},
-		{text: str, marks: map[rune]addr{}, addr: Mark('☺'), want: pt(0)},
-		{text: str, marks: map[rune]addr{'☺': {1, 1}}, addr: Mark('☺'), want: pt(1)},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestEndAddress(t *testing.T) {
-	tests := []addressTest{
-		{text: "", addr: End, want: pt(0)},
-		{text: "Hello, World!", addr: End, want: pt(13)},
-		{text: "Hello, 世界!", addr: End, want: pt(10)},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestRuneAddress(t *testing.T) {
-	str := "Hello, 世界!"
-	sz := int64(utf8.RuneCountInString(str))
-	tests := []addressTest{
-		{text: str, addr: Rune(0), want: pt(0)},
-		{text: str, addr: Rune(3), want: pt(3)},
-		{text: str, addr: Rune(sz), want: pt(sz)},
-
-		{text: str, dot: pt(sz), addr: Rune(0), want: pt(sz)},
-		{text: str, dot: pt(sz), addr: Rune(-3), want: pt(sz - 3)},
-		{text: str, dot: pt(sz), addr: Rune(-sz), want: pt(0)},
-
-		{text: str, addr: Rune(10000), err: "out of range"},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestLineAddress(t *testing.T) {
-	tests := []addressTest{
-		{text: "", addr: Line(0), want: pt(0)},
-		{text: "aa", addr: Line(0), want: pt(0)},
-		{text: "aa\n", addr: Line(0), want: pt(0)},
-		{text: "aa", addr: Line(1), want: rng(0, 2)},
-		{text: "aa\n", addr: Line(1), want: rng(0, 3)},
-		{text: "\n", addr: Line(1), want: rng(0, 1)},
-		{text: "", addr: Line(1), want: pt(0)},
-		{text: "aa\nbb", addr: Line(2), want: rng(3, 5)},
-		{text: "aa\nbb\n", addr: Line(2), want: rng(3, 6)},
-		{text: "aa\n", addr: Line(2), want: pt(3)},
-		{text: "aa\nbb\ncc", addr: Line(3), want: rng(6, 8)},
-		{text: "aa\nbb\ncc\n", addr: Line(3), want: rng(6, 9)},
-		{text: "aa\nbb\n", addr: Line(3), want: pt(6)},
-
-		{dot: pt(2), text: "aa", addr: Line(0), want: pt(2)},
-		{dot: pt(3), text: "aa\n", addr: Line(0), want: pt(3)},
-
-		{text: "", addr: Line(2), err: "out of range"},
-		{text: "aa", addr: Line(2), err: "out of range"},
-		{text: "aa\n", addr: Line(3), err: "out of range"},
-		{text: "aa\nbb", addr: Line(3), err: "out of range"},
-		{text: "aa\nbb", addr: Line(10), err: "out of range"},
-
-		{text: "", addr: Line(-1), want: pt(0)},
-		{dot: pt(2), text: "aa", addr: Line(0).reverse(), want: rng(0, 2)},
-		{dot: pt(3), text: "aa\n", addr: Line(0).reverse(), want: pt(3)},
-		{dot: pt(2), text: "aa", addr: Line(-1), want: pt(0)},
-		{dot: pt(1), text: "aa", addr: Line(-1), want: pt(0)},
-		{dot: pt(1), text: "abc\ndef", addr: Line(-1), want: pt(0)},
-		{dot: pt(3), text: "aa\n", addr: Line(-1), want: rng(0, 3)},
-		{dot: pt(1), text: "\n", addr: Line(-1), want: rng(0, 1)},
-		{dot: pt(5), text: "aa\nbb", addr: Line(-2), want: pt(0)},
-		{dot: pt(6), text: "aa\nbb\n", addr: Line(-2), want: rng(0, 3)},
-		{dot: pt(3), text: "aa\n", addr: Line(-2), want: pt(0)},
-		{dot: pt(8), text: "aa\nbb\ncc", addr: Line(-3), want: pt(0)},
-		{dot: pt(9), text: "aa\nbb\ncc\n", addr: Line(-3), want: rng(0, 3)},
-		{dot: pt(6), text: "aa\nbb\n", addr: Line(-3), want: pt(0)},
-
-		{text: "", addr: Line(-2), err: "out of range"},
-		{dot: pt(2), text: "aa", addr: Line(-2), err: "out of range"},
-		{dot: pt(3), text: "aa\n", addr: Line(-3), err: "out of range"},
-		{dot: pt(5), text: "aa\nbb", addr: Line(-3), err: "out of range"},
-		{dot: pt(5), text: "aa\nbb", addr: Line(-10), err: "out of range"},
-
-		{text: "abc\ndef", dot: pt(1), addr: Line(0), want: rng(1, 4)},
-		{text: "abc\ndef", dot: pt(4), addr: Line(1), want: rng(4, 7)},
-		{text: "abc\ndef", dot: pt(3), addr: Line(-1), want: pt(0)},
-		{text: "abc\ndef", dot: pt(4), addr: Line(-1), want: rng(0, 4)},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestRegexpAddress(t *testing.T) {
-	tests := []addressTest{
-		{text: "Hello, 世界!", addr: Regexp(""), want: pt(0)},
-		{text: "Hello, 世界!", addr: Regexp("H"), want: rng(0, 1)},
-		{text: "Hello, 世界!", addr: Regexp("."), want: rng(0, 1)},
-		{text: "Hello, 世界!", addr: Regexp("世界"), want: rng(7, 9)},
-		{text: "Hello, 世界!", addr: Regexp("[^!]+"), want: rng(0, 9)},
-
-		{text: "Hello, 世界!", dot: pt(10), addr: Regexp("?"), want: pt(10)},
-		{text: "Hello, 世界!", dot: pt(10), addr: Regexp("?!"), want: rng(9, 10)},
-		{text: "Hello, 世界!", dot: pt(10), addr: Regexp("?."), want: rng(9, 10)},
-		{text: "Hello, 世界!", dot: pt(10), addr: Regexp("?H"), want: rng(0, 1)},
-		{text: "Hello, 世界!", dot: pt(10), addr: Regexp("?[^!]+"), want: rng(0, 9)},
-
-		{text: "Hello, 世界!", dot: pt(10), addr: Regexp("H").reverse(), want: rng(0, 1)},
-		{text: "Hello, 世界!", addr: Regexp("?H").reverse(), want: rng(0, 1)},
-
-		// Wrap.
-		{text: "Hello, 世界!", addr: Regexp("?世界"), want: rng(7, 9)},
-		{text: "Hello, 世界!", dot: pt(8), addr: Regexp("世界"), want: rng(7, 9)},
-
-		{text: "", addr: Regexp("()"), err: "operand"},
-		{text: "Hello, 世界!", addr: Regexp("☺"), err: "no match"},
-		{text: "Hello, 世界!", addr: Regexp("?☺"), err: "no match"},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-// Tests regexp String().
-func TestRegexpString(t *testing.T) {
-	tests := []struct {
-		re, want string
-	}{
-		{``, `//`},
-		{`abc`, `/abc/`},
-		{`ab/c`, `/ab\/c/`},
-		{`ab[/]c`, `/ab[/]c/`},
-		{`?`, `??`},
-		{`?abc`, `?abc?`},
-		{`?abc?`, `?abc?`},
-		{`?ab\?c?`, `?ab\?c?`},
-		{`?ab[?]c?`, `?ab[?]c?`},
-		{"\n", `/\n/`}, // Raw newlines are escaped.
-	}
-	for _, test := range tests {
-		re := Regexp(test.re)
-		if s := re.String(); s != test.want {
-			t.Errorf("Regexp(%q).String()=%q, want %q", test.re, s, test.want)
-		}
-	}
-}
-
-func TestPlusAddress(t *testing.T) {
-	tests := []addressTest{
-		{text: "abc", addr: Line(0).Plus(Rune(3)), want: pt(3)},
-		{text: "abc", addr: Rune(2).Plus(Rune(1)), want: pt(3)},
-		{text: "abc", addr: Rune(2).Plus(Rune(-1)), want: pt(1)},
-		{text: "abc\ndef", addr: Line(0).Plus(Line(1)), want: rng(0, 4)},
-		{text: "abc\ndef", addr: Line(1).Plus(Line(1)), want: rng(4, 7)},
-		{text: "abc\ndef", addr: Line(0).Plus(Line(-1)), want: pt(0)},
-		{text: "abc\ndef", addr: Line(1).Plus(Line(-1)), want: rng(0, 4)},
-		{text: "abc\ndef", addr: Rune(1).Plus(Line(0)), want: rng(1, 4)},
-
-		{text: "abc\ndef", dot: pt(1), addr: Dot.Plus(Line(-1)), want: pt(0)},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestMinusAddress(t *testing.T) {
-	tests := []addressTest{
-		{text: "abc", addr: Line(0).Minus(Rune(0)), want: pt(0)},
-		{text: "abc", addr: Rune(2).Minus(Rune(1)), want: pt(1)},
-		{text: "abc", addr: Rune(2).Minus(Rune(-1)), want: pt(3)},
-		{text: "abc\ndef", addr: Line(1).Minus(Line(1)), want: pt(0)},
-		{text: "abc\ndef", dot: rng(1, 6), addr: Dot.Minus(Line(1)).Plus(Line(1)), want: rng(0, 4)},
-		{text: "abc", dot: pt(3), addr: Dot.Minus(Regexp("aa?")), want: rng(0, 1)},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestToAddress(t *testing.T) {
-	tests := []addressTest{
-		{text: "abc", addr: Line(0).To(End), want: rng(0, 3)},
-		{text: "abc", dot: pt(1), addr: Dot.To(End), want: rng(1, 3)},
-		{text: "abc\ndef", addr: Line(0).To(Line(1)), want: rng(0, 4)},
-		{text: "abc\ndef", addr: Line(1).To(Line(2)), want: rng(0, 7)},
-		{
-			text: "abcabc",
-			addr: Regexp("abc").To(Regexp("b")),
-			want: rng(0, 2),
-		},
-		{
-			text: "abc\ndef\nghi\njkl",
-			dot:  pt(11),
-			addr: Regexp("?abc?").Plus(Line(1)).To(Dot),
-			want: rng(4, 11),
-		},
-		{text: "abc\ndef", addr: Line(0).To(Line(1)).To(Line(2)), want: rng(0, 7)},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-func TestThenAddress(t *testing.T) {
-	tests := []addressTest{
-		{text: "abcabc", addr: Regexp("abc").Then(Regexp("b")), want: rng(0, 5)},
-		{text: "abcabc", addr: Regexp("abc").Then(Dot.Plus(Rune(1))), want: rng(0, 4)},
-		{text: "abcabc", addr: Line(0).Plus(Rune(1)).Then(Dot.Plus(Rune(1))), want: rng(1, 2)},
-		{text: "abcabc", addr: Line(0).To(Rune(1)).Then(Dot.Plus(Rune(1))), want: rng(0, 2)},
-	}
-	for _, test := range tests {
-		test.run(t)
-	}
-}
-
-type addressTest struct {
-	text string
-	// If rev==false, the match starts from 0.
-	// If rev==true, the match starts from len(text).
-	dot   addr
-	marks map[rune]addr
-	addr  Address
-	want  addr
-	err   string // regexp matching the error string
-}
-
-func (test addressTest) run(t *testing.T) {
-	ed := NewEditor(NewBuffer())
-	defer ed.buf.Close()
-	if err := ed.buf.runes.Insert([]rune(test.text), 0); err != nil {
-		t.Fatalf(`Put("%s")=%v, want nil`, test.text, err)
-	}
-	if test.marks != nil {
-		ed.marks = test.marks
-	}
-	ed.marks['.'] = test.dot // Reset dot to the test dot.
-	a, err := test.addr.whereFrom(test.dot.to, ed)
-	var errStr string
-	if err != nil {
-		errStr = err.Error()
-	}
-	if a != test.want ||
-		(test.err == "" && errStr != "") ||
-		(test.err != "" && !regexp.MustCompile(test.err).MatchString(errStr)) {
-		t.Errorf(`Address(%q).range(%d, %q)=%v, %v, want %v, %v`,
-			test.addr.String(), test.dot, test.text, a, err,
-			test.want, test.err)
-	}
-}
-
-func pt(p int64) addr         { return addr{from: p, to: p} }
-func rng(from, to int64) addr { return addr{from: from, to: to} }
 
 func TestAddr(t *testing.T) {
 	tests := []struct {
@@ -409,6 +132,10 @@ func TestAddr(t *testing.T) {
 		{a: ";,", want: Line(0).Then(Line(0).To(End))},
 		{a: " ; , ", want: Line(0).Then(Line(0).To(End))},
 
+		// BUG(eaburns): #182, this should be Rune(0).To(Rune(1)).Then(Rune(2)).
+		// Rune(0).To(Rune(1).Then(Rune(2))) should be illegal.
+		{a: "#0,#1;#2", want: Rune(0).To(Rune(1).Then(Rune(2)))},
+
 		// Implicit +.
 		{a: "1#2", want: Line(1).Plus(Rune(2))},
 		{a: "#2 1", want: Rune(2).Plus(Line(1))},
@@ -441,55 +168,6 @@ func TestAddr(t *testing.T) {
 	}
 }
 
-func TestUpdate(t *testing.T) {
-	tests := []struct {
-		a, b, want addr
-		n          int64
-	}{
-		// b after a
-		{a: addr{10, 20}, b: addr{25, 30}, n: 0, want: addr{10, 20}},
-		{a: addr{10, 20}, b: addr{25, 30}, n: 100, want: addr{10, 20}},
-		{a: addr{10, 20}, b: addr{20, 30}, n: 0, want: addr{10, 20}},
-		{a: addr{10, 20}, b: addr{20, 30}, n: 100, want: addr{10, 20}},
-
-		// b before a
-		{a: addr{10, 20}, b: addr{0, 0}, n: 0, want: addr{10, 20}},
-		{a: addr{10, 20}, b: addr{0, 0}, n: 100, want: addr{110, 120}},
-		{a: addr{10, 20}, b: addr{0, 10}, n: 0, want: addr{0, 10}},
-		{a: addr{10, 20}, b: addr{0, 10}, n: 100, want: addr{100, 110}},
-
-		// b over the beginning of a
-		{a: addr{10, 20}, b: addr{0, 15}, n: 0, want: addr{0, 5}},
-		{a: addr{10, 20}, b: addr{0, 15}, n: 10, want: addr{10, 15}},
-		{a: addr{0, 3}, b: addr{0, 1}, n: 7, want: addr{7, 9}},
-
-		// b over the end of a
-		{a: addr{10, 20}, b: addr{15, 21}, n: 0, want: addr{10, 15}},
-		{a: addr{10, 20}, b: addr{15, 21}, n: 10, want: addr{10, 15}},
-
-		// b within a
-		{a: addr{10, 20}, b: addr{12, 18}, n: 0, want: addr{10, 14}},
-		{a: addr{10, 20}, b: addr{12, 18}, n: 1, want: addr{10, 15}},
-		{a: addr{10, 20}, b: addr{12, 18}, n: 100, want: addr{10, 114}},
-		{a: addr{10, 20}, b: addr{15, 20}, n: 0, want: addr{10, 15}},
-		{a: addr{10, 20}, b: addr{15, 20}, n: 10, want: addr{10, 25}},
-		{a: addr{0, 19}, b: addr{18, 19}, n: 2, want: addr{0, 20}},
-
-		// b over all of a
-		{a: addr{10, 20}, b: addr{10, 20}, n: 0, want: addr{10, 10}},
-		{a: addr{10, 20}, b: addr{0, 40}, n: 0, want: addr{0, 0}},
-		{a: addr{10, 20}, b: addr{0, 40}, n: 100, want: addr{100, 100}},
-	}
-	for _, test := range tests {
-		a := test.a.update(test.b, test.n)
-		if a != test.want {
-			t.Errorf("%v.update(%v, %d)=%v, want %v",
-				test.a, test.b, test.n, a, test.want)
-			continue
-		}
-	}
-}
-
 // TestAddressString tests that well-formed addresses
 // have valid and parsable address Strings()s.
 func TestAddressString(t *testing.T) {
@@ -509,6 +187,8 @@ func TestAddressString(t *testing.T) {
 		{addr: Line(-100), want: Dot.Minus(Line(100))},
 		{addr: Mark('a')},
 		{addr: Mark('z')},
+		// BUG(eaburns): #177 a whitespace mark should be dot.
+		// {addr: Mark(' ')},
 		{addr: Regexp("☺☹")},
 		{addr: Regexp("?☺☹")},
 		{addr: Regexp("?☺☹?")},
@@ -591,5 +271,769 @@ func TestIOErrors(t *testing.T) {
 			t.Errorf("Addr(%q).addr()=%v,%v, want addr{},%q", test, a, err, f.error)
 			continue
 		}
+	}
+}
+
+// Address returns an edit that sets the mark a to the given address.
+func address(a Address) []Edit { return []Edit{Set(a, 'a')} }
+
+var dotTests = []editTest{
+	{
+		name:  "empty dot at beginning",
+		given: "{..}",
+		do:    address(Dot),
+		want:  "{..aa}",
+	},
+	{
+		name:  "empty dot in middle",
+		given: "abc{..}xyz",
+		do:    address(Dot),
+		want:  "abc{..aa}xyz",
+	},
+	{
+		name:  "empty dot at end",
+		given: "abc{..}",
+		do:    address(Dot),
+		want:  "abc{..aa}",
+	},
+	{
+		name:  "range dot",
+		given: "abc{.}123{.}xyz",
+		do:    address(Dot),
+		want:  "abc{.a}123{.a}xyz",
+	},
+	{
+		name:  "range dot multi-byte runes",
+		given: "abc{.}αβξ{.}xyz",
+		do:    address(Dot),
+		want:  "abc{.a}αβξ{.a}xyz",
+	},
+	{
+		name:  "dot over all",
+		given: "{.}abc{.}",
+		do:    address(Dot),
+		want:  "{.a}abc{.a}",
+	},
+}
+
+func TestAddressDot(t *testing.T) {
+	for _, test := range dotTests {
+		test.run(t)
+	}
+}
+
+func TestAddressDotFromString(t *testing.T) {
+	for _, test := range dotTests {
+		test.runFromString(t)
+	}
+}
+
+var markTests = []editTest{
+	{
+		name:  "empty mark at beginning",
+		given: "{..mm}",
+		do:    address(Mark('m')),
+		want:  "{..aamm}",
+	},
+	{
+		name:  "empty mark in middle",
+		given: "{..}abc{mm}xyz",
+		do:    address(Mark('m')),
+		want:  "{..}abc{aamm}xyz",
+	},
+	{
+		name:  "empty mark at end",
+		given: "abc{..mm}",
+		do:    address(Mark('m')),
+		want:  "abc{..aamm}",
+	},
+	{
+		name:  "all mark",
+		given: "{..m}abc{m}",
+		do:    address(Mark('m')),
+		want:  "{..am}abc{am}",
+	},
+	{
+		name:  "not-previously-set mark",
+		given: "{..}abc",
+		do:    address(Mark('m')),
+		want:  "{..aa}abc",
+	},
+	{
+		name:  "dot mark",
+		given: "a{.}b{.}c",
+		do:    address(Mark('.')),
+		want:  "a{.a}b{.a}c",
+	},
+	// BUG(eaburns): #177 a whitespace mark should be dot.
+	//	{
+	//		name:  "whitespace mark is dot",
+	//		given: "a{.}b{.}c",
+	//		do:    address(Mark(' ')),
+	//		want:  "a{.a}b{.a}c",
+	//	},
+	{
+		name:  "non-ASCII mark",
+		given: "{..}a{☺}b{☺}c",
+		do:    address(Mark('☺')),
+		want:  "{..}a{a☺}b{a☺}c",
+	},
+}
+
+func TestAddressMark(t *testing.T) {
+	for _, test := range markTests {
+		test.run(t)
+	}
+}
+
+func TestAddressMarkFromString(t *testing.T) {
+	for _, test := range markTests {
+		test.runFromString(t)
+	}
+}
+
+var endTests = []editTest{
+	{
+		name:  "empty buffer",
+		given: "{..}",
+		do:    address(End),
+		want:  "{..aa}",
+	},
+	{
+		name:  "non-empty buffer",
+		given: "{..}abcxzy",
+		do:    address(End),
+		want:  "{..}abcxzy{aa}",
+	},
+}
+
+func TestAddressEnd(t *testing.T) {
+	for _, test := range endTests {
+		test.run(t)
+	}
+}
+
+func TestAddressEndFromString(t *testing.T) {
+	for _, test := range endTests {
+		test.runFromString(t)
+	}
+}
+
+var runeTests = []editTest{
+	{
+		name:  "out of range",
+		given: "{..}",
+		do:    address(Rune(1)),
+		error: "out of range",
+	},
+	{
+		name:  "out of range negative",
+		given: "{..}",
+		do:    address(Rune(-1)),
+		error: "out of range",
+	},
+	{
+		name:  "empty buffer",
+		given: "{..}",
+		do:    address(Rune(0)),
+		want:  "{..aa}",
+	},
+	{
+		name:  "beginning",
+		given: "abc{..}",
+		do:    address(Rune(0)),
+		want:  "{aa}abc{..}",
+	},
+	{
+		name:  "middle",
+		given: "{..}abc",
+		do:    address(Rune(1)),
+		want:  "{..}a{aa}bc",
+	},
+	{
+		name:  "end",
+		given: "{..}abc",
+		do:    address(Rune(3)),
+		want:  "{..}abc{aa}",
+	},
+	// BUG(eaburns): #178 negative Rune addresses should be Rune(0).
+	//	{
+	//		name:  "negative",
+	//		given: "abc{..}",
+	//		do:    address(Rune(-1)),
+	//		want:  "{aa}abc{..}",
+	//	},
+}
+
+func TestAddressRune(t *testing.T) {
+	for _, test := range runeTests {
+		test.run(t)
+	}
+}
+
+func TestAddressRuneFromString(t *testing.T) {
+	for _, test := range runeTests {
+		test.runFromString(t)
+	}
+}
+
+var lineTests = []editTest{
+	{
+		name:  "out of range",
+		given: "{..}",
+		do:    address(Line(2)),
+		error: "out of range",
+	},
+	{
+		name:  "empy buffer line 0",
+		given: "{..}",
+		do:    address(Line(0)),
+		want:  "{..aa}",
+	},
+	{
+		name:  "empy buffer line 1",
+		given: "{..}",
+		do:    address(Line(1)),
+		want:  "{..aa}",
+	},
+	{
+		name:  "line 0",
+		given: "{..}abc\n",
+		do:    address(Line(0)),
+		want:  "{..aa}abc\n",
+	},
+	{
+		name:  "line 1 no newline",
+		given: "{..}abc",
+		do:    address(Line(1)),
+		want:  "{..a}abc{a}",
+	},
+	{
+		name:  "line 1",
+		given: "{..}abc\n",
+		do:    address(Line(1)),
+		want:  "{..a}abc\n{a}",
+	},
+	{
+		name:  "line 2 empty",
+		given: "{..}abc\n",
+		do:    address(Line(2)),
+		want:  "{..}abc\n{aa}",
+	},
+	{
+		name:  "line 2 newline only",
+		given: "{..}abc\n\n",
+		do:    address(Line(2)),
+		want:  "{..}abc\n{a}\n{a}",
+	},
+	{
+		name:  "line 2 no newline",
+		given: "{..}abc\nxyz",
+		do:    address(Line(2)),
+		want:  "{..}abc\n{a}xyz{a}",
+	},
+	{
+		name:  "line 2",
+		given: "{..}abc\nxyz\n",
+		do:    address(Line(2)),
+		want:  "{..}abc\n{a}xyz\n{a}",
+	},
+	// BUG(eaburns): #178 negative Line addresses should be Line(0).
+	//	{
+	//		name:  "negative",
+	//		given: "abc{..}",
+	//		do:    address(Line(-1)),
+	//		want:  "{aa}abc{..}",
+	//	},
+}
+
+func TestAddressLine(t *testing.T) {
+	for _, test := range lineTests {
+		test.run(t)
+	}
+}
+
+func TestAddressLineFromString(t *testing.T) {
+	for _, test := range lineTests {
+		test.runFromString(t)
+	}
+}
+
+var regexpTests = []editTest{
+	{
+		name:  "bad regexp",
+		given: "{..}",
+		do:    address(Regexp("*")),
+		error: "missing operand",
+	},
+	{
+		name:  "no match",
+		given: "{..}",
+		do:    address(Regexp("xyz")),
+		error: "no match",
+	},
+	{
+		name:  "empty",
+		given: "{..}Hello 世界",
+		do:    address(Regexp("")),
+		want:  "{..aa}Hello 世界",
+	},
+	{
+		name:  "simple",
+		given: "{..}Hello 世界",
+		do:    address(Regexp("Hello")),
+		want:  "{..a}Hello{a} 世界",
+	},
+	{
+		name:  "meta",
+		given: "{..}Hello 世界",
+		do:    address(Regexp("[^ ]+")),
+		want:  "{..a}Hello{a} 世界",
+	},
+	{
+		name:  "non-ASCII",
+		given: "{..}Hello 世界",
+		do:    address(Regexp("世界")),
+		want:  "{..}Hello {a}世界{a}",
+	},
+	// BUG(eaburns): All tests below are subject to issue #180. Regexps should implicitly be relative to dot unless they are the operand of + or -.
+	//	{
+	//		name:  "relative to dot",
+	//		given: "abc{..}xyzabc",
+	//		do:    address(Regexp("abc")),
+	//		want:  "abc{..}xyz{a}abc{a}",
+	//	},
+	//	{
+	//		name:  "relative to dot in a range",
+	//		given: "abc{..}xyzabc",
+	//		do:    address(Rune(2).To(Regexp("abc"))),
+	//		want:  "ab{a}c{..}xyzabc{a}",
+	//	},
+	{
+		name:  "relative to a1 in a plus",
+		given: "12abc{..}xyzabc",
+		do:    address(Rune(2).Plus(Regexp("abc"))),
+		want:  "12{a}abc{a}{..}xyzabc",
+	},
+	{
+		name:  "relative to a1 in a minus",
+		given: "abc{..}xyzabc12",
+		do:    address(End.Minus(Regexp("abc"))),
+		want:  "abc{..}xyz{a}abc{a}12",
+	},
+	{
+		name:  "reverse simple",
+		given: "Hello 世界{..}",
+		do:    address(Dot.Plus(Regexp("?Hello"))),
+		want:  "{a}Hello{a} 世界{..}",
+	},
+	{
+		name:  "reverse meta",
+		given: "Hello 世界{..}",
+		do:    address(Dot.Plus(Regexp("?[^ ]+"))),
+		want:  "Hello {a}世界{..a}",
+	},
+	{
+		name:  "reverse non-ASCII",
+		given: "Hello 世界{..}",
+		do:    address(Dot.Plus(Regexp("?世界"))),
+		want:  "Hello {a}世界{..a}",
+	},
+	{
+		name:  "wrap",
+		given: "Hello {..}世界",
+		do:    address(Dot.Plus(Regexp("Hello"))),
+		want:  "{a}Hello{a} {..}世界",
+	},
+	{
+		name:  "reverse wrap",
+		given: "{..}Hello 世界",
+		do:    address(Dot.Plus(Regexp("?Hello"))),
+		want:  "{..}{a}Hello{a} 世界",
+	},
+}
+
+func TestAddressRegexp(t *testing.T) {
+	for _, test := range regexpTests {
+		test.run(t)
+	}
+}
+
+func TestAddressRegexpFromString(t *testing.T) {
+	for _, test := range regexpTests {
+		test.runFromString(t)
+	}
+}
+
+// Tests regexp String().
+func TestRegexpString(t *testing.T) {
+	tests := []struct {
+		re, want string
+	}{
+		{``, `//`},
+		{`abc`, `/abc/`},
+		{`ab/c`, `/ab\/c/`},
+		{`ab[/]c`, `/ab[/]c/`},
+		{`?`, `??`},
+		{`?abc`, `?abc?`},
+		{`?abc?`, `?abc?`},
+		{`?ab\?c?`, `?ab\?c?`},
+		{`?ab[?]c?`, `?ab[?]c?`},
+		{"\n", `/\n/`}, // Raw newlines are escaped.
+	}
+	for _, test := range tests {
+		re := Regexp(test.re)
+		if s := re.String(); s != test.want {
+			t.Errorf("Regexp(%q).String()=%q, want %q", test.re, s, test.want)
+		}
+	}
+}
+
+var plusTests = []editTest{
+	{
+		name:  "out of range",
+		given: "{..}",
+		do:    address(Dot.Plus(Rune(1))),
+		error: "out of range",
+	},
+	{
+		name:  "plus dot address",
+		given: "a{..}bc",
+		do:    address(Rune(0).Plus(Dot)),
+		want:  "a{..aa}bc",
+	},
+	{
+		name:  "plus end address",
+		given: "{..}abc",
+		do:    address(Rune(0).Plus(End)),
+		want:  "{..}abc{aa}",
+	},
+	{
+		name:  "plus mark address",
+		given: "{..}ab{mm}c",
+		do:    address(Rune(0).Plus(Mark('m'))),
+		want:  "{..}ab{aamm}c",
+	},
+	{
+		name:  "plus rune address",
+		given: "{..}abc",
+		do:    address(Dot.Plus(Rune(1))),
+		want:  "{..}a{aa}bc",
+	},
+	{
+		name:  "full line plus line address",
+		given: "{.}abc\n{.}abc",
+		do:    address(Dot.Plus(Line(1))),
+		want:  "{.}abc\n{.a}abc{a}",
+	},
+	{
+		name:  "partial line plus line address",
+		given: "{.}ab{.}c\nabc",
+		do:    address(Dot.Plus(Line(1))),
+		want:  "{.}ab{.}c\n{a}abc{a}",
+	},
+	{
+		name:  "plus compound address",
+		given: "{..}abc",
+		do:    address(Rune(1).Plus(Rune(1)).Plus(Rune(1))),
+		want:  "{..}abc{aa}",
+	},
+	{
+		name:  "plus range address",
+		given: "{..}abc",
+		do:    address(Regexp("ab").Plus(Rune(1))),
+		want:  "{..}abc{aa}",
+	},
+}
+
+func TestAddressPlus(t *testing.T) {
+	for _, test := range plusTests {
+		test.run(t)
+	}
+}
+
+func TestAddressPlusFromString(t *testing.T) {
+	for _, test := range plusTests {
+		test.runFromString(t)
+	}
+}
+
+var minusTests = []editTest{
+	{
+		name:  "rune out of range",
+		given: "{..}",
+		do:    address(Dot.Minus(Rune(1))),
+		error: "out of range",
+	},
+	{
+		name:  "line out of range",
+		given: "{..}",
+		do:    address(Dot.Minus(Line(2))),
+		error: "out of range",
+	},
+	{
+		name:  "minus dot address",
+		given: "a{..}bc",
+		do:    address(End.Minus(Dot)),
+		want:  "a{..aa}bc",
+	},
+	{
+		name:  "minus end address",
+		given: "{..}abc",
+		do:    address(End.Minus(End)),
+		want:  "{..}abc{aa}",
+	},
+	{
+		name:  "minus mark address",
+		given: "{..}ab{mm}c",
+		do:    address(End.Minus(Mark('m'))),
+		want:  "{..}ab{aamm}c",
+	},
+	{
+		name:  "minus rune",
+		given: "abc{..}",
+		do:    address(Dot.Minus(Rune(1))),
+		want:  "ab{aa}c{..}",
+	},
+	{
+		name:  "end minus line",
+		given: "abc\nabc{..}",
+		do:    address(Dot.Minus(Line(1))),
+		want:  "{a}abc\n{a}abc{..}",
+	},
+	{
+		name:  "full line minus line",
+		given: "abc\n{.}abc\n{.}",
+		do:    address(Dot.Minus(Line(1))),
+		want:  "{a}abc\n{.a}abc\n{.}",
+	},
+	{
+		name:  "partial line minus line",
+		given: "abc\na{.}bc\n{.}",
+		do:    address(Dot.Minus(Line(1))),
+		want:  "{a}abc\n{a}a{.}bc\n{.}",
+	},
+	{
+		name:  "minus line to #0",
+		given: "ab{..}c",
+		do:    address(Dot.Minus(Line(1))),
+		want:  "{aa}ab{..}c",
+	},
+	{
+		name:  "minus line to 1",
+		given: "abc\n{.}xyz{.}",
+		do:    address(Dot.Minus(Line(1))),
+		want:  "{a}abc\n{.a}xyz{.}",
+	},
+	{
+		name:  "minus to non-first line",
+		given: "abc\nabc\nabc{..}",
+		do:    address(Dot.Minus(Line(1))),
+		want:  "abc\n{a}abc\n{a}abc{..}",
+	},
+	{
+		name:  "???",
+		given: "abc\n{.}abc\n{.}abc{",
+		do:    address(Dot.Minus(Line(1))),
+		want:  "{a}abc\n{a}{.}abc\n{.}abc{",
+	},
+	{
+		name:  "minus compound address",
+		given: "abc{..}",
+		do:    address(Rune(2).Minus(Rune(1)).Minus(Rune(1))),
+		want:  "{aa}abc{..}",
+	},
+	{
+		name:  "minus range address",
+		given: "abc{..}",
+		do:    address(Regexp("bc").Minus(Rune(1))),
+		want:  "{aa}abc{..}",
+	},
+}
+
+func TestAddressMinus(t *testing.T) {
+	for _, test := range minusTests {
+		test.run(t)
+	}
+}
+
+func TestAddressMinusFromString(t *testing.T) {
+	for _, test := range minusTests {
+		test.runFromString(t)
+	}
+}
+
+var toTests = []editTest{
+	{
+		name:  "out of range",
+		given: "{..}",
+		do:    address(Dot.To(Rune(1))),
+		error: "out of range",
+	},
+	{
+		name:  "empty buffer",
+		given: "{..}",
+		do:    address(Rune(0).To(End)),
+		want:  "{..aa}",
+	},
+	{
+		name:  "simple address to simple address",
+		given: "{..}abc",
+		do:    address(Rune(0).To(Rune(3))),
+		want:  "{..a}abc{a}",
+	},
+	{
+		name:  "simple address to compound address",
+		given: "{..}abc",
+		do:    address(Rune(0).To(Rune(2).Plus(Rune(1)))),
+		want:  "{..a}abc{a}",
+	},
+	{
+		name:  "simple address to range address",
+		given: "{..}abc",
+		do:    address(Rune(0).To(Rune(2).To(Rune(3)))),
+		want:  "{..a}abc{a}",
+	},
+	{
+		name:  "compound address to simple address",
+		given: "{..}abc",
+		do:    address(Rune(0).Plus(Rune(1)).To(Rune(3))),
+		want:  "{..}a{a}bc{a}",
+	},
+	{
+		name:  "compound address to compound address",
+		given: "{..}abc",
+		do:    address(Rune(0).Plus(Rune(1)).To(Rune(2).Plus(Rune(1)))),
+		want:  "{..}a{a}bc{a}",
+	},
+	{
+		name:  "compound address to range address",
+		given: "{..}abc",
+		do:    address(Rune(0).Plus(Rune(1)).To(Rune(2).To(Rune(3)))),
+		want:  "{..}a{a}bc{a}",
+	},
+	{
+		name:  "range address to simple address",
+		given: "{..}abc",
+		do:    address(Rune(0).To(Rune(1)).To(Rune(2).To(Rune(3)))),
+		want:  "{..a}abc{a}",
+	},
+	{
+		name:  "range address to compound address",
+		given: "{..}abc",
+		do:    address(Rune(0).To(Rune(1)).To(Rune(2).Plus(Rune(1)))),
+		want:  "{..a}abc{a}",
+	},
+	{
+		name:  "range address to range address",
+		given: "{..}abc",
+		do:    address(Rune(0).To(Rune(1)).To(Rune(2).To(Rune(3)))),
+		want:  "{..a}abc{a}",
+	},
+}
+
+func TestAddressTo(t *testing.T) {
+	for _, test := range toTests {
+		test.run(t)
+	}
+}
+
+func TestAddressToFromString(t *testing.T) {
+	for _, test := range toTests {
+		test.runFromString(t)
+	}
+}
+
+var thenTests = []editTest{
+	{
+		name:  "out of range",
+		given: "{..}",
+		do:    address(Dot.Then(Rune(1))),
+		error: "out of range",
+	},
+	{
+		name:  "empty buffer",
+		given: "{..}",
+		do:    address(Rune(0).Then(End)),
+		want:  "{..aa}",
+	},
+
+	// BUG(eaburns): #179, don't treat ; like a range-based +.
+	{
+		name:  "simple address to simple address",
+		given: "{..}abc",
+		do:    address(Rune(1).Then(Rune(2))),
+		want:  "a{..a}bc{a}",
+	},
+	{
+		name:  "simple address to compound address",
+		given: "{..}abc",
+		do:    address(Rune(1).Then(Rune(1).Plus(Rune(1)))),
+		want:  "a{..a}bc{a}",
+	},
+	{
+		name:  "simple address to range address",
+		given: "{..}abcde",
+		do:    address(Rune(1).Then(Rune(2).To(Rune(3)))),
+		want:  "a{..a}bcd{a}e",
+	},
+	{
+		name:  "compound address to simple address",
+		given: "{..}abcde",
+		do:    address(Rune(0).Plus(Rune(1)).Then(Rune(3))),
+		want:  "a{..a}bcd{a}e",
+	},
+	{
+		name:  "compound address to compound address",
+		given: "{..}abcde",
+		do:    address(Rune(0).Plus(Rune(1)).Then(Rune(2).Plus(Rune(1)))),
+		want:  "a{..a}bcd{a}e",
+	},
+	{
+		name:  "compound address to range address",
+		given: "{..}abcde",
+		do:    address(Rune(0).Plus(Rune(1)).Then(Rune(2).To(Rune(3)))),
+		want:  "a{..a}bcd{a}e",
+	},
+
+	{
+		name:  "range address to simple address",
+		given: "{..}abcdef",
+		do:    address(Rune(0).To(Rune(1)).Then(Rune(2))),
+		want:  "{.a}a{.}bc{a}def",
+	},
+	{
+		name:  "range address to compound address",
+		given: "{..}abcde",
+		do:    address(Rune(0).To(Rune(1)).Then(Rune(2).Plus(Rune(1)))),
+		want:  "{.a}a{.}bcd{a}e",
+	},
+	{
+		name:  "range address to range address",
+		given: "{..}abcde",
+		do:    address(Rune(0).To(Rune(1)).Then(Rune(2).To(Rune(3)))),
+		want:  "{.a}a{.}bcd{a}e",
+	},
+	{
+		name:  "a2 evaluated from end of a1",
+		given: "{..}abcxyzabc",
+		do:    address(Regexp("xyz").Then(Regexp("abc"))),
+		want:  "abc{.a}xyz{.}abc{a}",
+	},
+}
+
+func TestAddressThen(t *testing.T) {
+	for _, test := range thenTests {
+		test.run(t)
+	}
+}
+
+func TestAddressThenFromString(t *testing.T) {
+	for _, test := range thenTests {
+		if strings.HasPrefix(test.name, "range address") {
+			// BUG(eaburns): #182, The string representation of these addresses is parsed as left-associative instead of right-associative.
+			continue
+		}
+		test.runFromString(t)
 	}
 }
