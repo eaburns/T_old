@@ -129,12 +129,26 @@ func TestAddr(t *testing.T) {
 		{a: " 1 ; 2 ", want: Line(1).Then(Line(2))},
 		{a: ";-#5", want: Line(0).Then(Dot.Minus(Rune(5)))},
 		{a: " ; - #5 ", want: Line(0).Then(Dot.Minus(Rune(5)))},
-		{a: ";,", want: Line(0).Then(Line(0).To(End))},
-		{a: " ; , ", want: Line(0).Then(Line(0).To(End))},
 
-		// BUG(eaburns): #182, this should be Rune(0).To(Rune(1)).Then(Rune(2)).
-		// Rune(0).To(Rune(1).Then(Rune(2))) should be illegal.
-		{a: "#0,#1;#2", want: Rune(0).To(Rune(1).Then(Rune(2)))},
+		// Right associative.
+		{a: "#0+#1+#2", want: Rune(0).Plus(Rune(1)).Plus(Rune(2))},
+		{a: "#0+#1-#2", want: Rune(0).Plus(Rune(1)).Minus(Rune(2))},
+		{a: "#0-#1-#2", want: Rune(0).Minus(Rune(1)).Minus(Rune(2))},
+		{a: "#0-#1+#2", want: Rune(0).Minus(Rune(1)).Plus(Rune(2))},
+		{a: "#0,#1,#2", want: Rune(0).To(Rune(1)).To(Rune(2))},
+		{a: "#0,#1;#2", want: Rune(0).To(Rune(1)).Then(Rune(2))},
+		{a: "#0;#1;#2", want: Rune(0).Then(Rune(1)).Then(Rune(2))},
+		{a: "#0;#1,#2", want: Rune(0).Then(Rune(1)).To(Rune(2))},
+
+		// + and - have higher precidence than , and ;
+		{a: "0+1,2+3", want: Line(0).Plus(Line(1)).To(Line(2).Plus(Line(3)))},
+		{a: "0-1,2-3", want: Line(0).Minus(Line(1)).To(Line(2).Minus(Line(3)))},
+		{a: "0+1,2-3", want: Line(0).Plus(Line(1)).To(Line(2).Minus(Line(3)))},
+		{a: "0-1,2+3", want: Line(0).Minus(Line(1)).To(Line(2).Plus(Line(3)))},
+		{a: "0+1;2+3", want: Line(0).Plus(Line(1)).Then(Line(2).Plus(Line(3)))},
+		{a: "0-1;2-3", want: Line(0).Minus(Line(1)).Then(Line(2).Minus(Line(3)))},
+		{a: "0+1;2-3", want: Line(0).Plus(Line(1)).Then(Line(2).Minus(Line(3)))},
+		{a: "0-1;2+3", want: Line(0).Minus(Line(1)).Then(Line(2).Plus(Line(3)))},
 
 		// Implicit +.
 		{a: "1#2", want: Line(1).Plus(Rune(2))},
@@ -143,6 +157,7 @@ func TestAddr(t *testing.T) {
 		{a: "/abc/1", want: Regexp("abc").Plus(Line(1))},
 		{a: "?abc?1", want: Regexp("?abc").Plus(Line(1))},
 		{a: "$?abc", want: End.Plus(Regexp("?abc"))},
+		{a: "1+2 3 - 4", want: Line(1).Plus(Line(2)).Plus(Line(3)).Minus(Line(4))},
 	}
 	for _, test := range tests {
 		rs := strings.NewReader(test.a)
@@ -889,12 +904,6 @@ var toTests = []editTest{
 		want:  "{..a}abc{a}",
 	},
 	{
-		name:  "simple address to range address",
-		given: "{..}abc",
-		do:    address(Rune(0).To(Rune(2).To(Rune(3)))),
-		want:  "{..a}abc{a}",
-	},
-	{
 		name:  "compound address to simple address",
 		given: "{..}abc",
 		do:    address(Rune(0).Plus(Rune(1)).To(Rune(3))),
@@ -907,27 +916,15 @@ var toTests = []editTest{
 		want:  "{..}a{a}bc{a}",
 	},
 	{
-		name:  "compound address to range address",
-		given: "{..}abc",
-		do:    address(Rune(0).Plus(Rune(1)).To(Rune(2).To(Rune(3)))),
-		want:  "{..}a{a}bc{a}",
-	},
-	{
 		name:  "range address to simple address",
 		given: "{..}abc",
-		do:    address(Rune(0).To(Rune(1)).To(Rune(2).To(Rune(3)))),
-		want:  "{..a}abc{a}",
+		do:    address(Rune(0).To(Rune(1)).To(Rune(2))),
+		want:  "{..a}ab{a}c",
 	},
 	{
 		name:  "range address to compound address",
 		given: "{..}abc",
 		do:    address(Rune(0).To(Rune(1)).To(Rune(2).Plus(Rune(1)))),
-		want:  "{..a}abc{a}",
-	},
-	{
-		name:  "range address to range address",
-		given: "{..}abc",
-		do:    address(Rune(0).To(Rune(1)).To(Rune(2).To(Rune(3)))),
 		want:  "{..a}abc{a}",
 	},
 }
@@ -960,58 +957,39 @@ var thenTests = []editTest{
 
 	// BUG(eaburns): #179, don't treat ; like a range-based +.
 	{
-		name:  "simple address to simple address",
+		name:  "simple address then simple address",
 		given: "{..}abc",
 		do:    address(Rune(1).Then(Rune(2))),
 		want:  "a{..a}bc{a}",
 	},
 	{
-		name:  "simple address to compound address",
+		name:  "simple address then compound address",
 		given: "{..}abc",
 		do:    address(Rune(1).Then(Rune(1).Plus(Rune(1)))),
 		want:  "a{..a}bc{a}",
 	},
 	{
-		name:  "simple address to range address",
-		given: "{..}abcde",
-		do:    address(Rune(1).Then(Rune(2).To(Rune(3)))),
-		want:  "a{..a}bcd{a}e",
-	},
-	{
-		name:  "compound address to simple address",
+		name:  "compound address then simple address",
 		given: "{..}abcde",
 		do:    address(Rune(0).Plus(Rune(1)).Then(Rune(3))),
 		want:  "a{..a}bcd{a}e",
 	},
 	{
-		name:  "compound address to compound address",
+		name:  "compound address then compound address",
 		given: "{..}abcde",
 		do:    address(Rune(0).Plus(Rune(1)).Then(Rune(2).Plus(Rune(1)))),
 		want:  "a{..a}bcd{a}e",
 	},
 	{
-		name:  "compound address to range address",
-		given: "{..}abcde",
-		do:    address(Rune(0).Plus(Rune(1)).Then(Rune(2).To(Rune(3)))),
-		want:  "a{..a}bcd{a}e",
-	},
-
-	{
-		name:  "range address to simple address",
+		name:  "range address then simple address",
 		given: "{..}abcdef",
 		do:    address(Rune(0).To(Rune(1)).Then(Rune(2))),
 		want:  "{.a}a{.}bc{a}def",
 	},
 	{
-		name:  "range address to compound address",
+		name:  "range address then compound address",
 		given: "{..}abcde",
 		do:    address(Rune(0).To(Rune(1)).Then(Rune(2).Plus(Rune(1)))),
-		want:  "{.a}a{.}bcd{a}e",
-	},
-	{
-		name:  "range address to range address",
-		given: "{..}abcde",
-		do:    address(Rune(0).To(Rune(1)).Then(Rune(2).To(Rune(3)))),
 		want:  "{.a}a{.}bcd{a}e",
 	},
 	{
@@ -1030,10 +1008,6 @@ func TestAddressThen(t *testing.T) {
 
 func TestAddressThenFromString(t *testing.T) {
 	for _, test := range thenTests {
-		if strings.HasPrefix(test.name, "range address") {
-			// BUG(eaburns): #182, The string representation of these addresses is parsed as left-associative instead of right-associative.
-			continue
-		}
 		test.runFromString(t)
 	}
 }
