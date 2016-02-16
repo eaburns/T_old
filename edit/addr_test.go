@@ -202,8 +202,7 @@ func TestAddressString(t *testing.T) {
 		{addr: Line(-100), want: Dot.Minus(Line(100))},
 		{addr: Mark('a')},
 		{addr: Mark('z')},
-		// BUG(eaburns): #177 a whitespace mark should be dot.
-		// {addr: Mark(' ')},
+		{addr: Mark(' ')},
 		{addr: Regexp("☺☹")},
 		{addr: Regexp("?☺☹")},
 		{addr: Regexp("?☺☹?")},
@@ -380,13 +379,12 @@ var markTests = []editTest{
 		do:    address(Mark('.')),
 		want:  "a{.a}b{.a}c",
 	},
-	// BUG(eaburns): #177 a whitespace mark should be dot.
-	//	{
-	//		name:  "whitespace mark is dot",
-	//		given: "a{.}b{.}c",
-	//		do:    address(Mark(' ')),
-	//		want:  "a{.a}b{.a}c",
-	//	},
+	{
+		name:  "whitespace mark is dot",
+		given: "a{.}b{.}c",
+		do:    address(Mark(' ')),
+		want:  "a{.a}b{.a}c",
+	},
 	{
 		name:  "non-ASCII mark",
 		given: "{..}a{☺}b{☺}c",

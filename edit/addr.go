@@ -251,7 +251,12 @@ type markAddr rune
 // Mark returns the address of the named mark rune.
 // The rune must be a lower-case or upper-case letter or dot: [a-zA-Z.].
 // An invalid mark rune results in an address that returns an error when evaluated.
-func Mark(r rune) SimpleAddress { return simpleAddr{markAddr(r)} }
+func Mark(r rune) SimpleAddress {
+	if unicode.IsSpace(r) {
+		r = '.'
+	}
+	return simpleAddr{markAddr(r)}
+}
 
 func (m markAddr) String() string { return "'" + string(rune(m)) }
 
