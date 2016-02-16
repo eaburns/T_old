@@ -35,8 +35,8 @@ type Address interface {
 	// but with dot set to the receiver address
 	// and with the argument evaluated from the end of the reciver
 	Then(AdditiveAddress) Address
+	// Where returns the addr of the Address.
 	where(*Editor) (addr, error)
-	whereFrom(from int64, ed *Editor) (addr, error)
 }
 
 // A addr identifies a substring within a buffer
@@ -93,17 +93,13 @@ func (a compoundAddr) String() string {
 }
 
 func (a compoundAddr) where(ed *Editor) (addr, error) {
-	return a.whereFrom(0, ed)
-}
-
-func (a compoundAddr) whereFrom(from int64, ed *Editor) (addr, error) {
-	a1, err := a.a1.whereFrom(from, ed)
+	a1, err := a.a1.where(ed)
 	if err != nil {
 		return addr{}, err
 	}
 	switch a.op {
 	case ',':
-		a2, err := a.a2.whereFrom(from, ed)
+		a2, err := a.a2.where(ed)
 		if err != nil {
 			return addr{}, err
 		}
@@ -111,7 +107,7 @@ func (a compoundAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	case ';':
 		origDot := ed.marks['.']
 		ed.marks['.'] = a1
-		a2, err := a.a2.whereFrom(a1.to, ed)
+		a2, err := a.a2.where(ed)
 		if err != nil {
 			ed.marks['.'] = origDot // Restore dot on error.
 			return addr{}, err
@@ -136,11 +132,14 @@ type AdditiveAddress interface {
 	// of the argument address evaluated in reverse
 	// from the start of the receiver.
 	Minus(SimpleAddress) AdditiveAddress
+	// WhereFrom returns the addr of the AdditiveAddress,
+	// relative to the from point.
+	whereFrom(from int64, ed *Editor) (addr, error)
 }
 
 type addAddr struct {
 	op rune
-	a1 Address
+	a1 AdditiveAddress
 	a2 SimpleAddress
 }
 
@@ -164,9 +163,7 @@ func (a addAddr) String() string {
 	return a.a1.String() + string(a.op) + a.a2.String()
 }
 
-func (a addAddr) where(ed *Editor) (addr, error) {
-	return a.whereFrom(0, ed)
-}
+func (a addAddr) where(ed *Editor) (addr, error) { return a.whereFrom(0, ed) }
 
 func (a addAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	a1, err := a.a1.whereFrom(from, ed)
@@ -193,6 +190,7 @@ type SimpleAddress interface {
 }
 
 type simpAddrImpl interface {
+	where(*Editor) (addr, error)
 	whereFrom(from int64, ed *Editor) (addr, error)
 	String() string
 	reverse() SimpleAddress
@@ -218,13 +216,13 @@ func (a simpleAddr) Minus(a2 SimpleAddress) AdditiveAddress {
 	return addAddr{op: '-', a1: a, a2: a2}
 }
 
-func (a simpleAddr) where(ed *Editor) (addr, error) {
-	return a.whereFrom(0, ed)
-}
-
 type dotAddr struct{}
 
 func (dotAddr) String() string { return "." }
+
+func (a dotAddr) where(ed *Editor) (addr, error) {
+	return a.whereFrom(0, ed)
+}
 
 func (dotAddr) whereFrom(_ int64, ed *Editor) (addr, error) {
 	a := ed.marks['.']
@@ -240,6 +238,8 @@ type endAddr struct{}
 
 func (endAddr) String() string { return "$" }
 
+func (a endAddr) where(ed *Editor) (addr, error) { return a.whereFrom(0, ed) }
+
 func (endAddr) whereFrom(_ int64, ed *Editor) (addr, error) {
 	return addr{from: ed.buf.size(), to: ed.buf.size()}, nil
 }
@@ -254,6 +254,8 @@ type markAddr rune
 func Mark(r rune) SimpleAddress { return simpleAddr{markAddr(r)} }
 
 func (m markAddr) String() string { return "'" + string(rune(m)) }
+
+func (m markAddr) where(ed *Editor) (addr, error) { return m.whereFrom(0, ed) }
 
 func (m markAddr) whereFrom(_ int64, ed *Editor) (addr, error) {
 	a := ed.marks[rune(m)]
@@ -277,6 +279,8 @@ func (n runeAddr) String() string {
 	}
 	return "#" + strconv.FormatInt(int64(n), 10)
 }
+
+func (n runeAddr) where(ed *Editor) (addr, error) { return n.whereFrom(0, ed) }
 
 func (n runeAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	m := from + int64(n)
@@ -309,6 +313,8 @@ func (l lineAddr) String() string {
 	}
 	return n
 }
+
+func (l lineAddr) where(ed *Editor) (addr, error) { return l.whereFrom(0, ed) }
 
 func (l lineAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	if l.neg {
@@ -408,6 +414,9 @@ type reAddr struct {
 }
 
 // Regexp returns an address identifying the next match of a regular expression.
+// If Regexp as the right-hand operand of a + or -,
+// then next relative to the left-hand operand.
+// Otherwise, next is relative to dot.
 //
 // The regular expression must use the syntax of the re1 package:
 // http://godoc.org/github.com/eaburns/T/re1.
@@ -459,6 +468,14 @@ type reverse struct{ *forward }
 
 func (rs *reverse) Rune(i int64) rune {
 	return rs.forward.Rune(rs.Size() - i - 1)
+}
+
+func (r reAddr) where(ed *Editor) (addr, error) {
+	dot := ed.marks['.']
+	if r.opts.Reverse {
+		return r.whereFrom(dot.from, ed)
+	}
+	return r.whereFrom(dot.to, ed)
 }
 
 func (r reAddr) whereFrom(from int64, ed *Editor) (a addr, err error) {
