@@ -1146,12 +1146,12 @@ var substituteTests = []editTest{
 		do:    []Edit{Sub(All, "(abc)(xyz)", `\2123\1`)},
 		want:  "{.}xyz123abc{.}",
 	},
+	// BUG(eaburns): #176 replacement is broken, shouldn't have abc!
 	{
-		name:  "missing subexpr BUG",
+		name:  "BUGGY missing subexpr",
 		given: "{..}abc",
 		do:    []Edit{Sub(All, "abc(xyz)?", `123\1456`)},
-		// BUG(eaburns): shouldn't have abc!
-		want: "{.}123abc456{.}",
+		want:  "{.}123abc456{.}",
 	},
 	{
 		name:  "missing subexpr",
