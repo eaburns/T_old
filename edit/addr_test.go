@@ -471,13 +471,24 @@ var runeTests = []editTest{
 		do:    address(Rune(3)),
 		want:  "{..}abc{aa}",
 	},
-	// BUG(eaburns): #178 negative Rune addresses should be Rune(0).
-	//	{
-	//		name:  "negative",
-	//		given: "abc{..}",
-	//		do:    address(Rune(-1)),
-	//		want:  "{aa}abc{..}",
-	//	},
+	{
+		name:  "negative",
+		given: "abc{..}",
+		do:    address(Rune(-1)),
+		want:  "ab{aa}c{..}",
+	},
+	{
+		name:  "negative relative to start of dot",
+		given: "abc{.}def{.}",
+		do:    address(Rune(-2)),
+		want:  "a{aa}bc{.}def{.}",
+	},
+	{
+		name:  "plus negative rune",
+		given: "abc{..}",
+		do:    address(Rune(3).Plus(Rune(-2))),
+		want:  "a{aa}bc{..}",
+	},
 }
 
 func TestAddressRune(t *testing.T) {
@@ -553,13 +564,24 @@ var lineTests = []editTest{
 		do:    address(Line(2)),
 		want:  "{..}abc\n{a}xyz\n{a}",
 	},
-	// BUG(eaburns): #178 negative Line addresses should be Line(0).
-	//	{
-	//		name:  "negative",
-	//		given: "abc{..}",
-	//		do:    address(Line(-1)),
-	//		want:  "{aa}abc{..}",
-	//	},
+	{
+		name:  "negative",
+		given: "abc{..}",
+		do:    address(Line(-1)),
+		want:  "{aa}abc{..}",
+	},
+	{
+		name:  "negative relative to start of dot",
+		given: "abc\nde{.}f\nghi{.}",
+		do:    address(Line(-1)),
+		want:  "{a}abc\n{a}de{.}f\nghi{.}",
+	},
+	{
+		name:  "plus negative line",
+		given: "{..}abc\ndef\nghi",
+		do:    address(Line(3).Plus(Line(-2))),
+		want:  "{..a}abc\n{a}def\nghi",
+	},
 }
 
 func TestAddressLine(t *testing.T) {

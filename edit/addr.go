@@ -280,7 +280,12 @@ func (n runeAddr) String() string {
 	return "#" + strconv.FormatInt(int64(n), 10)
 }
 
-func (n runeAddr) where(ed *Editor) (addr, error) { return n.whereFrom(0, ed) }
+func (n runeAddr) where(ed *Editor) (addr, error) {
+	if n < 0 {
+		return n.whereFrom(ed.marks['.'].from, ed)
+	}
+	return n.whereFrom(0, ed)
+}
 
 func (n runeAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	m := from + int64(n)
@@ -314,7 +319,12 @@ func (l lineAddr) String() string {
 	return n
 }
 
-func (l lineAddr) where(ed *Editor) (addr, error) { return l.whereFrom(0, ed) }
+func (l lineAddr) where(ed *Editor) (addr, error) {
+	if l.neg {
+		return l.whereFrom(ed.marks['.'].from, ed)
+	}
+	return l.whereFrom(0, ed)
+}
 
 func (l lineAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	if l.neg {
