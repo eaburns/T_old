@@ -202,8 +202,7 @@ func TestAddressString(t *testing.T) {
 		{addr: Line(-100), want: Dot.Minus(Line(100))},
 		{addr: Mark('a')},
 		{addr: Mark('z')},
-		// BUG(eaburns): #177 a whitespace mark should be dot.
-		// {addr: Mark(' ')},
+		{addr: Mark(' ')},
 		{addr: Regexp("☺☹")},
 		{addr: Regexp("?☺☹")},
 		{addr: Regexp("?☺☹?")},
@@ -380,13 +379,12 @@ var markTests = []editTest{
 		do:    address(Mark('.')),
 		want:  "a{.a}b{.a}c",
 	},
-	// BUG(eaburns): #177 a whitespace mark should be dot.
-	//	{
-	//		name:  "whitespace mark is dot",
-	//		given: "a{.}b{.}c",
-	//		do:    address(Mark(' ')),
-	//		want:  "a{.a}b{.a}c",
-	//	},
+	{
+		name:  "whitespace mark is dot",
+		given: "a{.}b{.}c",
+		do:    address(Mark(' ')),
+		want:  "a{.a}b{.a}c",
+	},
 	{
 		name:  "non-ASCII mark",
 		given: "{..}a{☺}b{☺}c",
@@ -471,13 +469,24 @@ var runeTests = []editTest{
 		do:    address(Rune(3)),
 		want:  "{..}abc{aa}",
 	},
-	// BUG(eaburns): #178 negative Rune addresses should be Rune(0).
-	//	{
-	//		name:  "negative",
-	//		given: "abc{..}",
-	//		do:    address(Rune(-1)),
-	//		want:  "{aa}abc{..}",
-	//	},
+	{
+		name:  "negative",
+		given: "abc{..}",
+		do:    address(Rune(-1)),
+		want:  "ab{aa}c{..}",
+	},
+	{
+		name:  "negative relative to start of dot",
+		given: "abc{.}def{.}",
+		do:    address(Rune(-2)),
+		want:  "a{aa}bc{.}def{.}",
+	},
+	{
+		name:  "plus negative rune",
+		given: "abc{..}",
+		do:    address(Rune(3).Plus(Rune(-2))),
+		want:  "a{aa}bc{..}",
+	},
 }
 
 func TestAddressRune(t *testing.T) {
@@ -553,13 +562,24 @@ var lineTests = []editTest{
 		do:    address(Line(2)),
 		want:  "{..}abc\n{a}xyz\n{a}",
 	},
-	// BUG(eaburns): #178 negative Line addresses should be Line(0).
-	//	{
-	//		name:  "negative",
-	//		given: "abc{..}",
-	//		do:    address(Line(-1)),
-	//		want:  "{aa}abc{..}",
-	//	},
+	{
+		name:  "negative",
+		given: "abc{..}",
+		do:    address(Line(-1)),
+		want:  "{aa}abc{..}",
+	},
+	{
+		name:  "negative relative to start of dot",
+		given: "abc\nde{.}f\nghi{.}",
+		do:    address(Line(-1)),
+		want:  "{a}abc\n{a}de{.}f\nghi{.}",
+	},
+	{
+		name:  "plus negative line",
+		given: "{..}abc\ndef\nghi",
+		do:    address(Line(3).Plus(Line(-2))),
+		want:  "{..a}abc\n{a}def\nghi",
+	},
 }
 
 func TestAddressLine(t *testing.T) {
@@ -611,19 +631,24 @@ var regexpTests = []editTest{
 		do:    address(Regexp("世界")),
 		want:  "{..}Hello {a}世界{a}",
 	},
-	// BUG(eaburns): All tests below are subject to issue #180. Regexps should implicitly be relative to dot unless they are the operand of + or -.
-	//	{
-	//		name:  "relative to dot",
-	//		given: "abc{..}xyzabc",
-	//		do:    address(Regexp("abc")),
-	//		want:  "abc{..}xyz{a}abc{a}",
-	//	},
-	//	{
-	//		name:  "relative to dot in a range",
-	//		given: "abc{..}xyzabc",
-	//		do:    address(Rune(2).To(Regexp("abc"))),
-	//		want:  "ab{a}c{..}xyzabc{a}",
-	//	},
+	{
+		name:  "forward relative to dot.to",
+		given: "abcx{.}xxabcxx{.}xabc",
+		do:    address(Regexp("abc")),
+		want:  "abcx{.}xxabcxx{.}x{a}abc{a}",
+	},
+	{
+		name:  "reverse relative to dot.from",
+		given: "abcx{.}xxabcxx{.}xabc",
+		do:    address(Regexp("?abc")),
+		want:  "{a}abc{a}x{.}xxabcxx{.}xabc",
+	},
+	{
+		name:  "relative to dot in a range",
+		given: "abc{..}xyzabc",
+		do:    address(Rune(2).To(Regexp("abc"))),
+		want:  "ab{a}c{..}xyzabc{a}",
+	},
 	{
 		name:  "relative to a1 in a plus",
 		given: "12abc{..}xyzabc",
@@ -954,43 +979,41 @@ var thenTests = []editTest{
 		do:    address(Rune(0).Then(End)),
 		want:  "{..aa}",
 	},
-
-	// BUG(eaburns): #179, don't treat ; like a range-based +.
 	{
 		name:  "simple address then simple address",
 		given: "{..}abc",
 		do:    address(Rune(1).Then(Rune(2))),
-		want:  "a{..a}bc{a}",
+		want:  "a{..a}b{a}c",
 	},
 	{
 		name:  "simple address then compound address",
 		given: "{..}abc",
 		do:    address(Rune(1).Then(Rune(1).Plus(Rune(1)))),
-		want:  "a{..a}bc{a}",
+		want:  "a{..a}b{a}c",
 	},
 	{
 		name:  "compound address then simple address",
 		given: "{..}abcde",
 		do:    address(Rune(0).Plus(Rune(1)).Then(Rune(3))),
-		want:  "a{..a}bcd{a}e",
+		want:  "a{..a}bc{a}de",
 	},
 	{
 		name:  "compound address then compound address",
 		given: "{..}abcde",
 		do:    address(Rune(0).Plus(Rune(1)).Then(Rune(2).Plus(Rune(1)))),
-		want:  "a{..a}bcd{a}e",
+		want:  "a{..a}bc{a}de",
 	},
 	{
 		name:  "range address then simple address",
 		given: "{..}abcdef",
 		do:    address(Rune(0).To(Rune(1)).Then(Rune(2))),
-		want:  "{.a}a{.}bc{a}def",
+		want:  "{.a}a{.}b{a}cdef",
 	},
 	{
 		name:  "range address then compound address",
 		given: "{..}abcde",
 		do:    address(Rune(0).To(Rune(1)).Then(Rune(2).Plus(Rune(1)))),
-		want:  "{.a}a{.}bcd{a}e",
+		want:  "{.a}a{.}bc{a}de",
 	},
 	{
 		name:  "a2 evaluated from end of a1",
