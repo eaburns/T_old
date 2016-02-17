@@ -97,25 +97,21 @@ func (a compoundAddr) where(ed *Editor) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	switch a.op {
-	case ',':
+	if a.op == ',' {
 		a2, err := a.a2.where(ed)
 		if err != nil {
 			return addr{}, err
 		}
 		return addr{from: a1.from, to: a2.to}, nil
-	case ';':
-		origDot := ed.marks['.']
-		ed.marks['.'] = a1
-		a2, err := a.a2.where(ed)
-		if err != nil {
-			ed.marks['.'] = origDot // Restore dot on error.
-			return addr{}, err
-		}
-		return addr{from: a1.from, to: a2.to}, nil
-	default:
-		panic("bad compound address")
 	}
+	origDot := ed.marks['.']
+	ed.marks['.'] = a1
+	a2, err := a.a2.where(ed)
+	if err != nil {
+		ed.marks['.'] = origDot // Restore dot on error.
+		return addr{}, err
+	}
+	return addr{from: a1.from, to: a2.to}, nil
 }
 
 // A AdditiveAddress identifies a substring within a buffer.
@@ -170,14 +166,10 @@ func (a addAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	switch a.op {
-	case '+':
+	if a.op == '+' {
 		return a.a2.whereFrom(a1.to, ed)
-	case '-':
-		return a.a2.reverse().whereFrom(a1.from, ed)
-	default:
-		panic("bad additive address")
 	}
+	return a.a2.reverse().whereFrom(a1.from, ed)
 }
 
 // A SimpleAddress identifies a substring within a buffer.
