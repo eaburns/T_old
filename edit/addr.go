@@ -5,12 +5,10 @@ package edit
 import (
 	"errors"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
-
-	"github.com/eaburns/T/edit/runes"
-	"github.com/eaburns/T/re1"
 )
 
 var (
@@ -415,110 +413,139 @@ func (l lineAddr) rev(from int64, ed *Editor) (addr, error) {
 // ErrNoMatch is returned when a regular expression address fails to match.
 var ErrNoMatch = errors.New("no match")
 
-type reAddr struct {
+type regexpAddr struct {
 	regexp string
-	opts   re1.Options
+	// Previous is whether to return the previous match instead of the next.
+	// It can only be true if the Regexp is the right-hand operand of a - address.
+	previous bool
 }
 
 // Regexp returns an address identifying the next match of a regular expression.
-// If Regexp as the right-hand operand of a + or -,
-// then next relative to the left-hand operand.
+// If Regexp is the right-hand operand of + or -, next is relative to the left-hand operand.
 // Otherwise, next is relative to dot.
 //
-// The regular expression must use the syntax of the re1 package:
-// http://godoc.org/github.com/eaburns/T/re1.
-// It is compiled with re1.Options{}
-// when the address is computed on a buffer.
-// Compilation errors will not be returned until that time.
-// If the regexp is malformed, the string representation of the returned Address
-// will be similarly malformed.
+// If a forward search reaches the end of the buffer without finding a match,
+// it wraps to the beginning of the buffer.
+// If a reverse search reaches the beginning of the buffer without finding a match,
+// it wraps to the end of the buffer.
 //
-// If the first rune of the regexp is ?, the regexp is interpreted as delimited by ?.
-// It is compiled for a reverse match, and the Address searches in reverse.
-// Otherwise, the regexp is interpreted as non-delimited.
-// It is compiled for a forward, non-literal match.
-func Regexp(regexp string) SimpleAddress {
-	a := reAddr{regexp: regexp}
-	if len(regexp) > 0 && regexp[0] == '?' {
-		_, a.regexp = re1.RemoveDelimiter(regexp)
-		a.opts.Reverse = true
-	}
-	return simpleAddr{a}
+// The regular expression syntax is that of the standard library regexp package.
+// The syntax is documented here: https://github.com/google/re2/wiki/Syntax.
+// All regular expressions are wrapped in (?m:<re>), making them multi-line by default.
+// In a forward search, the relative start location
+// (dot or the right-hand operand of +)
+// is considered to be the beginning of text.
+// So, for example, given:
+// 	abcabc
+// 	abc
+// The address #3+/^abc will match the runes #3,#6,
+// the second "abc" in the first line.
+// Likewise, in a reverse search, the relative start location
+// is considered to be the end of text.
+func Regexp(re string) SimpleAddress {
+	return simpleAddr{regexpAddr{regexp: re}}
 }
 
-func (r reAddr) String() string {
-	re := escape(-1, r.regexp) // Escape raw newlines.
-	if r.opts.Reverse {
-		return re1.AddDelimiter('?', re)
-	}
-	return re1.AddDelimiter('/', re)
+func (a regexpAddr) String() string {
+	return "/" + escape('/', a.regexp) + "/"
 }
 
-type forward struct {
-	*runes.Buffer
-	err error
+func (a regexpAddr) where(ed *Editor) (addr, error) {
+	return a.whereFrom(ed.marks['.'].to, ed)
 }
 
-func (rs *forward) Rune(i int64) rune {
-	if rs.err != nil {
-		return -1
-	}
-	r, err := rs.Buffer.Rune(i)
+func (a regexpAddr) whereFrom(from int64, ed *Editor) (addr, error) {
+	re, err := regexpCompile(a.regexp)
 	if err != nil {
-		rs.err = err
-		return -1
+		return addr{}, err
 	}
-	return r
+	var m []int
+	if a.previous {
+		m = prevMatch(re, from, ed, true)
+	} else {
+		m = nextMatch(re, from, ed, true)
+	}
+	if len(m) < 2 {
+		return addr{}, ErrNoMatch
+	}
+	return addr{from: int64(m[0]), to: int64(m[1])}, nil
 }
 
-type reverse struct{ *forward }
-
-func (rs *reverse) Rune(i int64) rune {
-	return rs.forward.Rune(rs.Size() - i - 1)
+type runeReader struct {
+	addr
+	ed *Editor
 }
 
-func (r reAddr) where(ed *Editor) (addr, error) {
-	dot := ed.marks['.']
-	if r.opts.Reverse {
-		return r.whereFrom(dot.from, ed)
+func (rr *runeReader) ReadRune() (rune, int, error) {
+	switch {
+	case rr.size() <= 0:
+		return 0, 0, io.EOF
+	case rr.from < 0 || rr.from >= rr.ed.buf.size():
+		return 0, 0, errors.New("out of range")
 	}
-	return r.whereFrom(dot.to, ed)
+	r, err := rr.ed.buf.runes.Rune(rr.from)
+	rr.from++
+	return r, 1, err
 }
 
-func (r reAddr) whereFrom(from int64, ed *Editor) (a addr, err error) {
-	re, err := re1.Compile(strings.NewReader(r.regexp), r.opts)
-	if err != nil {
-		return a, err
+func rangeMatch(re *regexp.Regexp, at addr, ed *Editor) []int {
+	rr := &runeReader{addr: at, ed: ed}
+	m := re.FindReaderSubmatchIndex(rr)
+	for i := range m {
+		m[i] += int(at.from)
 	}
-	fwd := &forward{Buffer: ed.buf.runes}
-	rs := re1.Runes(fwd)
-	if r.opts.Reverse {
-		rs = &reverse{fwd}
-		from = rs.Size() - from
+	return m
+}
+
+func nextMatch(re *regexp.Regexp, from int64, ed *Editor, wrap bool) []int {
+	m := rangeMatch(re, addr{from: from, to: ed.buf.size()}, ed)
+	if len(m) >= 2 && m[0] < m[1] {
+		return m
 	}
-	switch match := re.Match(rs, from); {
-	case fwd.err != nil:
-		return a, fwd.err
-	case match == nil:
-		return a, ErrNoMatch
-	default:
-		a = addr{from: match[0][0], to: match[0][1]}
-		if r.opts.Reverse {
-			a.from, a.to = rs.Size()-a.to, rs.Size()-a.from
+	if from > 0 && wrap {
+		return nextMatch(re, 0, ed, false)
+	}
+	return nil
+}
+
+func prevMatch(re *regexp.Regexp, from int64, ed *Editor, wrap bool) []int {
+	var prev []int
+	for {
+		at := addr{to: from}
+		if len(prev) >= 2 {
+			at.from = int64(prev[1])
 		}
-		return a, nil
+		cur := rangeMatch(re, at, ed)
+		if len(cur) < 2 || cur[0] >= cur[1] {
+			break
+		}
+		prev = cur
 	}
-
+	if prev != nil {
+		return prev
+	}
+	if from < ed.buf.size() && wrap {
+		return prevMatch(re, ed.buf.size(), ed, false)
+	}
+	return nil
 }
 
-func (r reAddr) reverse() SimpleAddress {
-	r.opts.Reverse = !r.opts.Reverse
-	return simpleAddr{r}
+func regexpCompile(re string) (*regexp.Regexp, error) {
+	if re == "\\" || len(re) > 2 && re[len(re)-1] == '\\' && re[len(re)-2] != '\\' {
+		// Escape a trailing, unescaped \.
+		re = re + "\\"
+	}
+	return regexp.Compile("(?m:" + re + ")")
+}
+
+func (a regexpAddr) reverse() SimpleAddress {
+	a.previous = !a.previous
+	return simpleAddr{a}
 }
 
 const (
 	digits      = "0123456789"
-	simpleFirst = "#/?$.'" + digits
+	simpleFirst = "#/$.'" + digits
 )
 
 // Addr parses and returns an address.
@@ -526,7 +553,7 @@ const (
 // The address syntax for address a is:
 // 	a: {a} , {aa} | {a} ; {aa} | {aa}
 // 	aa: {aa} + {sa} | {aa} - {sa} | {aa} {sa} | {sa}
-// 	sa: $ | . | 'r | #{n} | n | / regexp {/} | ? regexp {?}
+// 	sa: $ | . | 'r | #{n} | n | / regexp {/}
 // 	n: [0-9]+
 // 	r: any non-space rune
 // 	regexp: any valid re1 regular expression
@@ -539,7 +566,6 @@ const (
 //	#{n} is the empty string after rune number n. If n is missing then 1 is used.
 //	n is the nth line in the buffer. 0 is the string before the first full line.
 //	'/' regexp {'/'} is the first match of the regular expression.
-//	'?' regexp {'?'} is the first match of the regular expression going in reverse.
 //
 // Production aa describes an additive address:
 //	{aa} '+' {sa} is the second address evaluated from the end of the first.
@@ -694,16 +720,13 @@ func parseSimpleAddress(rs io.RuneScanner) (SimpleAddress, error) {
 		return parseRuneAddr(rs)
 	case strings.ContainsRune(digits, r):
 		return parseLineAddr(r, rs)
-	case r == '/' || r == '?':
+	case r == '/':
 		if err := rs.UnreadRune(); err != nil {
 			return nil, err
 		}
 		_, regexp, err := parseRegexp(rs)
 		if err != nil {
 			return nil, err
-		}
-		if r == '?' {
-			regexp = re1.AddDelimiter(r, regexp)
 		}
 		return Regexp(regexp), nil
 	case r == '$':

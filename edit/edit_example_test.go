@@ -44,7 +44,7 @@ func ExampleAddress() {
 		parseAddr("/Hello/"),
 		Regexp("Hello"),
 		// A regular expression, searching in reverse.
-		Regexp("?Hello?"),
+		End.Minus(Regexp("Hello")),
 
 		// Line addresses.
 		parseAddr("1"),
