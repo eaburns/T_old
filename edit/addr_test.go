@@ -872,7 +872,7 @@ var minusTests = []editTest{
 		want:  "abc\n{a}abc\n{a}abc{..}",
 	},
 	{
-		name:  "???",
+		name:  "minus to first line",
 		given: "abc\n{.}abc\n{.}abc{",
 		do:    address(Dot.Minus(Line(1))),
 		want:  "{a}abc\n{a}{.}abc\n{.}abc{",
