@@ -35,6 +35,7 @@ package re1
 import (
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -121,23 +122,50 @@ func (l *classLabel) accepts(_, c rune) bool {
 
 func (classLabel) consumes() bool { return true }
 
-// Options are compile-time options for regular expressions.
-type Options struct {
-	// Delimited nodes whether the first character
-	// in the string should be interpreted as a delimiter.
-	Delimited bool
-	// Reverse nodes whether the regular expression
-	// should be compiled for reverse match.
-	Reverse bool
-	// Literal nodes whether metacharacters should be interpreted as literals.
-	Literal bool
+// Flags control the behavior of regular expression compilation.
+type Flags int
+
+const (
+	// Delimited indicates that the first rune read by the compiler
+	// should be interpreted as a delimiter.
+	// Compilation will terminate either at the end of input
+	// or the first un-escaped delimiter.
+	Delimited Flags = 1 << iota
+	// Literal indicates that the regular expression
+	// should be compiled for a literal match.
+	Literal
+	// Reverse indicates that the regular expression
+	// should be compiled for a reverse match.
+	Reverse
+)
+
+func (flags Flags) String() string {
+	var ss []string
+	if flags == 0 {
+		return "0"
+	}
+	if flags&Delimited != 0 {
+		flags ^= Delimited
+		ss = append(ss, "Delimited")
+	}
+	if flags&Literal != 0 {
+		flags ^= Literal
+		ss = append(ss, "Literal")
+	}
+	if flags&Reverse != 0 {
+		flags ^= Reverse
+		ss = append(ss, "Reverse")
+	}
+	if flags != 0 {
+		ss = append(ss, "0x"+strconv.FormatInt(int64(flags), 16))
+	}
+	return strings.Join(ss, "|")
 }
 
-// Compile compiles a regular expression using the options.
-// The regular expression is parsed until either
-// the end of the input or an un-escaped closing delimiter.
-func Compile(rr io.RuneReader, opts Options) (*Regexp, error) {
-	p, err := newParser(rr, opts)
+// Compile compiles a regular expression.
+// The parse is terminated by EOF or an un-escaped closing delimiter.
+func Compile(rr io.RuneReader, flags ...Flags) (*Regexp, error) {
+	p, err := newParser(rr, flags)
 	if err != nil {
 		return nil, err
 	}
@@ -203,16 +231,19 @@ func (t token) String() string {
 }
 
 type parser struct {
-	Options
+	flags     Flags
 	nSubexprs int
 	delim     rune
 	current   token
 	rr        io.RuneReader
 }
 
-func newParser(rr io.RuneReader, opts Options) (*parser, error) {
-	p := parser{nSubexprs: 1, Options: opts, rr: rr}
-	if opts.Delimited {
+func newParser(rr io.RuneReader, flags []Flags) (*parser, error) {
+	p := parser{nSubexprs: 1, rr: rr}
+	for _, f := range flags {
+		p.flags |= f
+	}
+	if p.flags&Delimited != 0 {
 		switch r, _, err := rr.ReadRune(); {
 		case err == io.EOF:
 			break // do nothing.
@@ -293,7 +324,7 @@ func e1(p *parser) (*Regexp, error) {
 	if r == nil || err != nil {
 		return l, err
 	}
-	if p.Reverse {
+	if p.flags&Reverse != 0 {
 		l, r = r, l
 	}
 	re := &Regexp{start: new(state)}
@@ -317,7 +348,7 @@ func e2(p *parser) (*Regexp, error) {
 }
 
 func e2p(l *Regexp, p *parser) (*Regexp, error) {
-	if p.Literal {
+	if p.flags&Literal != 0 {
 		return l, nil
 	}
 	re := &Regexp{start: new(state), end: new(state)}
@@ -354,7 +385,7 @@ func e2p(l *Regexp, p *parser) (*Regexp, error) {
 func e3(p *parser) (*Regexp, error) {
 	re := &Regexp{start: new(state), end: new(state)}
 	re.start.out[0].to = re.end
-	if p.Literal {
+	if p.flags&Literal != 0 {
 		if p.current == eof {
 			return nil, nil
 		}
@@ -397,13 +428,13 @@ func e3(p *parser) (*Regexp, error) {
 	case dot:
 		re.start.out[0].label = dotLabel{}
 	case caret:
-		if !p.Reverse {
+		if p.flags&Reverse == 0 {
 			re.start.out[0].label = bolLabel{}
 		} else {
 			re.start.out[0].label = eolLabel{}
 		}
 	case dollar:
-		if !p.Reverse {
+		if p.flags&Reverse == 0 {
 			re.start.out[0].label = eolLabel{}
 		} else {
 			re.start.out[0].label = bolLabel{}

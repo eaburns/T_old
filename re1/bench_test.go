@@ -33,7 +33,7 @@ func makeRegexpText(n int) []byte {
 }
 
 func benchmark(b *testing.B, re string, n int) {
-	r, err := Compile(strings.NewReader(re), Options{})
+	r, err := Compile(strings.NewReader(re))
 	if err != nil {
 		panic(err)
 	}

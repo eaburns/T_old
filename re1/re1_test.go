@@ -28,9 +28,9 @@ func TestNoMatch(t *testing.T) {
 
 func TestEmptyMatch(t *testing.T) {
 	tests := []regexpTest{
-		{opts: del, re: "", str: "", want: []string{""}},
+		{flags: del, re: "", str: "", want: []string{""}},
 		{re: "", str: "", want: []string{""}},
-		{opts: del, re: "/", str: "", want: []string{""}},
+		{flags: del, re: "/", str: "", want: []string{""}},
 		{re: "a*", str: "x", want: []string{""}},
 		{re: "a?", str: "x", want: []string{""}},
 		{re: "[a]*", str: "xyz", want: []string{""}},
@@ -175,22 +175,22 @@ func TestAnchoredMatch(t *testing.T) {
 
 func TestReverseMatch(t *testing.T) {
 	tests := []regexpTest{
-		{opts: rev, re: "a", str: "", want: nil},
-		{opts: rev, re: "a", str: "x", want: nil},
-		{opts: rev, re: "", str: "", want: []string{""}},
-		{opts: rev, re: "a", str: "ba", want: []string{"a"}},
-		{opts: rev, re: "a*", str: "baaaa", want: []string{"aaaa"}},
-		{opts: rev, re: "ba*", str: "baaaa", want: []string{"baaaa"}},
-		{opts: rev, re: "(abc|def)*g", str: "defabcg", want: []string{"defabcg", "def"}},
-		{opts: rev, re: "abc$", str: "abc☺", from: 1, want: nil},
-		{opts: rev, re: "abc$", str: "abc\n", from: 1, want: []string{"abc"}},
-		{opts: rev, re: "^abc", str: "xyzabc", want: nil},
-		{opts: rev, re: "^abc", str: "abc", want: []string{"abc"}},
-		{opts: rev, re: "^abc", str: "xyz\nabc", want: []string{"abc"}},
-		{opts: rev, re: "^abc$", str: "xyzabc", want: nil},
-		{opts: rev, re: "^abc$", str: "xyz\nabc☺", from: 1, want: nil},
-		{opts: rev, re: "^abc$", str: "xyzabc\n", from: 1, want: nil},
-		{opts: rev, re: "^abc$", str: "xyz\nabc\n", from: 1, want: []string{"abc"}},
+		{flags: rev, re: "a", str: "", want: nil},
+		{flags: rev, re: "a", str: "x", want: nil},
+		{flags: rev, re: "", str: "", want: []string{""}},
+		{flags: rev, re: "a", str: "ba", want: []string{"a"}},
+		{flags: rev, re: "a*", str: "baaaa", want: []string{"aaaa"}},
+		{flags: rev, re: "ba*", str: "baaaa", want: []string{"baaaa"}},
+		{flags: rev, re: "(abc|def)*g", str: "defabcg", want: []string{"defabcg", "def"}},
+		{flags: rev, re: "abc$", str: "abc☺", from: 1, want: nil},
+		{flags: rev, re: "abc$", str: "abc\n", from: 1, want: []string{"abc"}},
+		{flags: rev, re: "^abc", str: "xyzabc", want: nil},
+		{flags: rev, re: "^abc", str: "abc", want: []string{"abc"}},
+		{flags: rev, re: "^abc", str: "xyz\nabc", want: []string{"abc"}},
+		{flags: rev, re: "^abc$", str: "xyzabc", want: nil},
+		{flags: rev, re: "^abc$", str: "xyz\nabc☺", from: 1, want: nil},
+		{flags: rev, re: "^abc$", str: "xyzabc\n", from: 1, want: nil},
+		{flags: rev, re: "^abc$", str: "xyz\nabc\n", from: 1, want: []string{"abc"}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -199,12 +199,12 @@ func TestReverseMatch(t *testing.T) {
 
 func TestLiteralMatch(t *testing.T) {
 	tests := []regexpTest{
-		{opts: lit, re: "a", str: "", want: nil},
-		{opts: lit, re: "a", str: "x", want: nil},
-		{opts: lit, re: "", str: "", want: []string{""}},
-		{opts: lit, re: "[abc]()*?+.", str: "[abc]()*?+.", want: []string{"[abc]()*?+."}},
-		{opts: lit, re: "[abc]()*?+.", str: "[abc]()*?+.☺", want: []string{"[abc]()*?+."}},
-		{opts: lit, re: "Hello, 世界", str: "Hello, 世界!!!!", want: []string{"Hello, 世界"}},
+		{flags: lit, re: "a", str: "", want: nil},
+		{flags: lit, re: "a", str: "x", want: nil},
+		{flags: lit, re: "", str: "", want: []string{""}},
+		{flags: lit, re: "[abc]()*?+.", str: "[abc]()*?+.", want: []string{"[abc]()*?+."}},
+		{flags: lit, re: "[abc]()*?+.", str: "[abc]()*?+.☺", want: []string{"[abc]()*?+."}},
+		{flags: lit, re: "Hello, 世界", str: "Hello, 世界!!!!", want: []string{"Hello, 世界"}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -213,70 +213,70 @@ func TestLiteralMatch(t *testing.T) {
 
 func TestDelimitedMatch(t *testing.T) {
 	tests := []regexpTest{
-		{opts: del, re: "/abc", str: "abc", want: []string{"abc"}},
-		{opts: del, re: "/abc/", str: "abc", want: []string{"abc"}},
-		{opts: del, re: "/abc/def", str: "abc", want: []string{"abc"}},
-		{opts: del, re: `/abc\//def`, str: "abc/", want: []string{"abc/"}},
-		{opts: del, re: `/[abc\/]*/def`, str: "abc/", want: []string{"abc/"}},
-		{opts: del, re: `/(.*),\n/def`, str: "hi,\n", want: []string{"hi,\n", "hi"}},
-		{opts: del, re: `?abc?`, str: "ab", want: nil},
-		{opts: del, re: `?abc?`, str: "abc", want: []string{"abc"}},
+		{flags: del, re: "/abc", str: "abc", want: []string{"abc"}},
+		{flags: del, re: "/abc/", str: "abc", want: []string{"abc"}},
+		{flags: del, re: "/abc/def", str: "abc", want: []string{"abc"}},
+		{flags: del, re: `/abc\//def`, str: "abc/", want: []string{"abc/"}},
+		{flags: del, re: `/[abc\/]*/def`, str: "abc/", want: []string{"abc/"}},
+		{flags: del, re: `/(.*),\n/def`, str: "hi,\n", want: []string{"hi,\n", "hi"}},
+		{flags: del, re: `?abc?`, str: "ab", want: nil},
+		{flags: del, re: `?abc?`, str: "abc", want: []string{"abc"}},
 
 		// Test escaped meta delimiters:
 
-		{opts: del, re: `.\.+`, str: "abc", want: []string{"abc"}},
-		{opts: del, re: `.\.+.(would be error`, str: "abc", want: []string{"abc"}},
-		{opts: del, re: `.xyz\.+`, str: "xyzabc", want: []string{"xyzabc"}},
+		{flags: del, re: `.\.+`, str: "abc", want: []string{"abc"}},
+		{flags: del, re: `.\.+.(would be error`, str: "abc", want: []string{"abc"}},
+		{flags: del, re: `.xyz\.+`, str: "xyzabc", want: []string{"xyzabc"}},
 
-		{opts: del, re: `*a\*`, str: "", want: []string{""}},
-		{opts: del, re: `*a\*`, str: "aaabc", want: []string{"aaa"}},
-		{opts: del, re: `*a\**(would be error`, str: "aa", want: []string{"aa"}},
-		{opts: del, re: `*a\**`, str: "*", want: []string{""}},
-		{opts: del, re: `*a\**`, str: "a*", want: []string{"a"}},
+		{flags: del, re: `*a\*`, str: "", want: []string{""}},
+		{flags: del, re: `*a\*`, str: "aaabc", want: []string{"aaa"}},
+		{flags: del, re: `*a\**(would be error`, str: "aa", want: []string{"aa"}},
+		{flags: del, re: `*a\**`, str: "*", want: []string{""}},
+		{flags: del, re: `*a\**`, str: "a*", want: []string{"a"}},
 
-		{opts: del, re: `+a\+`, str: "aa", want: []string{"aa"}},
-		{opts: del, re: `+a\+`, str: "aaabc", want: []string{"aaa"}},
-		{opts: del, re: `+a\++(would be error`, str: "aa", want: []string{"aa"}},
-		{opts: del, re: `+a\++`, str: "a+", want: []string{"a"}},
+		{flags: del, re: `+a\+`, str: "aa", want: []string{"aa"}},
+		{flags: del, re: `+a\+`, str: "aaabc", want: []string{"aaa"}},
+		{flags: del, re: `+a\++(would be error`, str: "aa", want: []string{"aa"}},
+		{flags: del, re: `+a\++`, str: "a+", want: []string{"a"}},
 
-		{opts: del, re: `?a\?`, str: "", want: []string{""}},
-		{opts: del, re: `?a\?`, str: "a?", want: []string{"a"}},
-		{opts: del, re: `?a\??(would be error`, str: "a", want: []string{"a"}},
-		{opts: del, re: `?a\??`, str: "a?", want: []string{"a"}},
+		{flags: del, re: `?a\?`, str: "", want: []string{""}},
+		{flags: del, re: `?a\?`, str: "a?", want: []string{"a"}},
+		{flags: del, re: `?a\??(would be error`, str: "a", want: []string{"a"}},
+		{flags: del, re: `?a\??`, str: "a?", want: []string{"a"}},
 
-		{opts: del, re: `[\[1-5]*`, str: "[1-9", want: []string{""}},
-		{opts: del, re: `[\[1-5]*`, str: "12345", want: []string{"12345"}},
-		{opts: del, re: `[\[1-5]*[(would be error`, str: "1", want: []string{"1"}},
-		{opts: del, re: `[abc\[[]`, str: "abc[", want: []string{"abc["}},
+		{flags: del, re: `[\[1-5]*`, str: "[1-9", want: []string{""}},
+		{flags: del, re: `[\[1-5]*`, str: "12345", want: []string{"12345"}},
+		{flags: del, re: `[\[1-5]*[(would be error`, str: "1", want: []string{"1"}},
+		{flags: del, re: `[abc\[[]`, str: "abc[", want: []string{"abc["}},
 
-		{opts: del, re: `][1-5\]*`, str: "[1-9", want: []string{""}},
-		{opts: del, re: `][1-5\]*`, str: "12345", want: []string{"12345"}},
-		{opts: del, re: `][1-5\]*](would be error`, str: "1", want: []string{"1"}},
-		{opts: del, re: `]abc[[\]`, str: "abc[", want: []string{"abc["}},
+		{flags: del, re: `][1-5\]*`, str: "[1-9", want: []string{""}},
+		{flags: del, re: `][1-5\]*`, str: "12345", want: []string{"12345"}},
+		{flags: del, re: `][1-5\]*](would be error`, str: "1", want: []string{"1"}},
+		{flags: del, re: `]abc[[\]`, str: "abc[", want: []string{"abc["}},
 
-		{opts: del, re: `(\(abc)`, str: "abc", want: []string{"abc", "abc"}},
-		{opts: del, re: `(\(abc)([would be error`, str: "abc", want: []string{"abc", "abc"}},
-		{opts: del, re: `(\(a\(b))`, str: "ab", want: []string{"ab", "ab", "b"}},
+		{flags: del, re: `(\(abc)`, str: "abc", want: []string{"abc", "abc"}},
+		{flags: del, re: `(\(abc)([would be error`, str: "abc", want: []string{"abc", "abc"}},
+		{flags: del, re: `(\(a\(b))`, str: "ab", want: []string{"ab", "ab", "b"}},
 
-		{opts: del, re: `)(abc\)`, str: "abc", want: []string{"abc", "abc"}},
-		{opts: del, re: `)(abc\))(would be error`, str: "abc", want: []string{"abc", "abc"}},
-		{opts: del, re: `)(a(b\)\)`, str: "ab", want: []string{"ab", "ab", "b"}},
+		{flags: del, re: `)(abc\)`, str: "abc", want: []string{"abc", "abc"}},
+		{flags: del, re: `)(abc\))(would be error`, str: "abc", want: []string{"abc", "abc"}},
+		{flags: del, re: `)(a(b\)\)`, str: "ab", want: []string{"ab", "ab", "b"}},
 
-		{opts: del, re: `|a\|b`, str: "a", want: []string{"a"}},
-		{opts: del, re: `|a\|b`, str: "b", want: []string{"b"}},
-		{opts: del, re: `|(a)\|(b)`, str: "a", want: []string{"a", "a", ""}},
-		{opts: del, re: `|(a)\|(b)`, str: "b", want: []string{"b", "", "b"}},
-		{opts: del, re: `|a\|b|(would be error`, str: "b", want: []string{"b"}},
+		{flags: del, re: `|a\|b`, str: "a", want: []string{"a"}},
+		{flags: del, re: `|a\|b`, str: "b", want: []string{"b"}},
+		{flags: del, re: `|(a)\|(b)`, str: "a", want: []string{"a", "a", ""}},
+		{flags: del, re: `|(a)\|(b)`, str: "b", want: []string{"b", "", "b"}},
+		{flags: del, re: `|a\|b|(would be error`, str: "b", want: []string{"b"}},
 
-		{opts: del, re: `^\^abc`, str: "abc", want: []string{"abc"}},
-		{opts: del, re: `^\^abc`, str: "xyz\nabc", want: []string{"abc"}},
-		{opts: del, re: `^\^abc`, str: "^abc", want: nil},
-		{opts: del, re: `^\^a^(would be error`, str: "b\na", want: []string{"a"}},
+		{flags: del, re: `^\^abc`, str: "abc", want: []string{"abc"}},
+		{flags: del, re: `^\^abc`, str: "xyz\nabc", want: []string{"abc"}},
+		{flags: del, re: `^\^abc`, str: "^abc", want: nil},
+		{flags: del, re: `^\^a^(would be error`, str: "b\na", want: []string{"a"}},
 
-		{opts: del, re: `$abc\$`, str: "abc", want: []string{"abc"}},
-		{opts: del, re: `$abc\$`, str: "abc\nxyz", want: []string{"abc"}},
-		{opts: del, re: `$abc\$`, str: "abc$", want: nil},
-		{opts: del, re: `$a\$$(would be error`, str: "a\nb", want: []string{"a"}},
+		{flags: del, re: `$abc\$`, str: "abc", want: []string{"abc"}},
+		{flags: del, re: `$abc\$`, str: "abc\nxyz", want: []string{"abc"}},
+		{flags: del, re: `$abc\$`, str: "abc$", want: nil},
+		{flags: del, re: `$a\$$(would be error`, str: "a\nb", want: []string{"a"}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -286,17 +286,17 @@ func TestDelimitedMatch(t *testing.T) {
 func TestMultiOptionMatch(t *testing.T) {
 	tests := []regexpTest{
 		{
-			opts: Options{Literal: true, Reverse: true},
-			re:   "[abc]()*?+.",
-			str:  "☺[abc]()*?+.",
-			want: []string{"[abc]()*?+."},
+			flags: Literal | Reverse,
+			re:    "[abc]()*?+.",
+			str:   "☺[abc]()*?+.",
+			want:  []string{"[abc]()*?+."},
 		},
 		{
 			// Not sure why, but might as well make sure it works.
-			opts: Options{Literal: true, Delimited: true},
-			re:   "/[abc]()*?+./",
-			str:  "[abc]()*?+.",
-			want: []string{"[abc]()*?+."},
+			flags: Literal | Delimited,
+			re:    "/[abc]()*?+./",
+			str:   "[abc]()*?+.",
+			want:  []string{"[abc]()*?+."},
 		},
 	}
 	for _, test := range tests {
@@ -311,7 +311,7 @@ func TestNextMatch(t *testing.T) {
 		{re: "abc", str: "xyzabc", from: 2, want: []string{"abc"}},
 		{re: "abc(d*)", str: "xyzabcdd", from: 2, want: []string{"abcdd", "dd"}},
 		{re: "^abc|def$", str: "☺abc\ndef", from: 1, want: []string{"def"}},
-		{opts: rev, re: "abc", str: "abcdef", from: 1, want: []string{"abc"}},
+		{flags: rev, re: "abc", str: "abcdef", from: 1, want: []string{"abc"}},
 		{re: "a*", str: "xyzbc", want: []string{""}},
 		// Match the empty string at the beginning, not the later matches.
 		{re: "a*", str: "xyzabc", want: []string{""}},
@@ -338,7 +338,7 @@ func TestWrapMatch(t *testing.T) {
 		{re: "abc", str: "xyzabc", from: 4, want: []string{"abc"}},
 		{re: "abc(d*)", str: "xyzabcdd", from: 4, want: []string{"abcdd", "dd"}},
 		{re: "^abc|def$", str: "☺abc\ndef", from: 7, want: []string{"def"}},
-		{opts: rev, re: "abc", str: "abcdef", from: 5, want: []string{"abc"}},
+		{flags: rev, re: "abc", str: "abcdef", from: 5, want: []string{"abc"}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -346,7 +346,7 @@ func TestWrapMatch(t *testing.T) {
 }
 
 func TestReuse(t *testing.T) {
-	re, err := Compile(strings.NewReader("(a)(b)(c)|(x)(y)(z)"), Options{})
+	re, err := Compile(strings.NewReader("(a)(b)(c)|(x)(y)(z)"))
 	if err != nil {
 		t.Fatalf(`Compile("(a)(b)(c)|(x)(y)(z)")=%v, want nil`, err)
 	}
@@ -372,30 +372,30 @@ func (s sliceRunes) Rune(i int64) rune { return s[i] }
 func (s sliceRunes) Size() int64       { return int64(len(s)) }
 
 var (
-	rev = Options{Reverse: true}
-	lit = Options{Literal: true}
-	del = Options{Delimited: true}
+	rev = Reverse
+	lit = Literal
+	del = Delimited
 )
 
 type regexpTest struct {
 	re, str string
 	want    []string
-	opts    Options
+	flags   Flags
 	from    int64
 }
 
 func (test *regexpTest) run(t *testing.T) {
-	re, err := Compile(strings.NewReader(test.re), test.opts)
+	re, err := Compile(strings.NewReader(test.re), test.flags)
 	if err != nil {
-		t.Fatalf(`Compile("%s", %+v)=%v, want nil`, test.re, test.opts, err)
+		t.Fatalf(`Compile("%s", %+v)=%v, want nil`, test.re, test.flags, err)
 	}
 
 	str := test.str
-	if test.opts.Reverse {
+	if test.flags&Reverse != 0 {
 		str = reverse(test.str)
 	}
 	es := re.Match(sliceRunes([]rune(str)), test.from)
-	ms := matches(test.str, es, test.opts.Reverse)
+	ms := matches(test.str, es, test.flags&Reverse != 0)
 	if es == nil && test.want == nil ||
 		len(es) == len(test.want) && reflect.DeepEqual(ms, test.want) {
 		return
@@ -409,7 +409,7 @@ func (test *regexpTest) run(t *testing.T) {
 		want = fmt.Sprintf("%v", test.want)
 	}
 	t.Errorf(`Compile("%s", %+v).Match("%s", %d)=%v,%v, want %s`,
-		test.re, test.opts, test.str, test.from, got, err, want)
+		test.re, test.flags, test.str, test.from, got, err, want)
 }
 
 func matches(str string, es [][2]int64, rev bool) []string {
@@ -525,7 +525,14 @@ func TestParseErrors(t *testing.T) {
 		{delim: true, re: `][]\]]`, err: "missing operand"},
 	}
 	for _, test := range tests {
-		re, err := Compile(strings.NewReader(test.re), Options{Delimited: test.delim, Literal: test.literal})
+		var flags Flags
+		if test.delim {
+			flags |= Delimited
+		}
+		if test.literal {
+			flags |= Literal
+		}
+		re, err := Compile(strings.NewReader(test.re), flags)
 		switch {
 		case test.err == "" && err != nil:
 			t.Errorf(`Compile("%s")="%v", want nil`, test.re, err)
@@ -536,6 +543,29 @@ func TestParseErrors(t *testing.T) {
 		}
 		if re == nil {
 			continue
+		}
+	}
+}
+
+func TestFlagsString(t *testing.T) {
+	tests := []struct {
+		flags Flags
+		str   string
+	}{
+		{0, "0"},
+		{Delimited, "Delimited"},
+		{Literal, "Literal"},
+		{Reverse, "Reverse"},
+		{Delimited | Literal, "Delimited|Literal"},
+		{Delimited | Reverse, "Delimited|Reverse"},
+		{Literal | Reverse, "Literal|Reverse"},
+		{Delimited | Literal | Reverse, "Delimited|Literal|Reverse"},
+		{0x80, "0x80"},
+		{Delimited | 0x80, "Delimited|0x80"},
+	}
+	for _, test := range tests {
+		if test.flags.String() != test.str {
+			t.Errorf("(%d).String()=%s, want %s", test.flags, test.flags, test.str)
 		}
 	}
 }
