@@ -44,7 +44,7 @@ func benchmarkLine(b *testing.B, n int) {
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		if _, err := Line(i % lines).where(ed); err != nil {
+		if _, err := Line(lines).where(ed); err != nil {
 			b.Fatal(err.Error())
 		}
 	}
