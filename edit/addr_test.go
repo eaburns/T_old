@@ -55,7 +55,6 @@ func TestAddr(t *testing.T) {
 		{a: "/abc/def", left: "def", want: Regexp("abc")},
 		{a: "/abc def", want: Regexp("abc def")},
 		{a: "/abc def\nxyz", left: "\nxyz", want: Regexp("abc def")},
-		{a: "/()", err: "operand"},
 
 		{a: "$", want: End},
 		{a: " $", want: End},
@@ -200,7 +199,7 @@ func TestAddressString(t *testing.T) {
 		{addr: Dot.Minus(Line(1)).Plus(Line(1))},
 		{addr: Rune(1).To(Rune(2))},
 		{addr: Rune(1).Then(Rune(2))},
-		{addr: Regexp("func").Plus(Regexp(`\(`))},
+		{addr: Regexp("func").Plus(Regexp("[(]"))},
 	}
 	for _, test := range tests {
 		if test.want == nil {
@@ -818,12 +817,11 @@ var regexpTests = []editTest{
 		do:    address(Regexp(`abc\`)),
 		want:  `{..a}abc\{a}`,
 	},
-	// BUG(eaburns): Addr regexp parsing only accepts re1 syntax.
 	{
-		name:  "BUGGY non-re1 syntax",
-		given: "{..}not re1 syntax",
-		do:    address(Regexp("(?:not re1 syntax)")),
-		want:  "{..a}not re1 syntax{a}",
+		name:  "non-capturing group",
+		given: "{..}abc",
+		do:    address(Regexp("(?:abc)")),
+		want:  "{..a}abc{a}",
 	},
 }
 
@@ -835,10 +833,6 @@ func TestAddressRegexp(t *testing.T) {
 
 func TestAddressRegexpFromString(t *testing.T) {
 	for _, test := range regexpTests {
-		// BUG(eaburns): Addr regexp parsing only accepts re1 syntax.
-		if test.name == "BUGGY non-re1 syntax" {
-			continue
-		}
 		test.runFromString(t)
 	}
 }

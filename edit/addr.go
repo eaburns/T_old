@@ -447,7 +447,7 @@ func Regexp(re string) SimpleAddress {
 }
 
 func (a regexpAddr) String() string {
-	return "/" + escape('/', a.regexp) + "/"
+	return "/" + Escape(a.regexp, '/') + "/"
 }
 
 func (a regexpAddr) where(ed *Editor) (addr, error) {
@@ -566,6 +566,9 @@ const (
 //	#{n} is the empty string after rune number n. If n is missing then 1 is used.
 //	n is the nth line in the buffer. 0 is the string before the first full line.
 //	'/' regexp {'/'} is the first match of the regular expression.
+// 		The regexp uses the syntax of the standard library regexp package,
+// 		except that \, raw newlines, and / must be escaped with \.
+// 		The regexp is wrapped in (?m:<regexp>), making it multi-line by default.
 //
 // Production aa describes an additive address:
 //	{aa} '+' {sa} is the second address evaluated from the end of the first.
@@ -721,20 +724,40 @@ func parseSimpleAddress(rs io.RuneScanner) (SimpleAddress, error) {
 	case strings.ContainsRune(digits, r):
 		return parseLineAddr(r, rs)
 	case r == '/':
-		if err := rs.UnreadRune(); err != nil {
-			return nil, err
-		}
-		_, regexp, err := parseRegexp(rs)
+		re, err := parseDelimitedNew(r, rs)
 		if err != nil {
 			return nil, err
 		}
-		return Regexp(regexp), nil
+		if _, err := regexpCompile(re); err != nil {
+			return nil, err
+		}
+		return Regexp(re), nil
 	case r == '$':
 		return End, nil
 	case r == '.':
 		return Dot, nil
 	default:
 		return nil, rs.UnreadRune()
+	}
+}
+
+// ParseDelimited returns the unescaped string of runes
+// up to the first non-escaped delimiter, raw newline, or EOF.
+func parseDelimitedNew(delim rune, rs io.RuneScanner) (string, error) {
+	var s []rune
+	var esc bool
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err != nil && err != io.EOF:
+			return "", err
+		case err == io.EOF || !esc && r == delim:
+			return Unescape(string(s)), nil
+		case r == '\n':
+			return Unescape(string(s)), rs.UnreadRune()
+		default:
+			s = append(s, r)
+			esc = !esc && r == '\\'
+		}
 	}
 }
 

@@ -16,6 +16,46 @@ import (
 	"testing"
 )
 
+var escTests = []struct {
+	unescaped, escaped string
+	esc                string
+}{
+	{unescaped: `\`, escaped: `\\`},
+	{unescaped: "\n", escaped: `\n`},
+	{unescaped: "a\nb\nc", escaped: `a\nb\nc`},
+	{unescaped: `\n`, escaped: `\\n`},
+	{unescaped: `\\`, escaped: `\\\\`},
+	{unescaped: "abcxyz", escaped: "abcxyz"},
+	{unescaped: "aaaa", escaped: `\a\a\a\a`, esc: "a"},
+	{unescaped: "abc", escaped: `\a\b\c`, esc: "abc"},
+}
+
+func TestEscape(t *testing.T) {
+	for _, test := range escTests {
+		esc := []rune(test.esc)
+		got := Escape(test.unescaped, esc...)
+		if got != test.escaped {
+			t.Errorf("Escape(%q, %v)=%q, want %q", test.unescaped, esc, got, test.escaped)
+		}
+	}
+}
+
+func TestUnescape(t *testing.T) {
+	for _, test := range escTests {
+		got := Unescape(test.escaped)
+		if got != test.unescaped {
+			t.Errorf("Unescape(%q)=%q, want %q", test.escaped, got, test.unescaped)
+		}
+	}
+
+	// Test trailing \.
+	given := `abcxyz\`
+	want := given
+	if got := Unescape(given); got != want {
+		t.Errorf("Unescape(%q)=%q, want %q", given, got, want)
+	}
+}
+
 func TestEd(t *testing.T) {
 	tests := []struct {
 		str, left string

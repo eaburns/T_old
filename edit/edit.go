@@ -1086,6 +1086,56 @@ func parseDelimited(delim rune, rs io.RuneScanner) (string, error) {
 	}
 }
 
+// Escape returns the string,
+// with \ inserted before all occurrences of
+// \, raw newlines, and runes in esc.
+func Escape(str string, esc ...rune) string {
+	// Always escape \ and raw newlines.
+	esc = append(esc, '\\')
+	var s []rune
+	for _, r := range str {
+		if r == '\n' {
+			s = append(s, '\\', 'n')
+			continue
+		}
+		for _, e := range esc {
+			if r == e {
+				s = append(s, '\\')
+				break
+			}
+		}
+		s = append(s, r)
+	}
+	return string(s)
+}
+
+// Unescape returns the string,
+// with all occurrences of \n replaced by a raw newline,
+// and all occurrences of \ followed by any other rune with the rune.
+//
+// If the last rune is \ that is not preceded by a \,
+// it remains unchanged as a trailing \.
+func Unescape(str string) string {
+	var s []rune
+	var esc bool
+	for _, r := range str {
+		if !esc && r == '\\' {
+			esc = true
+			continue
+		}
+		if esc && r == 'n' {
+			s = append(s, '\n')
+		} else {
+			s = append(s, r)
+		}
+		esc = false
+	}
+	if esc {
+		s = append(s, '\\')
+	}
+	return string(s)
+}
+
 // Escape returns str with all unescaped delimiters and newlines escaped.
 func escape(delim rune, str string) string {
 	var s []rune
