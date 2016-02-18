@@ -160,30 +160,16 @@ type change struct {
 // Change returns an Edit
 // that changes the string at a to str,
 // and sets dot to the changed runes.
-//
-// The rune \ in str is interpreted as an escape.
-// \n is a literal newline.
-// All other escaped runes are the rune themselves.
-// For example,
-// 	\n is a literal newline
-// 	\\ is \
-// 	\a is a
 func Change(a Address, str string) Edit { return change{a: a, op: 'c', str: str} }
 
 // Append returns an Edit
 // that appends str after the string at a,
 // and sets dot to the appended runes.
-//
-// The rune \ in str is interpreted as an escape,
-// as described for the Change function.
 func Append(a Address, str string) Edit { return change{a: a, op: 'a', str: str} }
 
 // Insert returns an Edit
 // that inserts str before the string at a,
 // and sets dot to the inserted runes.
-//
-// The rune \ in str is interpreted as an escape,
-// as described for the Change function.
 func Insert(a Address, str string) Edit { return change{a: a, op: 'i', str: str} }
 
 // Delete returns an Edit
@@ -196,7 +182,7 @@ func (e change) String() string {
 	if e.op == 'd' {
 		return e.a.String() + "d"
 	}
-	return e.a.String() + string(e.op) + "/" + escape('/', e.str) + "/"
+	return e.a.String() + string(e.op) + "/" + Escape(e.str, '/') + "/"
 }
 
 func (e change) do(ed *Editor, _ io.Writer) (addr, error) {
@@ -210,8 +196,7 @@ func (e change) do(ed *Editor, _ io.Writer) (addr, error) {
 	case 'i':
 		at.to = at.from
 	}
-	unesc := unescape(e.str, nil)
-	return at, pend(ed, at, runes.StringReader(unesc))
+	return at, pend(ed, at, runes.StringReader(e.str))
 }
 
 type move struct {
@@ -755,7 +740,8 @@ func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
 //	{addr} a
 //	lines of text
 //	.
-//		Appends after the addressed text.
+//		Appends text after the address.
+// 		In the text, all \, raw newlines, and / must be escaped with \.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
 //	{addr} c
@@ -928,7 +914,7 @@ func Ed(rs io.RuneScanner) (Edit, error) {
 		if err != nil {
 			return nil, err
 		}
-		repl, err := parseDelimited(delim, rs)
+		repl, err := parseDelimitedOld(delim, rs)
 		if err != nil {
 			return nil, err
 		}
@@ -1055,12 +1041,28 @@ func parseLines(rs io.RuneScanner) (string, error) {
 	}
 }
 
-// ParseDelimited returns the string
-// up to the first unescaped delimiter,
-// raw newline (rune 0xA),
-// or the end of input.
-// A delimiter preceeded by \ is escaped and is non-terminating.
+// ParseDelimited returns the unescaped string of runes
+// up to the first non-escaped delimiter, raw newline, or EOF.
 func parseDelimited(delim rune, rs io.RuneScanner) (string, error) {
+	var s []rune
+	var esc bool
+	for {
+		switch r, _, err := rs.ReadRune(); {
+		case err != nil && err != io.EOF:
+			return "", err
+		case err == io.EOF || !esc && r == delim:
+			return Unescape(string(s)), nil
+		case r == '\n':
+			return Unescape(string(s)), rs.UnreadRune()
+		default:
+			s = append(s, r)
+			esc = !esc && r == '\\'
+		}
+	}
+}
+
+// The old version of parseDelimited that does not unescape.
+func parseDelimitedOld(delim rune, rs io.RuneScanner) (string, error) {
 	var s []rune
 	var esc bool
 	for {

@@ -724,7 +724,7 @@ func parseSimpleAddress(rs io.RuneScanner) (SimpleAddress, error) {
 	case strings.ContainsRune(digits, r):
 		return parseLineAddr(r, rs)
 	case r == '/':
-		re, err := parseDelimitedNew(r, rs)
+		re, err := parseDelimited(r, rs)
 		if err != nil {
 			return nil, err
 		}
@@ -738,26 +738,6 @@ func parseSimpleAddress(rs io.RuneScanner) (SimpleAddress, error) {
 		return Dot, nil
 	default:
 		return nil, rs.UnreadRune()
-	}
-}
-
-// ParseDelimited returns the unescaped string of runes
-// up to the first non-escaped delimiter, raw newline, or EOF.
-func parseDelimitedNew(delim rune, rs io.RuneScanner) (string, error) {
-	var s []rune
-	var esc bool
-	for {
-		switch r, _, err := rs.ReadRune(); {
-		case err != nil && err != io.EOF:
-			return "", err
-		case err == io.EOF || !esc && r == delim:
-			return Unescape(string(s)), nil
-		case r == '\n':
-			return Unescape(string(s)), rs.UnreadRune()
-		default:
-			s = append(s, r)
-			esc = !esc && r == '\\'
-		}
 	}
 }
 
