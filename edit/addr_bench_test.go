@@ -55,6 +55,7 @@ func BenchmarkLinex1K(b *testing.B) { benchmarkLine(b, 1<<10) }
 
 func benchmarkRegexp(b *testing.B, re string, n int) {
 	ed, _ := makeEditor(n)
+	defer ed.buf.Close()
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
