@@ -187,7 +187,7 @@ func TestEd(t *testing.T) {
 		{str: "s/a*|b*//", edit: Sub(Dot, "a*|b*", "")},
 		{str: "s/a//", edit: Sub(Dot, "a", "")},
 		{str: "s/a/\n/g", left: "\n/g", edit: Sub(Dot, "a", "")},
-		{str: "s/(.*)/a\\1", edit: Sub(Dot, "(.*)", "a\\1")},
+		{str: `s/(.*)/a\1`, edit: Sub(Dot, "(.*)", "a1")},
 		{str: ".s/a/b", edit: Sub(Dot, "a", "b")},
 		{str: "#1+1s/a/b", edit: Sub(Rune(1).Plus(Line(1)), "a", "b")},
 		{str: " #1 + 1 s/a/b", edit: Sub(Rune(1).Plus(Line(1)), "a", "b")},
@@ -208,7 +208,7 @@ func TestEd(t *testing.T) {
 		{str: "s//b", edit: Sub(Dot, "", "b")},
 		{str: "s/\n/b", left: "\n/b", edit: Sub(Dot, "", "")},
 		{str: "s" + strconv.FormatInt(math.MaxInt64, 10) + "0" + "/a/b/g", error: "value out of range"},
-		{str: "s/*", error: "missing operand"},
+		{str: "s/*", error: "missing"},
 
 		{str: "|cmd", edit: Pipe(Dot, "cmd")},
 		{str: "|	   cmd", edit: Pipe(Dot, "cmd")},
@@ -380,14 +380,14 @@ func TestEditString(t *testing.T) {
 		{Sub(All, "a*", "/"), `0,$s/a*/\//`},
 		{Sub(All, "\n*", "b"), `0,$s/\n*/b/`},
 		{Sub(All, "a*", "\n"), `0,$s/a*/\n/`},
-		{Sub(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1/`},
+		{Sub(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\\1/`},
 
 		{SubGlobal(All, "a*", "b"), `0,$s/a*/b/g`},
 		{SubGlobal(All, "/*", "b"), `0,$s/\/*/b/g`},
 		{SubGlobal(All, "a*", "/"), `0,$s/a*/\//g`},
 		{SubGlobal(All, "\n*", "b"), `0,$s/\n*/b/g`},
 		{SubGlobal(All, "a*", "\n"), `0,$s/a*/\n/g`},
-		{SubGlobal(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\1/g`},
+		{SubGlobal(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\\1/g`},
 
 		{Substitute{A: All, RE: "a*", With: "b", From: 2}, `0,$s2/a*/b/`},
 		{Substitute{A: All, RE: "a*", With: "b", From: 0}, `0,$s/a*/b/`},
@@ -1096,7 +1096,7 @@ var substituteTests = []editTest{
 	{
 		name:  "bad regexp",
 		do:    []Edit{Substitute{A: Rune(0), RE: "*"}},
-		error: "missing operand",
+		error: "missing",
 	},
 	{
 		name:  "empty buffer",
@@ -1164,37 +1164,65 @@ var substituteTests = []editTest{
 		do:    []Edit{Sub(All, "2", "xxx")},
 		want:  "{.}:abc:;1xxx3;,xyz,//{.}",
 	},
-
 	{
 		name:  "subexprs",
 		given: "{..}abcdefghi",
-		do:    []Edit{Sub(All, "(abc)(def)(ghi)", `\0 \1 \2 \3`)},
+		do:    []Edit{Sub(All, "(abc)(def)(ghi)", `$0 $1 $2 $3`)},
 		want:  "{.}abcdefghi abc def ghi{.}",
 	},
 	{
 		name:  "subexprs and literals",
 		given: "{..}abcxyz",
-		do:    []Edit{Sub(All, "(abc)(xyz)", `\2123\1`)},
+		do:    []Edit{Sub(All, "(abc)(xyz)", `${2}123$1`)},
 		want:  "{.}xyz123abc{.}",
-	},
-	// BUG(eaburns): #176 replacement is broken, shouldn't have abc!
-	{
-		name:  "BUGGY missing subexpr",
-		given: "{..}abc",
-		do:    []Edit{Sub(All, "abc(xyz)?", `123\1456`)},
-		want:  "{.}123abc456{.}",
 	},
 	{
 		name:  "missing subexpr",
 		given: "{..}abc",
-		do:    []Edit{Sub(All, "abc(xyz)?", `123\2456`)},
+		do:    []Edit{Sub(All, "abc(xyz)?", `123${1}456`)},
 		want:  "{.}123456{.}",
+	},
+	{
+		name:  "missing subexpr",
+		given: "{..}abc",
+		do:    []Edit{Sub(All, "abc(xyz)?", `123${2}456`)},
+		want:  "{.}123456{.}",
+	},
+	{
+		name:  "subexpr is entire match",
+		given: "{..}...===...\n",
+		do:    []Edit{Sub(All, "(=+)", `---${1}---`)},
+		want:  "{.}...---===---...\n{.}",
+	},
+	{
+		name:  "non-ASCII submatch replace",
+		given: "{..}α",
+		do:    []Edit{Sub(All, "(.)", `${1}β`)},
+		want:  "{.}αβ{.}",
 	},
 	{
 		name:  "replace every rune",
 		given: "{..}Hello 世界",
-		do:    []Edit{SubGlobal(All, "(.)", `\1x`)},
+		do:    []Edit{SubGlobal(All, "(.)", `${1}x`)},
 		want:  "{.}Hxexlxlxox x世x界x{.}",
+	},
+	{
+		name: "replace whitespace",
+		given: "{..}a b		c",
+		do:   []Edit{SubGlobal(All, `\s+`, `\`)},
+		want: `{.}a\b\c{.}`,
+	},
+	{
+		name:  "global empty first match",
+		given: "{..}b",
+		do:    []Edit{SubGlobal(All, "a*", "x")},
+		want:  "{.}xbx{.}",
+	},
+	{
+		name:  "global empty last match",
+		given: "{..}abab",
+		do:    []Edit{SubGlobal(All, "a*", "x")},
+		want:  "{.}xbxbx{.}",
 	},
 	{
 		name:  "from negative",
@@ -1253,19 +1281,13 @@ var substituteTests = []editTest{
 		want:  "{.}xyz{.}",
 	},
 	{
-		name:  "various escaped runes regexp",
-		given: "{..}abc",
-		do:    []Edit{Sub(All, `\a\b\c`, "xyz")},
-		want:  "{.}xyz{.}",
-	},
-	{
-		name:  "only escape regexp",
+		name:  `only \`,
 		given: `{..}\`,
 		do:    []Edit{Sub(All, `\`, "xyz")},
 		want:  "{.}xyz{.}",
 	},
 	{
-		name:  "escape at end regexp",
+		name:  `trailing \`,
 		given: `{..}abc\`,
 		do:    []Edit{Sub(All, `abc\`, "xyz")},
 		want:  "{.}xyz{.}",
@@ -1312,13 +1334,13 @@ var substituteTests = []editTest{
 		name:  "escaped delimiter with",
 		given: "{..}abc",
 		do:    []Edit{Sub(All, "abc", `\/xyz\/`)},
-		want:  "{.}/xyz/{.}",
+		want:  `{.}\/xyz\/{.}`,
 	},
 	{
 		name:  "various escaped runes with",
 		given: "{..}abc",
 		do:    []Edit{Sub(All, "abc", `\x\y\z`)},
-		want:  "{.}xyz{.}",
+		want:  `{.}\x\y\z{.}`,
 	},
 	{
 		name:  "only escape with",
@@ -1342,7 +1364,7 @@ var substituteTests = []editTest{
 		name:  "escaped raw newline with",
 		given: "{..}abc",
 		do:    []Edit{Sub(All, "abc", "xyz\\\n")},
-		want:  "{.}xyz\n{.}",
+		want:  "{.}xyz\\\n{.}",
 	},
 	{
 		name:  "literal newline with",
@@ -1354,7 +1376,7 @@ var substituteTests = []editTest{
 		name:  `escape \ then n with`,
 		given: "{..}abc",
 		do:    []Edit{Sub(All, `abc`, `xyz\\n`)},
-		want:  `{.}xyz\n{.}`,
+		want:  `{.}xyz\\n{.}`,
 	},
 }
 

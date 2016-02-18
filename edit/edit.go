@@ -131,14 +131,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
-	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/eaburns/T/edit/runes"
-	"github.com/eaburns/T/re1"
 )
 
 // An Edit is an operation that can be made on a Buffer by an Editor.
@@ -377,26 +378,19 @@ type Substitute struct {
 	A Address
 	// RE is the regular expression to match.
 	//
-	// The regular expression must use the syntax of the re1 package:
-	// http://godoc.org/github.com/eaburns/T/re1.
-	// It is compiled with re1.Options{}
-	// when the edit is computed on a buffer.
-	// Compilation errors will not be returned until that time.
-	// If the regexp is malformed, the string representation of the Edit
-	// will be similarly malformed.
+	// The regular expression syntax is that of the standard library regexp package.
+	// The syntax is documented here: https://github.com/google/re2/wiki/Syntax.
+	// All regular expressions are wrapped in (?m:<re>), making them multi-line by default.
+	// The beginning and end of the address A
+	// are the beginning and end of text for the regexp match.
+	// So given:
+	// 	xyzabc123
+	// The substitution #3,#6s/^abc$/αβξ will result in:
+	// 	xyzαβξ123
 	RE string
-	// With is the runes with which to replace each match.
-	// The rune \ in str is interpreted as an escape.
-	// \n is a literal newline.
-	// \ followed by a digit d stands for d-th subexpression match.
-	// All other escaped runes are the rune themselves.
-	// For example,
-	// 	\n is a literal newline
-	// 	\1 is the first subexpression match.
-	// 	\\ is \
-	// 	\a is a
-	// It is an error if such a subexpression match used within With
-	// contains more than MaxRunes runes.
+	// With is the template with which to replace each match of RE.
+	// The syntax is that of the standard regexp package's Regexp.Expand method
+	// described here: https://golang.org/pkg/regexp/#Regexp.Expand.
 	With string
 	// Global is whether to replace all matches, or just one.
 	// If Global is false, only one match is replaced.
@@ -440,9 +434,7 @@ func (e Substitute) String() string {
 	if e.Global {
 		g = "g"
 	}
-	re := re1.AddDelimiter('/', escape(-1, e.RE)) // Escape newlines.
-	with := escape('/', e.With)
-	return e.A.String() + "s" + n + re + with + "/" + g
+	return e.A.String() + "s" + n + "/" + Escape(e.RE, '/') + "/" + Escape(e.With, '/') + "/" + g
 }
 
 func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
@@ -450,110 +442,70 @@ func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
 	if err != nil {
 		return addr{}, err
 	}
-	re, err := re1.Compile(strings.NewReader(e.RE), re1.Options{})
+	re, err := regexpCompile(e.RE)
 	if err != nil {
 		return addr{}, err
 	}
+
+	var prev []int
 	from := at.from
-	for {
-		m, err := subSingle(ed, addr{from, at.to}, re, e.With, e.From)
-		if err != nil {
-			return addr{}, err
-		}
-		if !e.Global || m == nil || m[0][1] == at.to {
+	for from <= at.to { // Allow one run on an empty input.
+		match := rangeMatch(re, addr{from: from, to: at.to}, ed)
+		if len(match) < 2 {
 			break
 		}
-		from = m[0][1]
-		e.From = 1 // reset n to 1, so that on future iterations of this loop we get the next instance.
+		if match[0] == match[1] {
+			from++
+		} else {
+			from = int64(match[1])
+		}
+
+		if len(prev) >= 2 && match[0] == match[1] && match[1] == prev[1] {
+			// Skip an empty match immediately following the previous match.
+			prev = match
+			continue
+		}
+		prev = match
+
+		e.From--
+		if e.From <= 0 {
+			if err := regexpSub(re, match, e.With, ed); err != nil {
+				return addr{}, nil
+			}
+			if !e.Global {
+				break
+			}
+		}
 	}
 	return at, nil
-
 }
 
-// SubSingle substitutes the Nth match of the regular expression
-// with the replacement specifier.
-func subSingle(ed *Editor, at addr, re *re1.Regexp, with string, n int) ([][2]int64, error) {
-	m, err := nthMatch(ed, at, re, n)
-	if err != nil || m == nil {
-		return m, err
-	}
-	repl, err := replRunes(ed, m, with)
+func regexpSub(re *regexp.Regexp, match []int, with string, ed *Editor) error {
+	m := addr{from: int64(match[0]), to: int64(match[1])}
+	r := runes.LimitReader(ed.buf.runes.Reader(m.from), m.size())
+	src, err := ioutil.ReadAll(runes.UTF8Reader(r))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	at = addr{m[0][0], m[0][1]}
-	return m, pend(ed, at, runes.StringReader(repl))
-}
 
-// NthMatch skips past the first n-1 matches of the regular expression.
-// If n ≤ 0, the first match is returned.
-func nthMatch(ed *Editor, at addr, re *re1.Regexp, n int) ([][2]int64, error) {
-	var err error
-	var m [][2]int64
-	if n <= 0 {
-		n = 1
-	}
-	for i := 0; i < n; i++ {
-		m, err = match(ed, at, re)
-		if err != nil || m == nil {
-			return nil, err
+	matchSrc := make([]int, len(match))
+	var bi, ri int
+	for {
+		for i := range match {
+			if match[i]-match[0] == ri {
+				matchSrc[i] = bi
+			}
 		}
-		at.from = m[0][1]
-	}
-	return m, err
-}
-
-// ReplRunes returns the runes that replace a matched regexp.
-func replRunes(ed *Editor, m [][2]int64, with string) (string, error) {
-	var err error
-	repl := unescape(with, func(i int) (match []rune) {
-		if err != nil || i < 0 || i >= len(m) {
-			return nil
+		if bi >= len(src) {
+			break
 		}
-		n := m[i][1] - m[i][0]
-		if n > MaxRunes {
-			err = errors.New("subexpression too big")
-			return nil
-		}
-		match, err = ed.buf.runes.Read(int(n), m[i][0])
-		return match
-	})
-	return repl, err
-}
-
-type runeSlice struct {
-	buf *runes.Buffer
-	addr
-	err error
-}
-
-func (rs *runeSlice) Size() int64 { return rs.size() }
-
-func (rs *runeSlice) Rune(i int64) rune {
-	switch {
-	case i < 0 || i >= rs.size():
-		panic("index out of bounds")
-	case rs.err != nil:
-		return -1
+		_, w := utf8.DecodeRune(src[bi:])
+		bi += w
+		ri++
 	}
-	r, err := rs.buf.Rune(rs.from + i)
-	if err != nil {
-		rs.err = err
-		return -1
-	}
-	return r
-}
 
-// Match returns the results of matching a regular experssion
-// within an address range in an Editor.
-func match(ed *Editor, at addr, re *re1.Regexp) ([][2]int64, error) {
-	rs := &runeSlice{buf: ed.buf.runes, addr: at}
-	m := re.Match(rs, 0)
-	for i := range m {
-		m[i][0] += at.from
-		m[i][1] += at.from
-	}
-	return m, rs.err
+	repl := re.Expand(nil, []byte(with), src, matchSrc)
+	return pend(ed, m, runes.ByteReader(repl))
 }
 
 type pipe struct {
@@ -758,17 +710,23 @@ func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
 //		Copies or moves runes from the first address to after the second.
 //		Dot is set to the newly inserted or moved runes.
 //	{addr} s{n}/regexp/text/{g}
-//		Substitute substitutes text for the first match
-// 		of the regular expression in the addressed range.
-// 		When substituting, a backslash followed by a digit d
-// 		stands for the string that matched the d-th subexpression.
-//		\n is a literal newline.
+//		Substitute substitutes matches of regexp within the address.
+//
+// 		The regexp uses the syntax of the standard library regexp package.
+// 		The regexp is wrapped in (?m:<regexp>), making it multi-line by default.
+// 		The replacement text uses the systax of Regexp.Expand method,
+// 		described here: https://golang.org/pkg/regexp/#Regexp.Expand.,
+// 		The runes \, raw newlines, and / must be escaped with \
+// 		in both the regexp and replacement text.
+// 		For example, ,s/\\s+/\\/g replaces runs of whitespace with \.
+//
 //		A number n after s indicates we substitute the Nth match in the
 //		address range. If n == 0 set n = 1.
 // 		If the delimiter after the text is followed by the letter g
 //		then all matches in the address range are substituted.
 //		If a number n and the letter g are both present then the Nth match
-//		and all subsequent matches in the address range are	substituted.
+//		and all subsequent matches in the address range are substituted.
+//
 //		If an address is not supplied, dot is used.
 //		Dot is set to the modified address.
 //	{addr} k {name}
@@ -910,20 +868,30 @@ func Ed(rs io.RuneScanner) (Edit, error) {
 		if err != nil {
 			return nil, err
 		}
-		delim, regexp, err := parseRegexp(rs)
+		if err := skipSpace(rs); err != nil {
+			return nil, err
+		}
+		delim, _, err := rs.ReadRune()
+		switch {
+		case err != nil && err != io.EOF:
+			return nil, err
+		case err == io.EOF:
+			return Sub(a, "", ""), nil
+		case delim == '\n':
+			return Sub(a, "", ""), rs.UnreadRune()
+		}
+		re, err := parseDelimited(delim, rs)
 		if err != nil {
 			return nil, err
 		}
-		repl, err := parseDelimitedOld(delim, rs)
+		if _, err := regexpCompile(re); err != nil {
+			return nil, err
+		}
+		with, err := parseDelimited(delim, rs)
 		if err != nil {
 			return nil, err
 		}
-		sub := Substitute{
-			A:    a,
-			RE:   regexp,
-			With: string(repl),
-			From: n,
-		}
+		sub := Substitute{A: a, RE: re, With: with, From: n}
 		switch r, _, err := rs.ReadRune(); {
 		case err == io.EOF:
 			return sub, nil
@@ -953,45 +921,6 @@ func Ed(rs io.RuneScanner) (Edit, error) {
 	default:
 		return nil, errors.New("unknown command: " + string(r))
 	}
-}
-
-// Re1Reader serves two purposes:
-//
-// 1) It keeps track of runes consumed by re1.Compile.
-// These runes are the parsed regular expression.
-//
-// 2) re1 does not terminate on raw newlines; Ed and Addr do.
-// The re1Scanner returns io.EOF when it encounters a raw newline.
-type re1Reader struct {
-	rs   io.RuneScanner
-	read []rune
-}
-
-func (rs *re1Reader) ReadRune() (rune, int, error) {
-	switch r, w, err := rs.rs.ReadRune(); {
-	case err != nil:
-		return r, w, err
-	case r == '\n':
-		if err := rs.rs.UnreadRune(); err != nil {
-			return r, w, err
-		}
-		return rune(0), 0, io.EOF
-	default:
-		rs.read = append(rs.read, r)
-		return r, w, err
-	}
-}
-
-func parseRegexp(rs io.RuneScanner) (rune, string, error) {
-	if err := skipSpace(rs); err != nil {
-		return 0, "", err
-	}
-	rs1 := &re1Reader{rs: rs}
-	if _, err := re1.Compile(rs1, re1.Options{Delimited: true}); err != nil {
-		return 0, "", err
-	}
-	delim, regexp := re1.RemoveDelimiter(string(rs1.read))
-	return delim, regexp, nil
 }
 
 func parseAddrOrDot(rs io.RuneScanner) (Address, error) {
@@ -1061,33 +990,6 @@ func parseDelimited(delim rune, rs io.RuneScanner) (string, error) {
 	}
 }
 
-// The old version of parseDelimited that does not unescape.
-func parseDelimitedOld(delim rune, rs io.RuneScanner) (string, error) {
-	var s []rune
-	var esc bool
-	for {
-		switch r, _, err := rs.ReadRune(); {
-		case err == io.EOF:
-			return string(s), nil
-		case err != nil:
-			return "", err
-		case esc && r == delim:
-			s = append(s[:len(s)-1], r)
-			esc = false
-		case esc && r == 'n':
-			s = append(s[:len(s)-1], '\n')
-			esc = false
-		case r == '\n':
-			return string(s), rs.UnreadRune()
-		case r == delim:
-			return string(s), nil
-		default:
-			s = append(s, r)
-			esc = !esc && r == '\\'
-		}
-	}
-}
-
 // Escape returns the string,
 // with \ inserted before all occurrences of
 // \, raw newlines, and runes in esc.
@@ -1128,56 +1030,6 @@ func Unescape(str string) string {
 		if esc && r == 'n' {
 			s = append(s, '\n')
 		} else {
-			s = append(s, r)
-		}
-		esc = false
-	}
-	if esc {
-		s = append(s, '\\')
-	}
-	return string(s)
-}
-
-// Escape returns str with all unescaped delimiters and newlines escaped.
-func escape(delim rune, str string) string {
-	var s []rune
-	var esc bool
-	for _, r := range str {
-		if !esc && r == delim {
-			s = append(s, '\\')
-		}
-		if r == '\n' {
-			if !esc {
-				s = append(s, '\\')
-			}
-			r = 'n'
-		}
-		s = append(s, r)
-		esc = !esc && r == '\\'
-	}
-	if esc {
-		s = append(s, '\\')
-	}
-	return string(s)
-}
-
-// Unescape returns str with all escapes removed.
-// \n is interpreted as a literal newline.
-// If lookup is non-nil, escaped digits are replaced with the result of lookup.
-func unescape(str string, lookup func(int) []rune) string {
-	var s []rune
-	var esc bool
-	for _, r := range str {
-		switch {
-		case !esc && r == '\\':
-			esc = true
-			continue
-		case esc && lookup != nil && unicode.IsDigit(r):
-			s = append(s, lookup(int(r-'0'))...)
-		case esc && r == 'n':
-			r = '\n'
-			fallthrough
-		default:
 			s = append(s, r)
 		}
 		esc = false
