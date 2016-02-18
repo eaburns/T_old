@@ -55,11 +55,19 @@ const (
 	hard   = "[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$"
 )
 
-func BenchmarkRegexpMatchEasy0x32(b *testing.B)  { benchmark(b, easy0, 32<<0) }
-func BenchmarkRegexpMatchEasy0x1K(b *testing.B)  { benchmark(b, easy0, 1<<10) }
-func BenchmarkRegexpMatchEasy1x32(b *testing.B)  { benchmark(b, easy1, 32<<0) }
-func BenchmarkRegexpMatchEasy1x1K(b *testing.B)  { benchmark(b, easy1, 1<<10) }
-func BenchmarkRegexpMatchMediumx32(b *testing.B) { benchmark(b, medium, 1<<0) }
-func BenchmarkRegexpMatchMediumx1K(b *testing.B) { benchmark(b, medium, 1<<10) }
-func BenchmarkRegexpMatchHardx32(b *testing.B)   { benchmark(b, hard, 32<<0) }
-func BenchmarkRegexpMatchHardx1K(b *testing.B)   { benchmark(b, hard, 1<<10) }
+func BenchmarkRegexpMatchEasy0x32(b *testing.B)   { benchmark(b, easy0, 32<<0) }
+func BenchmarkRegexpMatchEasy0x1K(b *testing.B)   { benchmark(b, easy0, 1<<10) }
+func BenchmarkRegexpMatchEasy0x1M(b *testing.B)   { benchmark(b, easy0, 1<<20) }
+func BenchmarkRegexpMatchEasy0x32M(b *testing.B)  { benchmark(b, easy0, 32<<20) }
+func BenchmarkRegexpMatchEasy1x32(b *testing.B)   { benchmark(b, easy1, 32<<0) }
+func BenchmarkRegexpMatchEasy1x1K(b *testing.B)   { benchmark(b, easy1, 1<<10) }
+func BenchmarkRegexpMatchEasy1x1M(b *testing.B)   { benchmark(b, easy1, 1<<20) }
+func BenchmarkRegexpMatchEasy1x32M(b *testing.B)  { benchmark(b, easy1, 32<<20) }
+func BenchmarkRegexpMatchMediumx32(b *testing.B)  { benchmark(b, medium, 1<<0) }
+func BenchmarkRegexpMatchMediumx1K(b *testing.B)  { benchmark(b, medium, 1<<10) }
+func BenchmarkRegexpMatchMediumx1M(b *testing.B)  { benchmark(b, medium, 1<<20) }
+func BenchmarkRegexpMatchMediumx32M(b *testing.B) { benchmark(b, medium, 32<<20) }
+func BenchmarkRegexpMatchHardx32(b *testing.B)    { benchmark(b, hard, 32<<0) }
+func BenchmarkRegexpMatchHardx1K(b *testing.B)    { benchmark(b, hard, 1<<10) }
+func BenchmarkRegexpMatchHardx1M(b *testing.B)    { benchmark(b, hard, 1<<20) }
+func BenchmarkRegexpMatchHardx32M(b *testing.B)   { benchmark(b, hard, 32<<20) }
