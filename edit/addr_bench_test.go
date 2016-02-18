@@ -50,8 +50,10 @@ func benchmarkLine(b *testing.B, n int) {
 	}
 }
 
-func BenchmarkLinex32(b *testing.B) { benchmarkLine(b, 32<<0) }
-func BenchmarkLinex1K(b *testing.B) { benchmarkLine(b, 1<<10) }
+func BenchmarkLinex32(b *testing.B)  { benchmarkLine(b, 32<<0) }
+func BenchmarkLinex1K(b *testing.B)  { benchmarkLine(b, 1<<10) }
+func BenchmarkLinex1M(b *testing.B)  { benchmarkLine(b, 1<<20) }
+func BenchmarkLinex32M(b *testing.B) { benchmarkLine(b, 32<<20) }
 
 func benchmarkRegexp(b *testing.B, re string, n int) {
 	ed, _ := makeEditor(n)
@@ -75,11 +77,19 @@ const (
 	hard   = "[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$"
 )
 
-func BenchmarkRegexpEasy0x32(b *testing.B)  { benchmarkRegexp(b, easy0, 32<<0) }
-func BenchmarkRegexpEasy0x1K(b *testing.B)  { benchmarkRegexp(b, easy0, 1<<10) }
-func BenchmarkRegexpEasy1x32(b *testing.B)  { benchmarkRegexp(b, easy1, 32<<0) }
-func BenchmarkRegexpEasy1x1K(b *testing.B)  { benchmarkRegexp(b, easy1, 1<<10) }
-func BenchmarkRegexpMediumx32(b *testing.B) { benchmarkRegexp(b, medium, 1<<0) }
-func BenchmarkRegexpMediumx1K(b *testing.B) { benchmarkRegexp(b, medium, 1<<10) }
-func BenchmarkRegexpHardx32(b *testing.B)   { benchmarkRegexp(b, hard, 32<<0) }
-func BenchmarkRegexpHardx1K(b *testing.B)   { benchmarkRegexp(b, hard, 1<<10) }
+func BenchmarkRegexpEasy0x32(b *testing.B)   { benchmarkRegexp(b, easy0, 32<<0) }
+func BenchmarkRegexpEasy0x1K(b *testing.B)   { benchmarkRegexp(b, easy0, 1<<10) }
+func BenchmarkRegexpEasy0x1M(b *testing.B)   { benchmarkRegexp(b, easy0, 1<<20) }
+func BenchmarkRegexpEasy0x32M(b *testing.B)  { benchmarkRegexp(b, easy0, 32<<20) }
+func BenchmarkRegexpEasy1x32(b *testing.B)   { benchmarkRegexp(b, easy1, 32<<0) }
+func BenchmarkRegexpEasy1x1K(b *testing.B)   { benchmarkRegexp(b, easy1, 1<<10) }
+func BenchmarkRegexpEasy1x1M(b *testing.B)   { benchmarkRegexp(b, easy1, 1<<20) }
+func BenchmarkRegexpEasy1x32M(b *testing.B)  { benchmarkRegexp(b, easy1, 32<<20) }
+func BenchmarkRegexpMediumx32(b *testing.B)  { benchmarkRegexp(b, medium, 1<<0) }
+func BenchmarkRegexpMediumx1K(b *testing.B)  { benchmarkRegexp(b, medium, 1<<10) }
+func BenchmarkRegexpMediumx1M(b *testing.B)  { benchmarkRegexp(b, medium, 1<<20) }
+func BenchmarkRegexpMediumx32M(b *testing.B) { benchmarkRegexp(b, medium, 32<<20) }
+func BenchmarkRegexpHardx32(b *testing.B)    { benchmarkRegexp(b, hard, 32<<0) }
+func BenchmarkRegexpHardx1K(b *testing.B)    { benchmarkRegexp(b, hard, 1<<10) }
+func BenchmarkRegexpHardx1M(b *testing.B)    { benchmarkRegexp(b, hard, 1<<20) }
+func BenchmarkRegexpHardx32M(b *testing.B)   { benchmarkRegexp(b, hard, 32<<20) }
