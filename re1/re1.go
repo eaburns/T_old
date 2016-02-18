@@ -47,55 +47,54 @@ const nCache = 2
 
 // A Regexp is the compiled form of a regular expression.
 type Regexp struct {
-	start, end *node
-	// N is the number of states in the expression.
-	n int
-	// Nsub is the number of subexpressions,
-	// counting the 0th, which is the entire expression.
-	nsub int
+	start, end         *state
+	nStates, nSubexprs int
 
 	lock   sync.Mutex
 	mcache []*machine
 }
 
-type node struct {
+type state struct {
 	n   int
 	out [2]edge
 	// sub==0 means no subexpression
 	// sub>0 means start of subexpression sub-1
 	// sub<0 means end of subexpression -(sub-1)
-	sub int
+	subexpr int
 }
 
 type edge struct {
 	label label
-	to    *node
+	to    *state
 }
 
+func (e *edge) consumes() bool         { return e.label != nil && e.label.consumes() }
+func (e *edge) accepts(p, c rune) bool { return e.label == nil || e.label.accepts(p, c) }
+
 type label interface {
-	ok(prev, cur rune) bool
-	epsilon() bool
+	accepts(prev, cur rune) bool
+	consumes() bool
 }
 
 type dotLabel struct{}
 
-func (dotLabel) ok(_, c rune) bool { return c != '\n' && c != eof }
-func (dotLabel) epsilon() bool     { return false }
+func (dotLabel) accepts(_, c rune) bool { return c != '\n' && c != eof }
+func (dotLabel) consumes() bool         { return true }
 
 type runeLabel rune
 
-func (l runeLabel) ok(_, c rune) bool { return c == rune(l) }
-func (runeLabel) epsilon() bool       { return false }
+func (l runeLabel) accepts(_, c rune) bool { return c == rune(l) }
+func (runeLabel) consumes() bool           { return true }
 
 type bolLabel struct{}
 
-func (bolLabel) ok(p, _ rune) bool { return p == eof || p == '\n' }
-func (bolLabel) epsilon() bool     { return true }
+func (bolLabel) accepts(p, _ rune) bool { return p == eof || p == '\n' }
+func (bolLabel) consumes() bool         { return false }
 
 type eolLabel struct{}
 
-func (eolLabel) ok(_, c rune) bool { return c == eof || c == '\n' }
-func (eolLabel) epsilon() bool     { return true }
+func (eolLabel) accepts(_, c rune) bool { return c == eof || c == '\n' }
+func (eolLabel) consumes() bool         { return false }
 
 type classLabel struct {
 	runes  []rune
@@ -103,7 +102,7 @@ type classLabel struct {
 	neg    bool
 }
 
-func (l *classLabel) ok(_, c rune) bool {
+func (l *classLabel) accepts(_, c rune) bool {
 	if c == eof {
 		return false
 	}
@@ -120,25 +119,25 @@ func (l *classLabel) ok(_, c rune) bool {
 	return l.neg
 }
 
-func (classLabel) epsilon() bool { return false }
+func (classLabel) consumes() bool { return true }
 
 // Options are compile-time options for regular expressions.
 type Options struct {
-	// Delimited states whether the first character
+	// Delimited nodes whether the first character
 	// in the string should be interpreted as a delimiter.
 	Delimited bool
-	// Reverse states whether the regular expression
+	// Reverse nodes whether the regular expression
 	// should be compiled for reverse match.
 	Reverse bool
-	// Literal states whether metacharacters should be interpreted as literals.
+	// Literal nodes whether metacharacters should be interpreted as literals.
 	Literal bool
 }
 
 // Compile compiles a regular expression using the options.
 // The regular expression is parsed until either
 // the end of the input or an un-escaped closing delimiter.
-func Compile(rs io.RuneReader, opts Options) (*Regexp, error) {
-	p, err := newParser(rs, opts)
+func Compile(rr io.RuneReader, opts Options) (*Regexp, error) {
+	p, err := newParser(rr, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -147,31 +146,31 @@ func Compile(rs io.RuneReader, opts Options) (*Regexp, error) {
 		return nil, err
 	}
 	if re == nil {
-		re = &Regexp{start: new(node), end: new(node)}
+		re = &Regexp{start: new(state), end: new(state)}
 		re.start.out[0].to = re.end
 	}
 	re = subexpr(re, 0)
-	re.nsub = p.nsub
+	re.nSubexprs = p.nSubexprs
 	numberStates(re)
 	return re, nil
 }
 
-// NumberStates assigns a unique, small interger to each state
-// and sets Regexp.n to the number of states in the automata.
+// NumberStates assigns a unique, small interger to each node
+// and sets Regexp.n to the number of nodes in the automata.
 func numberStates(re *Regexp) {
-	var s *node
-	stk := []*node{re.start}
-	re.n++
-	for len(stk) > 0 {
-		s, stk = stk[len(stk)-1], stk[:len(stk)-1]
+	var s *state
+	stack := []*state{re.start}
+	re.nStates++
+	for len(stack) > 0 {
+		s, stack = stack[len(stack)-1], stack[:len(stack)-1]
 		for _, e := range s.out {
 			t := e.to
 			if t == nil || t == re.start || t.n > 0 {
 				continue
 			}
-			t.n = re.n
-			re.n++
-			stk = append(stk, t)
+			t.n = re.nStates
+			re.nStates++
+			stack = append(stack, t)
 		}
 	}
 }
@@ -205,16 +204,16 @@ func (t token) String() string {
 
 type parser struct {
 	Options
-	nsub    int
-	delim   rune
-	current token
-	scanner io.RuneReader
+	nSubexprs int
+	delim     rune
+	current   token
+	rr        io.RuneReader
 }
 
-func newParser(rs io.RuneReader, opts Options) (*parser, error) {
-	p := parser{nsub: 1, Options: opts, scanner: rs}
+func newParser(rr io.RuneReader, opts Options) (*parser, error) {
+	p := parser{nSubexprs: 1, Options: opts, rr: rr}
 	if opts.Delimited {
-		switch r, _, err := rs.ReadRune(); {
+		switch r, _, err := rr.ReadRune(); {
 		case err == io.EOF:
 			break // do nothing.
 		case err != nil:
@@ -229,7 +228,7 @@ func newParser(rs io.RuneReader, opts Options) (*parser, error) {
 }
 
 func (p *parser) read() (rune, error) {
-	r, _, err := p.scanner.ReadRune()
+	r, _, err := p.rr.ReadRune()
 	return r, err
 }
 
@@ -276,7 +275,7 @@ func e0(p *parser) (*Regexp, error) {
 	case r == nil:
 		return nil, errors.New("missing operand for |")
 	default:
-		re := &Regexp{start: new(node), end: new(node)}
+		re := &Regexp{start: new(state), end: new(state)}
 		re.start.out[0].to = l.start
 		re.start.out[1].to = r.start
 		l.end.out[0].to = re.end
@@ -297,10 +296,10 @@ func e1(p *parser) (*Regexp, error) {
 	if p.Reverse {
 		l, r = r, l
 	}
-	re := &Regexp{start: new(node)}
+	re := &Regexp{start: new(state)}
 	re.start = l.start
-	if l.end.sub == 0 {
-		// Common case: if possible, re-use l's end node.
+	if l.end.subexpr == 0 {
+		// Common case: if possible, re-use l's end state.
 		*l.end = *r.start
 	} else {
 		l.end.out[0].to = r.start
@@ -321,13 +320,13 @@ func e2p(l *Regexp, p *parser) (*Regexp, error) {
 	if p.Literal {
 		return l, nil
 	}
-	re := &Regexp{start: new(node), end: new(node)}
+	re := &Regexp{start: new(state), end: new(state)}
 	switch p.current {
 	case eof:
 		return l, nil
 	case star:
 		if l.start.out[1].to == nil {
-			// Common case: if possible, re-use l's start node.
+			// Common case: if possible, re-use l's start state.
 			re.start = l.start
 		} else {
 			re.start.out[0].to = l.start
@@ -353,7 +352,7 @@ func e2p(l *Regexp, p *parser) (*Regexp, error) {
 }
 
 func e3(p *parser) (*Regexp, error) {
-	re := &Regexp{start: new(node), end: new(node)}
+	re := &Regexp{start: new(state), end: new(state)}
 	re.start.out[0].to = re.end
 	if p.Literal {
 		if p.current == eof {
@@ -375,8 +374,8 @@ func e3(p *parser) (*Regexp, error) {
 		if err := p.next(); err != nil {
 			return nil, err
 		}
-		nsub := p.nsub
-		p.nsub++
+		nSubexprs := p.nSubexprs
+		p.nSubexprs++
 		switch e, err := e0(p); {
 		case err != nil:
 			return nil, err
@@ -387,10 +386,10 @@ func e3(p *parser) (*Regexp, error) {
 		case e == nil:
 			return nil, errors.New("missing operand for (")
 		default:
-			re = subexpr(e, nsub)
+			re = subexpr(e, nSubexprs)
 		}
 	case obrace:
-		c, err := charClass(p)
+		c, err := class(p)
 		if err != nil {
 			return nil, err
 		}
@@ -420,7 +419,7 @@ func e3(p *parser) (*Regexp, error) {
 	return re, p.next()
 }
 
-func charClass(p *parser) (label, error) {
+func class(p *parser) (label, error) {
 	var c classLabel
 	r, err := p.read()
 	for {
@@ -480,11 +479,11 @@ func charClass(p *parser) (label, error) {
 }
 
 func subexpr(e *Regexp, n int) *Regexp {
-	re := &Regexp{start: new(node), end: new(node)}
+	re := &Regexp{start: new(state), end: new(state)}
 	re.start.out[0].to = e.start
 	e.end.out[0].to = re.end
-	re.start.sub = n + 1
-	re.end.sub = -n - 1
+	re.start.subexpr = n + 1
+	re.end.subexpr = -n - 1
 	return re
 }
 
@@ -541,41 +540,41 @@ func (re *Regexp) put(m *machine) {
 }
 
 type machine struct {
-	re          *Regexp
-	at          int64
-	cap         [][2]int64
-	lit         label
+	re *Regexp
+	n  int64
+	m  [][2]int64
+	// Prefix is a single-rune literal prefix of the regexp, or nil.
+	prefix      label
 	q0, q1      *queue
-	stack       []*state
+	stack       []*node
 	seen, false []bool // false is to zero seen.
-	free        *state
+	free        *node
 }
 
-type state struct {
-	node *node
-	cap  [][2]int64
-	next *state
+type node struct {
+	state *state
+	m     [][2]int64
+	next  *node
 }
 
 func newMachine(re *Regexp) *machine {
 	m := &machine{
 		re:    re,
-		q0:    newQueue(re.n),
-		q1:    newQueue(re.n),
-		stack: make([]*state, re.n),
-		seen:  make([]bool, re.n),
-		false: make([]bool, re.n),
+		q0:    newQueue(re.nStates),
+		q1:    newQueue(re.nStates),
+		stack: make([]*node, re.nStates),
+		seen:  make([]bool, re.nStates),
+		false: make([]bool, re.nStates),
 	}
-	if s := re.start.out[0].to; s.out[1].to == nil &&
-		s.out[0].label != nil && !s.out[0].label.epsilon() {
-		m.lit = s.out[0].label
+	if s := re.start.out[0].to; s.out[1].to == nil && s.out[0].consumes() {
+		m.prefix = s.out[0].label
 	}
 	return m
 }
 
 func (m *machine) init(from int64) {
-	m.at = from
-	m.cap = nil
+	m.n = from
+	m.m = nil
 	for p := m.q0.head; p != nil; p = p.next {
 		m.put(p)
 	}
@@ -586,26 +585,26 @@ func (m *machine) init(from int64) {
 	m.q1.head, m.q1.tail = nil, nil
 }
 
-func (m *machine) get(n *node) (s *state) {
+func (m *machine) get(s *state) *node {
 	if m.free == nil {
-		return &state{node: n, cap: make([][2]int64, m.re.nsub)}
+		return &node{state: s, m: make([][2]int64, m.re.nSubexprs)}
 	}
-	s = m.free
+	n := m.free
 	m.free = m.free.next
-	for i := range s.cap {
-		s.cap[i] = [2]int64{}
+	for i := range n.m {
+		n.m[i] = [2]int64{}
 	}
-	s.node = n
-	return s
+	n.state = s
+	return n
 }
 
-func (m *machine) put(s *state) {
+func (m *machine) put(s *node) {
 	s.next = m.free
 	m.free = s
 }
 
 type queue struct {
-	head, tail *state
+	head, tail *node
 	mem        []bool
 }
 
@@ -613,7 +612,7 @@ func newQueue(n int) *queue { return &queue{mem: make([]bool, n)} }
 
 func (q *queue) empty() bool { return q.head == nil }
 
-func (q *queue) push(s *state) {
+func (q *queue) push(s *node) {
 	if q.tail != nil {
 		q.tail.next = s
 	}
@@ -622,30 +621,30 @@ func (q *queue) push(s *state) {
 	}
 	q.tail = s
 	s.next = nil
-	q.mem[s.node.n] = true
+	q.mem[s.state.n] = true
 }
 
-func (q *queue) pop() *state {
+func (q *queue) pop() *node {
 	s := q.head
 	q.head = q.head.next
 	if q.head == nil {
 		q.tail = nil
 	}
 	s.next = nil
-	q.mem[s.node.n] = false
+	q.mem[s.state.n] = false
 	return s
 }
 
 func (m *machine) match(rs Runes, end int64) [][2]int64 {
 	sz := rs.Size()
-	p, c := runeOrEOF(rs, sz, m.at-1), runeOrEOF(rs, sz, m.at)
+	p, c := runeOrEOF(rs, sz, m.n-1), runeOrEOF(rs, sz, m.n)
 	for {
-		for m.q0.empty() && m.lit != nil && !m.lit.ok(p, c) && m.at <= end {
-			m.at++
-			p, c = c, runeOrEOF(rs, sz, m.at)
+		for m.q0.empty() && m.prefix != nil && !m.prefix.accepts(p, c) && m.n <= end {
+			m.n++
+			p, c = c, runeOrEOF(rs, sz, m.n)
 		}
 
-		if m.cap == nil && !m.q0.mem[m.re.start.n] && m.at <= end {
+		if m.m == nil && !m.q0.mem[m.re.start.n] && m.n <= end {
 			m.q0.push(m.get(m.re.start))
 		}
 		if m.q0.empty() {
@@ -655,11 +654,11 @@ func (m *machine) match(rs Runes, end int64) [][2]int64 {
 			s := m.q0.pop()
 			m.step(s, p, c)
 		}
-		m.at++
-		p, c = c, runeOrEOF(rs, sz, m.at)
+		m.n++
+		p, c = c, runeOrEOF(rs, sz, m.n)
 		m.q0, m.q1 = m.q1, m.q0
 	}
-	return m.cap
+	return m.m
 }
 
 func runeOrEOF(rs Runes, sz, i int64) rune {
@@ -669,45 +668,45 @@ func runeOrEOF(rs Runes, sz, i int64) rune {
 	return rs.Rune(i)
 }
 
-func (m *machine) step(s0 *state, p, c rune) {
-	stk, seen := m.stack[:1], m.seen
+func (m *machine) step(s0 *node, p, c rune) {
+	stack, seen := m.stack[:1], m.seen
 	copy(seen, m.false)
-	stk[0], seen[s0.node.n] = s0, true
-	for len(stk) > 0 {
-		s := stk[len(stk)-1]
-		stk = stk[:len(stk)-1]
+	stack[0], seen[s0.state.n] = s0, true
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
 
-		switch sub := s.node.sub; {
-		case sub > 0:
-			s.cap[sub-1][0] = m.at
-		case sub < 0:
-			s.cap[-sub-1][1] = m.at
+		switch subexpr := n.state.subexpr; {
+		case subexpr > 0:
+			n.m[subexpr-1][0] = m.n
+		case subexpr < 0:
+			n.m[-subexpr-1][1] = m.n
 		}
 
-		if s.node == m.re.end && (m.cap == nil || m.cap[0][0] >= s.cap[0][0]) {
-			if m.cap == nil {
-				m.cap = make([][2]int64, m.re.nsub)
+		if n.state == m.re.end && (m.m == nil || m.m[0][0] >= n.m[0][0]) {
+			if m.m == nil {
+				m.m = make([][2]int64, m.re.nSubexprs)
 			}
-			copy(m.cap, s.cap)
+			copy(m.m, n.m)
 		}
 
-		for i := range s.node.out {
-			switch e := &s.node.out[i]; {
+		for i := range n.state.out {
+			switch e := &n.state.out[i]; {
 			case e.to == nil:
 				continue
-			case e.label == nil || e.label.epsilon():
-				if !seen[e.to.n] && (e.label == nil || e.label.ok(p, c)) {
+			case !e.consumes():
+				if !seen[e.to.n] && e.accepts(p, c) {
 					seen[e.to.n] = true
 					t := m.get(e.to)
-					copy(t.cap, s.cap)
-					stk = append(stk, t)
+					copy(t.m, n.m)
+					stack = append(stack, t)
 				}
-			case !m.q1.mem[e.to.n] && e.label.ok(p, c):
+			case !m.q1.mem[e.to.n] && e.accepts(p, c):
 				t := m.get(e.to)
-				copy(t.cap, s.cap)
+				copy(t.m, n.m)
 				m.q1.push(t)
 			}
 		}
-		m.put(s)
+		m.put(n)
 	}
 }
