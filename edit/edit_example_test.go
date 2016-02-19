@@ -44,7 +44,7 @@ func ExampleAddress() {
 		parseAddr("/Hello/"),
 		Regexp("Hello"),
 		// A regular expression, searching in reverse.
-		Regexp("?Hello?"),
+		End.Minus(Regexp("Hello")),
 
 		// Line addresses.
 		parseAddr("1"),
@@ -140,9 +140,9 @@ func ExampleEdit() {
 
 		// You can also edit with regexp substitution.
 		Change(All, "...===...\n"),
-		Sub(All, "(=+)", `---\1---`),
+		Sub(All, "(=+)", "---${1}---"),
 		Print(All),
-		parseEd(`,s/\./_/g`),
+		parseEd(`,s/[.]/_/g`),
 		Print(All),
 
 		// And various other things…

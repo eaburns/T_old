@@ -56,6 +56,11 @@ func TestSliceReader(t *testing.T) {
 	helloWorldReadTests.run(t, r)
 }
 
+func TestByteReader(t *testing.T) {
+	r := ByteReader([]byte(string(helloWorldTestRunes)))
+	helloWorldReadTests.run(t, r)
+}
+
 func TestStringReader(t *testing.T) {
 	r := StringReader(string(helloWorldTestRunes))
 	helloWorldReadTests.run(t, r)

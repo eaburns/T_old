@@ -51,18 +51,10 @@ func TestAddr(t *testing.T) {
 
 		{a: "/", want: Regexp("")},
 		{a: "//", want: Regexp("")},
-		{a: "?", want: Regexp("?")},
-		{a: "??", want: Regexp("?")},
 		{a: "/abcdef", want: Regexp("abcdef")},
 		{a: "/abc/def", left: "def", want: Regexp("abc")},
 		{a: "/abc def", want: Regexp("abc def")},
 		{a: "/abc def\nxyz", left: "\nxyz", want: Regexp("abc def")},
-		{a: "?abcdef", want: Regexp("?abcdef")},
-		{a: "?abc?def", left: "def", want: Regexp("?abc")},
-		{a: "?abc def", want: Regexp("?abc def")},
-		{a: " ?abc def", want: Regexp("?abc def")},
-		{a: "?abc def\nxyz", left: "\nxyz", want: Regexp("?abc def")},
-		{a: "/()", err: "operand"},
 
 		{a: "$", want: End},
 		{a: " $", want: End},
@@ -155,8 +147,6 @@ func TestAddr(t *testing.T) {
 		{a: "#2 1", want: Rune(2).Plus(Line(1))},
 		{a: "1/abc", want: Line(1).Plus(Regexp("abc"))},
 		{a: "/abc/1", want: Regexp("abc").Plus(Line(1))},
-		{a: "?abc?1", want: Regexp("?abc").Plus(Line(1))},
-		{a: "$?abc", want: End.Plus(Regexp("?abc"))},
 		{a: "1+2 3 - 4", want: Line(1).Plus(Line(2)).Plus(Line(3)).Minus(Line(4))},
 	}
 	for _, test := range tests {
@@ -204,14 +194,12 @@ func TestAddressString(t *testing.T) {
 		{addr: Mark('z')},
 		{addr: Mark(' ')},
 		{addr: Regexp("☺☹")},
-		{addr: Regexp("?☺☹")},
-		{addr: Regexp("?☺☹?")},
 		{addr: Dot.Plus(Line(1))},
 		{addr: Dot.Minus(Line(1))},
 		{addr: Dot.Minus(Line(1)).Plus(Line(1))},
 		{addr: Rune(1).To(Rune(2))},
 		{addr: Rune(1).Then(Rune(2))},
-		{addr: Regexp("func").Plus(Regexp(`\(`))},
+		{addr: Regexp("func").Plus(Regexp("[(]"))},
 	}
 	for _, test := range tests {
 		if test.want == nil {
@@ -234,30 +222,32 @@ func (e *errReaderAt) WriteAt(b []byte, _ int64) (int, error) { return len(b), n
 // TestIOErrors tests IO errors when computing addresses.
 func TestIOErrors(t *testing.T) {
 	helloWorld := []rune("Hello,\nWorld!")
-	tests := []string{
-		"1",
-		"#1+1",
-		"$-1",
-		"#3-1",
-		"/World",
-		"?World",
-		".+/World",
-		".-/World",
-		"0,/World",
-		"0;/World",
-		"/Hello/+",
-		"/Hello/-",
-		"/Hello/,",
-		"/Hello/;",
-		"/Hello/,/World",
-		"/Hello/;/World",
-		"/Hello/+/World",
-		"/Hello/-/World",
-		"/Hello/,/World",
-		"/Hello/;/World",
+	tests := []struct {
+		addr  string
+		error string
+	}{
+		{addr: "1", error: "read error"},
+		{addr: "#1+1", error: "read error"},
+		{addr: "$-1", error: "read error"},
+		{addr: "#3-1", error: "read error"},
+		{addr: "/World", error: "no match"},
+		{addr: ".+/World", error: "no match"},
+		{addr: ".-/World", error: "no match"},
+		{addr: "0,/World", error: "no match"},
+		{addr: "0;/World", error: "no match"},
+		{addr: "/Hello/+", error: "no match"},
+		{addr: "/Hello/-", error: "no match"},
+		{addr: "/Hello/,", error: "no match"},
+		{addr: "/Hello/;", error: "no match"},
+		{addr: "/Hello/,/World", error: "no match"},
+		{addr: "/Hello/;/World", error: "no match"},
+		{addr: "/Hello/+/World", error: "no match"},
+		{addr: "/Hello/-/World", error: "no match"},
+		{addr: "/Hello/,/World", error: "no match"},
+		{addr: "/Hello/;/World", error: "no match"},
 	}
 	for _, test := range tests {
-		rs := strings.NewReader(test)
+		rs := strings.NewReader(test.addr)
 		addr, err := Addr(rs)
 		if err != nil {
 			t.Errorf("Addr(%q)=%q,%v want _,nil", test, addr, err)
@@ -276,13 +266,13 @@ func TestIOErrors(t *testing.T) {
 		defer ed.buf.Close()
 
 		if err := ed.buf.runes.Insert(helloWorld, 0); err != nil {
-			t.Fatalf("ed.buf.runes.Insert(%v, 0)=%v, want nil", strconv.Quote(string(helloWorld)), err)
+			t.Fatalf("ed.buf.runes.Insert(%q, 0)=%q, want nil", helloWorld, err)
 		}
 
 		// All subsequent reads will be errors.
 		f.error = errors.New("read error")
-		if a, err := addr.where(ed); err != f.error {
-			t.Errorf("Addr(%q).addr()=%v,%v, want addr{},%q", test, a, err, f.error)
+		if a, err := addr.where(ed); !matchesError(test.error, err) {
+			t.Errorf("Addr(%q).addr()=%v,%v, want addr{},%q", test, a, err, test.error)
 			continue
 		}
 	}
@@ -599,7 +589,7 @@ var regexpTests = []editTest{
 		name:  "bad regexp",
 		given: "{..}",
 		do:    address(Regexp("*")),
-		error: "missing operand",
+		error: "missing",
 	},
 	{
 		name:  "no match",
@@ -611,7 +601,8 @@ var regexpTests = []editTest{
 		name:  "empty",
 		given: "{..}Hello 世界",
 		do:    address(Regexp("")),
-		want:  "{..aa}Hello 世界",
+		error: "no match",
+		want:  "{..}Hello 世界",
 	},
 	{
 		name:  "simple",
@@ -626,10 +617,140 @@ var regexpTests = []editTest{
 		want:  "{..a}Hello{a} 世界",
 	},
 	{
+		name:  "a star empty no match",
+		given: "{..}",
+		do:    address(Regexp("a*")),
+		error: "no match",
+		want:  "{..}",
+	},
+	{
+		name:  "a star match 1",
+		given: "{..}a",
+		do:    address(Regexp("a*")),
+		want:  "{..a}a{a}",
+	},
+	{
+		name:  "a star match 1 mid-line",
+		given: "xyz{..}a",
+		do:    address(Regexp("a*")),
+		want:  "xyz{..a}a{a}",
+	},
+	{
+		name:  "a star match many",
+		given: "{..}aaaa",
+		do:    address(Regexp("a*")),
+		want:  "{..a}aaaa{a}",
+	},
+	{
 		name:  "non-ASCII",
 		given: "{..}Hello 世界",
 		do:    address(Regexp("世界")),
 		want:  "{..}Hello {a}世界{a}",
+	},
+	{
+		name:  "reverse match",
+		given: "abc abc abc {..}abc",
+		do:    address(Dot.Minus(Regexp("abc"))),
+		want:  "abc abc {a}abc{a} {..}abc",
+	},
+	{
+		name:  "reverse match straddle starting point",
+		given: "abc{..}def",
+		do:    address(Dot.Minus(Regexp("abcdef"))),
+		want:  "{a}abc{..}def{a}",
+	},
+	{
+		name:  "reverse match from within would-be match",
+		given: "abcdef abc{..}def",
+		do:    address(Dot.Minus(Regexp("abcdef"))),
+		want:  "{a}abcdef{a} abc{..}def",
+	},
+	{
+		name:  "reverse only match prefix of would-be match",
+		given: "aaaa{..}aaaaa",
+		do:    address(Dot.Minus(Regexp("a*"))),
+		want:  "{a}aaaa{..a}aaaaa",
+	},
+	{
+		name:  "^ starting from beginning of line",
+		given: "abc\n{..}def",
+		do:    address(Regexp("^def")),
+		want:  "abc\n{..a}def{a}",
+	},
+	{
+		name:  "^ starting from beginning of text",
+		given: "{..}def",
+		do:    address(Regexp("^def")),
+		want:  "{..a}def{a}",
+	},
+	{
+		name:  "^ starting from mid line",
+		given: "abc{..}def",
+		do:    address(Regexp("^def")),
+		want:  "abc{..a}def{a}",
+	},
+	{
+		name:  "reverse ^ starting from beginning of line",
+		given: "abc\ndef{..}",
+		do:    address(Dot.Minus(Regexp("^def"))),
+		want:  "abc\n{a}def{..a}",
+	},
+	{
+		name:  "reverse ^ starting from beginning of text",
+		given: "def{..}",
+		do:    address(Dot.Minus(Regexp("^def"))),
+		want:  "{a}def{..a}",
+	},
+	{
+		name:  "reverse ^ starting from mid line",
+		given: "abcdef{..}",
+		do:    address(Dot.Minus(Regexp("^def"))),
+		error: "no match",
+		want:  "abcdef{..}",
+	},
+	{
+
+		name:  `\A matches relative beginning`,
+		given: "abc\n{..}def",
+		do:    address(Regexp(`\Adef`)),
+		want:  "abc\n{..a}def{a}",
+	},
+	{
+		name:  "$ matches end of line",
+		given: "{..}abc\ndef",
+		do:    address(Regexp("abc$")),
+		want:  "{..a}abc{a}\ndef",
+	},
+	{
+		name:  "$ matches end of text",
+		given: "{..}abc",
+		do:    address(Regexp("abc$")),
+		want:  "{..a}abc{a}",
+	},
+	{
+		name:  "$ does not match mid line",
+		given: "{..}abcdef",
+		do:    address(Regexp("abc$")),
+		error: "no match",
+		want:  "{..}abcdef",
+	},
+	{
+		name:  "reverse $ starting from end of line",
+		given: "abc{..}\ndef",
+		do:    address(Dot.Minus(Regexp("abc$"))),
+		want:  "{a}abc{..a}\ndef",
+	},
+	{
+		name:  "reverse $ starting from end of text",
+		given: "abc{..}",
+		do:    address(Dot.Minus(Regexp("abc$"))),
+		want:  "{a}abc{..a}",
+	},
+	{
+		name:  "reverse $ starting from mid line",
+		given: "abc{..}def",
+		do:    address(Dot.Minus(Regexp("abc$"))),
+		want:  "{a}abc{..a}def",
 	},
 	{
 		name:  "forward relative to dot.to",
@@ -638,16 +759,10 @@ var regexpTests = []editTest{
 		want:  "abcx{.}xxabcxx{.}x{a}abc{a}",
 	},
 	{
-		name:  "reverse relative to dot.from",
-		given: "abcx{.}xxabcxx{.}xabc",
-		do:    address(Regexp("?abc")),
-		want:  "{a}abc{a}x{.}xxabcxx{.}xabc",
-	},
-	{
 		name:  "relative to dot in a range",
-		given: "abc{..}xyzabc",
+		given: "abcabcxyz{..}abc",
 		do:    address(Rune(2).To(Regexp("abc"))),
-		want:  "ab{a}c{..}xyzabc{a}",
+		want:  "ab{a}cabcxyz{..}abc{a}",
 	},
 	{
 		name:  "relative to a1 in a plus",
@@ -662,34 +777,51 @@ var regexpTests = []editTest{
 		want:  "abc{..}xyz{a}abc{a}12",
 	},
 	{
-		name:  "reverse simple",
-		given: "Hello 世界{..}",
-		do:    address(Dot.Plus(Regexp("?Hello"))),
-		want:  "{a}Hello{a} 世界{..}",
-	},
-	{
-		name:  "reverse meta",
-		given: "Hello 世界{..}",
-		do:    address(Dot.Plus(Regexp("?[^ ]+"))),
-		want:  "Hello {a}世界{..a}",
-	},
-	{
-		name:  "reverse non-ASCII",
-		given: "Hello 世界{..}",
-		do:    address(Dot.Plus(Regexp("?世界"))),
-		want:  "Hello {a}世界{..a}",
-	},
-	{
 		name:  "wrap",
-		given: "Hello {..}世界",
-		do:    address(Dot.Plus(Regexp("Hello"))),
-		want:  "{a}Hello{a} {..}世界",
+		given: "xxx abc xxx a{..}bc xxx",
+		do:    address(Regexp("abc")),
+		want:  "xxx {a}abc{a} xxx a{..}bc xxx",
 	},
 	{
 		name:  "reverse wrap",
-		given: "{..}Hello 世界",
-		do:    address(Dot.Plus(Regexp("?Hello"))),
-		want:  "{..}{a}Hello{a} 世界",
+		given: "xxx ab{..}c xxx abc xxx",
+		do:    address(Dot.Minus(Regexp("abc"))),
+		want:  "xxx ab{..}c xxx {a}abc{a} xxx",
+	},
+	{
+
+		name:  "replacement character no match",
+		given: "abc{..}xyz",
+		do:    address(Regexp(`\x{FFFD}xyz`)),
+		error: "no match",
+		want:  "abc{..}xyz{}",
+	},
+	{
+
+		name:  "replacement character match",
+		given: "abc{..}\uFFFD",
+		do:    address(Regexp(`\x{FFFD}`)),
+		want:  "abc{..a}\uFFFD{a}",
+	},
+	{
+
+		name:  `only \`,
+		given: `{..}abc\`,
+		do:    address(Regexp(`\`)),
+		want:  `{..}abc{a}\{a}`,
+	},
+	{
+
+		name:  `trailing \`,
+		given: `{..}abc\`,
+		do:    address(Regexp(`abc\`)),
+		want:  `{..a}abc\{a}`,
+	},
+	{
+		name:  "non-capturing group",
+		given: "{..}abc",
+		do:    address(Regexp("(?:abc)")),
+		want:  "{..a}abc{a}",
 	},
 }
 
@@ -713,12 +845,7 @@ func TestRegexpString(t *testing.T) {
 		{``, `//`},
 		{`abc`, `/abc/`},
 		{`ab/c`, `/ab\/c/`},
-		{`ab[/]c`, `/ab[/]c/`},
-		{`?`, `??`},
-		{`?abc`, `?abc?`},
-		{`?abc?`, `?abc?`},
-		{`?ab\?c?`, `?ab\?c?`},
-		{`?ab[?]c?`, `?ab[?]c?`},
+		{`ab[/]c`, `/ab[\/]c/`},
 		{"\n", `/\n/`}, // Raw newlines are escaped.
 	}
 	for _, test := range tests {
@@ -872,7 +999,7 @@ var minusTests = []editTest{
 		want:  "abc\n{a}abc\n{a}abc{..}",
 	},
 	{
-		name:  "???",
+		name:  "minus to first line",
 		given: "abc\n{.}abc\n{.}abc{",
 		do:    address(Dot.Minus(Line(1))),
 		want:  "{a}abc\n{a}{.}abc\n{.}abc{",
