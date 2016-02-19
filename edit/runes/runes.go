@@ -116,6 +116,28 @@ func (r *limitedReader) Read(p []rune) (int, error) {
 	return m, err
 }
 
+type byteReader struct {
+	s []byte
+}
+
+// ByteReader returns a Reader that reads runes from a []byte.
+func ByteReader(s []byte) Reader { return &byteReader{s} }
+
+// Len returns the number of runes in the unread portion of the string.
+func (r *byteReader) Len() int64 { return int64(utf8.RuneCount(r.s)) }
+
+func (r *byteReader) Read(p []rune) (int, error) {
+	for i := range p {
+		if len(r.s) == 0 {
+			return i, io.EOF
+		}
+		var w int
+		p[i], w = utf8.DecodeRune(r.s)
+		r.s = r.s[w:]
+	}
+	return len(p), nil
+}
+
 type stringReader struct {
 	s string
 }
