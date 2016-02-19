@@ -113,17 +113,6 @@
 //	ed.Do(Sub("/World/", "世界"), ioutil.Discard)
 //	// Prints the address of dot, the cursor, to standard output.
 //	ed.Do(Where(Dot), os.Stdout)
-//
-// A note on regular expressions
-//
-// The Go regexp package is very good,
-// but it doesn't support reverse matching,
-// which is required by T.
-// T has its own regexp implementation
-// called re1.
-// Re1 is an implementation of Plan9 regular expressions.
-// It is documented here:
-// https://godoc.org/github.com/eaburns/T/re1.
 package edit
 
 import (
