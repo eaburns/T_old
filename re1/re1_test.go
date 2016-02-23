@@ -1944,7 +1944,6 @@ func (test regexpTest) run(t *testing.T) {
 		}
 		for i, m := range match {
 			switch w, ok := want[i]; {
-			// BUG(eaburns): Submatches should never have negative size.
 			case !ok && m[0] < m[1]:
 				pass = false
 			case ok && w != m:

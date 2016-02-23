@@ -532,15 +532,17 @@ func subexpr(e *Regexp, n int) *Regexp {
 //
 // The regular expression match is the left-most, longest match.
 //
-// The subexpression matches are the right-most, longest matches
+// The subexpression matches are right-most, longest matches
 // within the match of their containing expression.
 // This means, in the case of nested subexpressions,
 // an inner expression match is always within its outter expression match.
 // For example,
-// 	CompileString("((a*)b)*").MatchString("abb")=[[0 3] [2 3] [2 2]]
-// 	// Subexpression 1, ((a*)b), matches [2 3].
-// 	// The contained subexpression 2, (a*), matches [2 2],
-// 	// the empty string at the beginning of the subexpression 1 match.
+// Regexp "((a*)b)*" matching against the string "abb" gives [[0 3] [2 3] [2 2]].
+// Subexpression 1, ((a*)b), matches [2 3].
+// The contained subexpression 2, (a*), matches [2 2],
+// the empty string at the beginning of the subexpression 1 match.
+//
+// The size of a match (m[i][1]-m[i][0]) is always non-negative.
 func (re *Regexp) Match(prev rune, rr io.RuneReader, next rune) [][2]int64 {
 	m := re.get()
 	defer re.put(m)
@@ -701,6 +703,7 @@ func (m *machine) step(s0 *node, p, c rune) {
 		switch subexpr := n.state.subexpr; {
 		case subexpr > 0:
 			n.m[subexpr-1][0] = m.n
+			n.m[subexpr-1][1] = m.n
 		case subexpr < 0:
 			n.m[-subexpr-1][1] = m.n
 		}
