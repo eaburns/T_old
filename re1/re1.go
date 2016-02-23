@@ -373,8 +373,8 @@ func e2p(l *Regexp, p *parser) (*Regexp, error) {
 		l.end.out[1].to = re.end
 	case question:
 		re.start.out[0].to = l.start
-		re.start.out[1].to = l.end
-		re.end = l.end
+		re.start.out[1].to = re.end
+		l.end.out[0].to = re.end
 	default:
 		return l, nil
 	}

@@ -1039,10 +1039,8 @@ func TestQuestion(t *testing.T) {
 			text: []string{
 				"{00}",
 				"{01}ab{12}c{02}",
-				// BUG(eaburns): Unmatched ? shouldn't set submatch ending.
-				"{012}ab{012}",
-				// BUG(eaburns): Unmatched ? shouldn't set submatch ending.
-				"{012}ab{012}abab",
+				"{01}ab{01}",
+				"{01}ab{01}abab",
 				"{02}c{02}",
 				"{02}c{02}cccc",
 			},
@@ -1054,8 +1052,7 @@ func TestQuestion(t *testing.T) {
 				"{00}",
 				"{012}a{23}b{34}c{014}",
 				"{013}b{34}c{014}",
-				// BUG(eaburns): Unmatched ? shouldn't set submatch ending.
-				"{0124}a{23}b{0134}",
+				"{012}a{23}b{013}",
 			},
 		},
 	}
