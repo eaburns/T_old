@@ -163,8 +163,7 @@ func TestCharClass(t *testing.T) {
 		{name: "unclosed with escape", regexp: `[\`, error: "unclosed"},
 		// BUG(eaburns): should be an unopened error.
 		//{name: "unopened", regexp: "abc]", error: "unopened"},
-		// BUG(eaburns): This should be an incomplete range error.
-		{name: "incomplete range", regexp: "[a-]", error: "not ascending"},
+		{name: "incomplete range", regexp: "[a-]", error: "incomplete"},
 		{name: "incomplete range EOF", regexp: "[a-", error: "incomplete"},
 		{name: "incomplete range no start", regexp: "[-", error: "incomplete"},
 		{name: "non-ascending", regexp: "[z-a]", error: "not ascending"},

@@ -494,10 +494,10 @@ func class(p *parser) (label, error) {
 			return nil, err
 		case r1 == '-':
 			switch r2, err := p.read(); {
-			case err == io.EOF:
-				return nil, errors.New("incomplete range")
-			case err != nil:
+			case err != nil && err != io.EOF:
 				return nil, err
+			case err == io.EOF || r2 == ']':
+				return nil, errors.New("incomplete range")
 			case r2 <= r:
 				return nil, errors.New("range not ascending")
 			default:
