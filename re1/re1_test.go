@@ -544,6 +544,677 @@ func TestEndLineAnchor(t *testing.T) {
 	}
 }
 
+func TestBeginTextAnchor(t *testing.T) {
+	tests := []regexpTest{
+		{
+			name:   "no prev",
+			regexp: `\Aabc`,
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"{0}abc{0}",
+				"☺abc",
+				"{0}abc{0}☺",
+				"☺abc☺",
+				"☺\nabc",
+				"{0}abc{0}\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+		{
+			name:   "newline prev",
+			regexp: `\Aabc`,
+			prev:   "\n",
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"abc",
+				"☺abc",
+				"abc☺",
+				"☺abc☺",
+				"☺\nabc",
+				"abc\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+		{
+			name:   "non-newline prev",
+			regexp: `\Aabc`,
+			prev:   "x",
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"abc",
+				"☺abc",
+				"abc☺",
+				"☺abc☺",
+				"☺\nabc",
+				"abc\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+		{
+			name:   "reverse no next",
+			regexp: `\Acba`,
+			flags:  Reverse,
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"{0}abc{0}",
+				"☺{0}abc{0}",
+				"abc☺",
+				"☺abc☺",
+				"☺\n{0}abc{0}",
+				"abc\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+		{
+			name:   "reverse newline next",
+			regexp: `\Acba`,
+			flags:  Reverse,
+			next:   "\n",
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"abc",
+				"☺abc",
+				"abc☺",
+				"☺abc☺",
+				"☺\nabc",
+				"abc\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+		{
+			name:   "reverse non-newline next",
+			regexp: `\Acba`,
+			flags:  Reverse,
+			next:   "x",
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"abc",
+				"☺abc",
+				"abc☺",
+				"☺abc☺",
+				"☺\nabc",
+				"abc\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestEndTextAnchor(t *testing.T) {
+	tests := []regexpTest{
+		{
+			name:   "no next",
+			regexp: `abc\z`,
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"{0}abc{0}",
+				"☺{0}abc{0}",
+				"abc☺",
+				"☺abc☺",
+				"☺\n{0}abc{0}",
+				"abc\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+		{
+			name:   "newline next",
+			regexp: `abc\z`,
+			next:   "\n",
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"abc",
+				"☺abc",
+				"abc☺",
+				"☺abc☺",
+				"☺\nabc",
+				"abc\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+		{
+			name:   "non-newline next",
+			regexp: `abc\z`,
+			next:   "x",
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"abc",
+				"☺abc",
+				"abc☺",
+				"☺abc☺",
+				"☺\nabc",
+				"abc\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+		{
+			name:   "reverse no prev",
+			regexp: `cba\z`,
+			flags:  Reverse,
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"{0}abc{0}",
+				"☺abc",
+				"{0}abc{0}☺",
+				"☺abc☺",
+				"☺\nabc",
+				"{0}abc{0}\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+		{
+			name:   "reverse newline prev",
+			regexp: `cba\z`,
+			flags:  Reverse,
+			prev:   "\n",
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"abc",
+				"☺abc",
+				"abc☺",
+				"☺abc☺",
+				"☺\nabc",
+				"abc\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+		{
+			name:   "reverse non-newline prev",
+			regexp: `cba\z`,
+			flags:  Reverse,
+			prev:   "x",
+			text: []string{
+				"",
+				"ab",
+				"xyz",
+				"abc",
+				"☺abc",
+				"abc☺",
+				"☺abc☺",
+				"☺\nabc",
+				"abc\n☺",
+				"☺\nabc\n☺",
+			},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestWordBoundary(t *testing.T) {
+	tests := []regexpTest{
+		{
+			name:   "next=None, prev=None",
+			regexp: `\babc\b`,
+			text: []string{
+				"",
+				"{0}abc{0}",
+				"\t{0}abc{0}",
+				"{0}abc{0}\t",
+				"\t{0}abc{0}\t",
+				"xabc",
+				"abcx",
+				"xabcx",
+				"xabc\t",
+				"\tabcx",
+			},
+		},
+		{
+			name:   "next=None, prev=word",
+			regexp: `\babc\b`,
+			prev:   "x",
+			text: []string{
+				"",
+				"abc",
+				"\t{0}abc{0}",
+				"abc\t",
+				"\t{0}abc{0}\t",
+				"xabc",
+				"abcx",
+				"xabcx",
+				"xabc\t",
+				"\tabcx",
+			},
+		},
+		{
+			name:   "next=None, prev=non-word",
+			regexp: `\babc\b`,
+			prev:   "\t",
+			text: []string{
+				"",
+				"{0}abc{0}",
+				"\t{0}abc{0}",
+				"{0}abc{0}\t",
+				"\t{0}abc{0}\t",
+				"xabc",
+				"abcx",
+				"xabcx",
+				"xabc\t",
+				"\tabcx",
+			},
+		},
+		{
+			name:   "next=word, prev=None",
+			regexp: `\babc\b`,
+			next:   "x",
+			text: []string{
+				"",
+				"abc",
+				"\tabc",
+				"{0}abc{0}\t",
+				"\t{0}abc{0}\t",
+				"xabc",
+				"abcx",
+				"xabcx",
+				"xabc\t",
+				"\tabcx",
+			},
+		},
+		{
+			name:   "next=word, prev=word",
+			regexp: `\babc\b`,
+			next:   "x",
+			prev:   "x",
+			text: []string{
+				"",
+				"abc",
+				"\tabc",
+				"abc\t",
+				"\t{0}abc{0}\t",
+				"xabc",
+				"abcx",
+				"xabcx",
+				"xabc\t",
+				"\tabcx",
+			},
+		},
+		{
+			name:   "next=word, prev=non-word",
+			regexp: `\babc\b`,
+			next:   "x",
+			prev:   "\t",
+			text: []string{
+				"",
+				"abc",
+				"\tabc",
+				"{0}abc{0}\t",
+				"\t{0}abc{0}\t",
+				"xabc",
+				"abcx",
+				"xabcx",
+				"xabc\t",
+				"\tabcx",
+			},
+		},
+		{
+			name:   "next=non-word, prev=None",
+			regexp: `\babc\b`,
+			next:   "\t",
+			text: []string{
+				"",
+				"{0}abc{0}",
+				"\t{0}abc{0}",
+				"{0}abc{0}\t",
+				"\t{0}abc{0}\t",
+				"xabc",
+				"abcx",
+				"xabcx",
+				"xabc\t",
+				"\tabcx",
+			},
+		},
+		{
+			name:   "next=non-word, prev=word",
+			regexp: `\babc\b`,
+			next:   "\t",
+			prev:   "x",
+			text: []string{
+				"",
+				"abc",
+				"\t{0}abc{0}",
+				"abc\t",
+				"\t{0}abc{0}\t",
+				"xabc",
+				"abcx",
+				"xabcx",
+				"xabc\t",
+				"\tabcx",
+			},
+		},
+		{
+			name:   "next=non-word, prev=non-word",
+			regexp: `\babc\b`,
+			next:   "\t",
+			prev:   "\t",
+			text: []string{
+				"",
+				"{0}abc{0}",
+				"\t{0}abc{0}",
+				"{0}abc{0}\t",
+				"\t{0}abc{0}\t",
+				"xabc",
+				"abcx",
+				"xabcx",
+				"xabc\t",
+				"\tabcx",
+			},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestNotWordBoundary(t *testing.T) {
+	tests := []regexpTest{
+		{
+			name:   "next=None, prev=None",
+			regexp: `\Babc\B`,
+			text: []string{
+				"",
+				"abc",
+				"_abc",
+				"abc_",
+				"_{0}abc{0}_",
+				"_abc\t",
+				"\tabc_",
+				"\tabc",
+				"abc\t",
+				"\tabc\t",
+			},
+		},
+		{
+			name:   "next=None, prev=word",
+			regexp: `\Babc\B`,
+			prev:   "x",
+			text: []string{
+				"",
+				"abc",
+				"_abc",
+				"{0}abc{0}_",
+				"_{0}abc{0}_",
+				"_abc\t",
+				"\tabc_",
+				"\tabc",
+				"abc\t",
+				"\tabc\t",
+			},
+		},
+		{
+			name:   "next=None, prev=non-word",
+			regexp: `\Babc\B`,
+			prev:   "\t",
+			text: []string{
+				"",
+				"abc",
+				"_abc",
+				"abc_",
+				"_{0}abc{0}_",
+				"_abc\t",
+				"\tabc_",
+				"\tabc",
+				"abc\t",
+				"\tabc\t",
+			},
+		},
+		{
+			name:   "next=word, prev=None",
+			regexp: `\Babc\B`,
+			next:   "x",
+			text: []string{
+				"",
+				"abc",
+				"_{0}abc{0}",
+				"abc_",
+				"_{0}abc{0}_",
+				"_abc\t",
+				"\tabc_",
+				"\tabc",
+				"abc\t",
+				"\tabc\t",
+			},
+		},
+		{
+			name:   "next=word, prev=word",
+			regexp: `\Babc\B`,
+			next:   "x",
+			prev:   "x",
+			text: []string{
+				"",
+				"{0}abc{0}",
+				"_{0}abc{0}",
+				"{0}abc{0}_",
+				"_{0}abc{0}_",
+				"_abc\t",
+				"\tabc_",
+				"\tabc",
+				"abc\t",
+				"\tabc\t",
+			},
+		},
+		{
+			name:   "next=word, prev=non-word",
+			regexp: `\Babc\B`,
+			next:   "x",
+			prev:   "\t",
+			text: []string{
+				"",
+				"abc",
+				"_{0}abc{0}",
+				"abc_",
+				"_{0}abc{0}_",
+				"_abc\t",
+				"\tabc_",
+				"\tabc",
+				"abc\t",
+				"\tabc\t",
+			},
+		},
+		{
+			name:   "next=non-word, prev=None",
+			regexp: `\Babc\B`,
+			next:   "\t",
+			text: []string{
+				"",
+				"abc",
+				"_abc",
+				"abc_",
+				"_{0}abc{0}_",
+				"_abc\t",
+				"\tabc_",
+				"\tabc",
+				"abc\t",
+				"\tabc\t",
+			},
+		},
+		{
+			name:   "next=non-word, prev=word",
+			regexp: `\Babc\B`,
+			next:   "\t",
+			prev:   "x",
+			text: []string{
+				"",
+				"abc",
+				"_abc",
+				"{0}abc{0}_",
+				"_{0}abc{0}_",
+				"_abc\t",
+				"\tabc_",
+				"\tabc",
+				"abc\t",
+				"\tabc\t",
+			},
+		},
+		{
+			name:   "next=non-word, prev=non-word",
+			regexp: `\Babc\B`,
+			next:   "\t",
+			prev:   "\t",
+			text: []string{
+				"",
+				"abc",
+				"_abc",
+				"abc_",
+				"_{0}abc{0}_",
+				"_abc\t",
+				"\tabc_",
+				"\tabc",
+				"abc\t",
+				"\tabc\t",
+			},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
+func TestPerlClasses(t *testing.T) {
+	tests := []regexpTest{
+		{
+			name:   `\d`,
+			regexp: `\d`,
+			text: []string{
+				"",
+				"a",
+				"{0}0{0}",
+				"{0}1{0}",
+				"{0}2{0}",
+				"{0}3{0}",
+				"{0}4{0}",
+				"{0}5{0}",
+				"{0}6{0}",
+				"{0}7{0}",
+				"{0}8{0}",
+				"{0}9{0}",
+				"{0}٠{0}", // ARABIC-INDIC DIGIT ZERO
+				"abc{0}1{0}",
+			},
+		},
+		{
+			name:   `\D`,
+			regexp: `\D`,
+			text: []string{
+				"",
+				"0",
+				"1",
+				"2",
+				"3",
+				"4",
+				"5",
+				"6",
+				"7",
+				"8",
+				"9",
+				"٠", // ARABIC-INDIC DIGIT ZERO
+				"{0}a{0}",
+				"{0}α{0}",
+				"{0}☺{0}",
+				"{0} {0}", // space
+				"{0}	{0}", // tab
+				"{0}\n{0}",
+				"123{0}a{0}",
+			},
+		},
+		{
+			name:   `\s`,
+			regexp: `\s`,
+			text: []string{
+				"",
+				"a",
+				"☺",
+				"{0}\t{0}",
+				"{0}\n{0}",
+				"{0}\v{0}",
+				"{0}\f{0}",
+				"{0}\r{0}",
+				"{0} {0}",      // space
+				"{0}\u0085{0}", // NEL
+				"{0}\u00A0{0}", // NBSP
+				"xyz{0}\t{0}",
+			},
+		},
+		{
+			name:   `\S`,
+			regexp: `\S`,
+			text: []string{
+				"",
+				"\t",
+				"\n",
+				"\v",
+				"\f",
+				"\r",
+				" ",      // space
+				"\u0085", // NEL
+				"\u00A0", // NBSP
+				"{0}a{0}",
+				"{0}☺{0}",
+				"\t\t\n {0}α{0}",
+			},
+		},
+		{
+			name:   `\w`,
+			regexp: `\w`,
+			text: []string{
+				"",
+				"\t",
+				"☺",
+				"-",
+				",",
+				"{0}a{0}",
+				"{0}α{0}",
+				"{0}1{0}",
+				"{0}٠{0}", // ARABIC-INDIC DIGIT ZERO
+				"{0}_{0}",
+			},
+		},
+		{
+			name:   `\W`,
+			regexp: `\W`,
+			text: []string{
+				"",
+				"a",
+				"α",
+				"1",
+				"٠", // ARABIC-INDIC DIGIT ZERO
+				"_",
+				"{0}\t{0}",
+				"{0}☺{0}",
+				"{0}-{0}",
+				"{0},{0}",
+			},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 func TestGroup(t *testing.T) {
 	tests := []regexpTest{
 		{name: "missing operand", regexp: "()", error: "missing operand"},
@@ -2007,7 +2678,7 @@ func parseMatch(str string) (string, map[int][2]int64) {
 			mark = false
 		case mark:
 			if !unicode.IsDigit(r) {
-				panic("expected digit")
+				panic("expected digit, got " + string(r))
 			}
 			d := int(r - '0')
 			count[d]++

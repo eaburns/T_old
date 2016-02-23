@@ -72,6 +72,16 @@ func TestRemoveDelimiter(t *testing.T) {
 			in:   `/abc\`,
 			out:  `abc\`,
 		},
+		{
+			name: "A delimiter",
+			in:   `A\A123`,
+			out:  `\A123`,
+		},
+		{
+			name: "z delimiter",
+			in:   `z123\z`,
+			out:  `123\z`,
+		},
 	}
 	for _, test := range tests {
 		if _, str := RemoveDelimiter(test.in); str != test.out {
@@ -182,6 +192,18 @@ func TestAddDelimiter(t *testing.T) {
 			in:    `\\/`,
 			delim: '/',
 			out:   `/\\\//`,
+		},
+		{
+			name:  "A delimiter",
+			in:    `\A123`,
+			out:   `A\A123A`,
+			delim: 'A',
+		},
+		{
+			name:  "z delimiter",
+			in:    `123\z`,
+			out:   `z123\zz`,
+			delim: 'z',
 		},
 	}
 	for _, test := range tests {

@@ -23,7 +23,7 @@ func RemoveDelimiter(regexp string) (rune, string) {
 		if !esc && !class && r == d {
 			break
 		}
-		if esc && r == d {
+		if esc && r == d && !strings.ContainsRune(Perl, d) {
 			// Escaped delimiter, strip the escape.
 			s = s[:len(s)-1]
 		}

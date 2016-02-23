@@ -1,34 +1,95 @@
 // Copyright © 2015, The T Authors.
 
 /*
-Package re1 is an implementation of a variant of Plan 9 regular expressions.
+Package re1 is an extended variant of Plan 9 regular expressions.
 Plan 9 regular expressions are defined in the regexp(7) man page,
 which can be found at http://swtch.com/plan9port/man/man7/regexp.html.
-The following text is from regexp(7), modified to describe the re1 variant.
+The re1 variant has minor modifications
+and includes some extensions common to
+the Go standard regexp package, re2, Perl, etc.
+The following text is modified from regexp(7) to describe the re1 variant.
 
-A regular expression specifies a set of strings of characters. A member of this set of strings is said to be matched by the regular expression. In many applications a delimiter character, commonly /, bounds a regular expression. In the following specification for regular expressions the word ‘character’ means any character (rune) but newline.
+A regular expression specifies a set of strings of characters.
+A member of this set of strings is said to be matched by the regular expression.
+In many applications a delimiter character, commonly /, bounds a regular expression.
+In the following specification for regular expressions the word "character"
+means any unicode character but newline.
+
+Language
 
 The syntax for a regular expression e0 is
-	e3:    literal | charclass | '.' | '^' | '$' | '(' e0 ')'
+	e3:    literal | charclass | '.' | '^' | '$' | '\' PERL | '(' e0 ')'
+	PERL: 'd' | 'D' | 's' | 'S' | 'w' | 'W' | 'A' | 'z'
 	e2:    e3 | e2 REP
 	REP:   '*' | '+' | '?'
 	e1:    e2 | e1 e2
 	e0:    e1 | e0 '|' e1
-A literal is any non-metacharacter, or a metacharacter (one of .*+?[]()|\^$) or the delimiter or the letter n preceded by \. A literal delimiter can always be matched using a charclass (see below). \n is a literal newline.
 
-A charclass is a nonempty string s bracketed [s] (or [^s]); it matches any character in (or not in) s. A negated character class never matches newline. A substring a−b, with a and b in ascending order, stands for the inclusive range of characters between a and b. In s, the metacharacters −, ], and an initial ^ must be preceded by a \; other metacharacters including the regular expression delimiter have no special meaning and may appear unescaped.
+A literal is any non-metacharacter that is not preceded by \;
+a metacharacter (one of .*+?[]()|\^$) preceded by \;
+the delimiter preceded by \;
+the letter n preceded by \;
+or any non-PERL-character-class character preceded by a \.
+However, if the delimiter is a metacharacter,
+when preceeded by \ it is interpreted as its meta form,
+not its literal form.
+A literal delimiter can always be matched using a charclass (see below).
+\n is a literal newline.
+A non-PERL-character-class character preceded by a \
+is the character itself, without the \.
 
-A . matches any character.
+
+A charclass is a nonempty string s bracketed [s] (or [^s]);
+it matches any character in (or not in) s.
+A negated character class never matches newline.
+A substring a−b, with a and b in ascending order,
+stands for the inclusive range of characters between a and b.
+In s, the metacharacters −, ], and an initial ^ must be preceded by a \;
+other metacharacters including the regular expression delimiter
+have no special meaning and may appear unescaped.
+
+A . matches any character. It does not match newline.
 
 A ^ matches the beginning of a line; $ matches the end of the line.
 
-The REP operators match zero or more (*), one or more (+), zero or one (?), instances respectively of the preceding regular expression e2.
+The PERL-style character classes are one of
+d, D, s, S, w, W, b, B, A, or z, preceeded by a \.
+	\d matches a unicode digit character.
+	\D matches a unicode non-digit character.
+	\s matches a unicode whitespace character.
+	\S matches a unicode non-whitespace character.
+	\w matches a "word character" (a unicode digit, letter, or _).
+	\W matches any character but a word character.
+	\b matches a "word boundary" (\w on one side and \W, \A, or \z on the other).
+	\B matches a non word boundary.
+	\A matches the beginning of the text.
+	\z matches the end of the text.
 
-A concatenated regular expression, e1e2, matches a match to e1 followed by a match to e2.
+The REP operators match
+zero or more (*),
+one or more (+),
+zero or one (?),
+instances respectively of the preceding regular expression e2.
 
-An alternative regular expression, e0|e1, matches either a match to e0 or a match to e1.
+A parenthesized subexpression, (e0), is a capturing group.
+Caputring groups are numbered from 1 in the order of their (, left-to-right.
+The indices of the e0 match within the outter expression are "captured"
+and returned by the Regexp.Match method according to their number.
 
-A match to any part of a regular expression extends as far as possible without preventing a match to the remainder of the regular expression.
+A concatenated regular expression, e1e2,
+matches a match to e1 followed by a match to e2.
+
+An alternative regular expression, e0|e1,
+matches either a match to e0 or a match to e1.
+
+Matches
+
+Regular expression matches are left-most, longest matches.
+
+Subexpression matches are right-most, longest matches
+within the match of their containing expression.
+This means, in the case of nested subexpressions,
+an inner expression match is always within its outter expression match.
 */
 package re1
 
@@ -38,13 +99,18 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // None indicates beginning or end of input text.
 const None = -1
 
-// Meta contains the re1 metacharacters.
-const Meta = `.*+?[]()|\^$`
+const (
+	// Meta contains the re1 metacharacters.
+	Meta = `.*+?[]()|\^$`
+	// Perl are characters used in perl-style character classes.
+	Perl = "dDsSwWbBAz"
+)
 
 // nCache is the maximum number of machines to cache.
 const nCache = 2
@@ -80,50 +146,77 @@ type label interface {
 	consumes() bool
 }
 
-type dotLabel struct{}
+type funcLabel func(rune) bool
 
-func (dotLabel) accepts(_, c rune) bool { return c != '\n' && c != None }
-func (dotLabel) consumes() bool         { return true }
+func (f funcLabel) accepts(_, c rune) bool { return f(c) }
+func (funcLabel) consumes() bool           { return true }
+
+func isWord(r rune) bool { return unicode.IsDigit(r) || unicode.IsLetter(r) || r == '_' }
+func isDot(r rune) bool  { return r >= 0 && r != '\n' }
+
+type not struct{ label }
+
+func (l not) accepts(p, c rune) bool { return c >= 0 && !l.label.accepts(p, c) }
+func (l not) consumes() bool         { return l.label.consumes() }
 
 type runeLabel rune
 
 func (l runeLabel) accepts(_, c rune) bool { return c == rune(l) }
 func (runeLabel) consumes() bool           { return true }
 
-type bolLabel struct{}
-
-func (bolLabel) accepts(p, _ rune) bool { return p == None || p == '\n' }
-func (bolLabel) consumes() bool         { return false }
-
-type eolLabel struct{}
-
-func (eolLabel) accepts(_, c rune) bool { return c == None || c == '\n' }
-func (eolLabel) consumes() bool         { return false }
-
 type classLabel struct {
-	runes  []rune
-	ranges [][2]rune
-	neg    bool
+	negated bool
+	runes   []rune
+	ranges  [][2]rune
 }
 
 func (l *classLabel) accepts(_, c rune) bool {
-	if c == None {
+	if c < 0 {
 		return false
 	}
 	for _, r := range l.runes {
 		if c == r {
-			return !l.neg
+			return !l.negated
 		}
 	}
 	for _, r := range l.ranges {
 		if r[0] <= c && c <= r[1] {
-			return !l.neg
+			return !l.negated
 		}
 	}
-	return l.neg
+	return l.negated
 }
 
 func (classLabel) consumes() bool { return true }
+
+type beginLineLabel struct{}
+
+func (beginLineLabel) accepts(p, _ rune) bool { return p == None || p == '\n' }
+func (beginLineLabel) consumes() bool         { return false }
+
+type endLineLabel struct{}
+
+func (endLineLabel) accepts(_, c rune) bool { return c == None || c == '\n' }
+func (endLineLabel) consumes() bool         { return false }
+
+type beginTextLabel struct{}
+
+func (beginTextLabel) accepts(p, _ rune) bool { return p == None }
+func (beginTextLabel) consumes() bool         { return false }
+
+type endTextLabel struct{}
+
+func (endTextLabel) accepts(_, c rune) bool { return c == None }
+func (endTextLabel) consumes() bool         { return false }
+
+type wordBoundaryLabel struct{}
+
+func (wordBoundaryLabel) accepts(p, c rune) bool {
+	return isWord(p) && (!isWord(c) || c == None) ||
+		isWord(c) && (!isWord(p) || p == None)
+}
+
+func (wordBoundaryLabel) consumes() bool { return false }
 
 // Flags control the behavior of regular expression compilation.
 type Flags int
@@ -209,28 +302,28 @@ func numberStates(re *Regexp) {
 type token rune
 
 const (
-	dot      token = -'.'
-	star     token = -'*'
-	plus     token = -'+'
-	question token = -'?'
-	obrace   token = -'['
-	cbrace   token = -']'
-	oparen   token = -'('
-	cparen   token = -')'
-	or       token = -'|'
-	caret    token = -'^'
-	dollar   token = -'$'
+	dot             token = -'.'
+	star            token = -'*'
+	plus            token = -'+'
+	question        token = -'?'
+	obrace          token = -'['
+	cbrace          token = -']'
+	oparen          token = -'('
+	cparen          token = -')'
+	or              token = -'|'
+	caret           token = -'^'
+	dollar          token = -'$'
+	digit           token = -'d'
+	notDigit        token = -'D'
+	space           token = -'s'
+	notSpace        token = -'S'
+	word            token = -'w'
+	notWord         token = -'W'
+	wordBoundary    token = -'b'
+	notWordBoundary token = -'B'
+	beginText       token = -'A'
+	endText         token = -'z'
 )
-
-func (t token) String() string {
-	if t == None {
-		return "EOF"
-	}
-	if t < 0 {
-		t = -t
-	}
-	return string([]rune{'\'', rune(t), '\''})
-}
 
 type parser struct {
 	flags     Flags
@@ -282,6 +375,8 @@ func (p *parser) next() error {
 			return err
 		case r1 == 'n':
 			p.current = '\n'
+		case strings.ContainsRune(Perl, r1):
+			p.current = token(-r1)
 		case r1 == p.delim && strings.ContainsRune(Meta, r1):
 			p.current = token(-r1)
 		default:
@@ -439,21 +534,53 @@ func e3(p *parser) (*Regexp, error) {
 	case cbrace:
 		return nil, errors.New("unopened ]")
 	case dot:
-		re.start.out[0].label = dotLabel{}
+		re.start.out[0].label = funcLabel(isDot)
+	case digit:
+		re.start.out[0].label = funcLabel(unicode.IsDigit)
+	case notDigit:
+		re.start.out[0].label = not{funcLabel(unicode.IsDigit)}
+	case space:
+		re.start.out[0].label = funcLabel(unicode.IsSpace)
+	case notSpace:
+		re.start.out[0].label = not{funcLabel(unicode.IsSpace)}
+	case word:
+		re.start.out[0].label = funcLabel(isWord)
+	case notWord:
+		re.start.out[0].label = not{funcLabel(isWord)}
+	case wordBoundary:
+		re.start.out[0].label = wordBoundaryLabel{}
+	case notWordBoundary:
+		re.start.out[0].label = not{wordBoundaryLabel{}}
 	case caret:
 		if p.flags&Reverse == 0 {
-			re.start.out[0].label = bolLabel{}
+			re.start.out[0].label = beginLineLabel{}
 		} else {
-			re.start.out[0].label = eolLabel{}
+			re.start.out[0].label = endLineLabel{}
 		}
 	case dollar:
 		if p.flags&Reverse == 0 {
-			re.start.out[0].label = eolLabel{}
+			re.start.out[0].label = endLineLabel{}
 		} else {
-			re.start.out[0].label = bolLabel{}
+			re.start.out[0].label = beginLineLabel{}
 		}
-	case star, plus, question:
-		return nil, errors.New("missing operand for " + p.current.String())
+	case beginText:
+		if p.flags&Reverse == 0 {
+			re.start.out[0].label = beginTextLabel{}
+		} else {
+			re.start.out[0].label = endTextLabel{}
+		}
+	case endText:
+		if p.flags&Reverse == 0 {
+			re.start.out[0].label = endTextLabel{}
+		} else {
+			re.start.out[0].label = beginTextLabel{}
+		}
+	case star:
+		return nil, errors.New("missing operand for *")
+	case plus:
+		return nil, errors.New("missing operand for +")
+	case question:
+		return nil, errors.New("missing operand for ?")
 	default:
 		if p.current < 0 { // Any other meta character.
 			return nil, nil
@@ -492,7 +619,7 @@ func class(p *parser) (label, error) {
 				r = r1
 			}
 		case r == '^' && len(c.runes) == 0 && len(c.ranges) == 0:
-			c.neg = true
+			c.negated = true
 			c.runes = append(c.runes, '\n')
 			r, err = p.read()
 			continue
