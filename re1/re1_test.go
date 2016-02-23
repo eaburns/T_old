@@ -161,8 +161,7 @@ func TestCharClass(t *testing.T) {
 		{name: "unclosed", regexp: "[", error: "unclosed"},
 		{name: "unclosed with runes", regexp: "[abc", error: "unclosed"},
 		{name: "unclosed with escape", regexp: `[\`, error: "unclosed"},
-		// BUG(eaburns): should be an unopened error.
-		//{name: "unopened", regexp: "abc]", error: "unopened"},
+		{name: "unopened", regexp: "abc]", error: "unopened"},
 		{name: "incomplete range", regexp: "[a-]", error: "incomplete"},
 		{name: "incomplete range EOF", regexp: "[a-", error: "incomplete"},
 		{name: "incomplete range no start", regexp: "[-", error: "incomplete"},
@@ -535,8 +534,7 @@ func TestGroup(t *testing.T) {
 	tests := []regexpTest{
 		{name: "missing operand", regexp: "()", error: "missing operand"},
 		{name: "unclosed", regexp: "(abc", error: "unclosed"},
-		// BUG(eaburns): should be an unopened error.
-		//{name: "unopened", regexp: "abc)", error: "unopened"},
+		{name: "unopened", regexp: "abc)", error: "unopened"},
 		{name: "nested error", regexp: "(((*)))", error: "missing operand"},
 		{
 			name:   "group",
@@ -1944,6 +1942,7 @@ func (test regexpTest) run(t *testing.T) {
 		}
 		for i, m := range match {
 			switch w, ok := want[i]; {
+			// BUG(eaburns): Submatches should never have negative size.
 			case !ok && m[0] < m[1]:
 				pass = false
 			case ok && w != m:

@@ -235,13 +235,14 @@ func (t token) String() string {
 type parser struct {
 	flags     Flags
 	nSubexprs int
+	nest      int
 	delim     rune
 	current   token
 	rr        io.RuneReader
 }
 
 func newParser(rr io.RuneReader, flags []Flags) (*parser, error) {
-	p := parser{nSubexprs: 1, rr: rr}
+	p := parser{nSubexprs: 1, nest: -1, rr: rr}
 	for _, f := range flags {
 		p.flags |= f
 	}
@@ -295,6 +296,9 @@ func (p *parser) next() error {
 }
 
 func e0(p *parser) (*Regexp, error) {
+	p.nest++
+	defer func() { p.nest-- }()
+
 	l, err := e1(p)
 	if l == nil || err != nil || p.current == None || p.current != or {
 		return l, err
@@ -421,12 +425,19 @@ func e3(p *parser) (*Regexp, error) {
 		default:
 			re = subexpr(e, nSubexprs)
 		}
+	case cparen:
+		if p.nest == 0 {
+			return nil, errors.New("unopened )")
+		}
+		return nil, nil
 	case obrace:
 		c, err := class(p)
 		if err != nil {
 			return nil, err
 		}
 		re.start.out[0].label = c
+	case cbrace:
+		return nil, errors.New("unopened ]")
 	case dot:
 		re.start.out[0].label = dotLabel{}
 	case caret:
