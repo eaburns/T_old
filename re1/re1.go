@@ -40,6 +40,9 @@ import (
 	"sync"
 )
 
+// None indicates beginning or end of input text.
+const None = -1
+
 // Meta contains the re1 metacharacters.
 const Meta = `.*+?[]()|\^$`
 
@@ -79,7 +82,7 @@ type label interface {
 
 type dotLabel struct{}
 
-func (dotLabel) accepts(_, c rune) bool { return c != '\n' && c != eof }
+func (dotLabel) accepts(_, c rune) bool { return c != '\n' && c != None }
 func (dotLabel) consumes() bool         { return true }
 
 type runeLabel rune
@@ -89,12 +92,12 @@ func (runeLabel) consumes() bool           { return true }
 
 type bolLabel struct{}
 
-func (bolLabel) accepts(p, _ rune) bool { return p == eof || p == '\n' }
+func (bolLabel) accepts(p, _ rune) bool { return p == None || p == '\n' }
 func (bolLabel) consumes() bool         { return false }
 
 type eolLabel struct{}
 
-func (eolLabel) accepts(_, c rune) bool { return c == eof || c == '\n' }
+func (eolLabel) accepts(_, c rune) bool { return c == None || c == '\n' }
 func (eolLabel) consumes() bool         { return false }
 
 type classLabel struct {
@@ -104,7 +107,7 @@ type classLabel struct {
 }
 
 func (l *classLabel) accepts(_, c rune) bool {
-	if c == eof {
+	if c == None {
 		return false
 	}
 	for _, r := range l.runes {
@@ -206,7 +209,6 @@ func numberStates(re *Regexp) {
 type token rune
 
 const (
-	eof            = -1
 	dot      token = -'.'
 	star     token = -'*'
 	plus     token = -'+'
@@ -221,7 +223,7 @@ const (
 )
 
 func (t token) String() string {
-	if t == eof {
+	if t == None {
 		return "EOF"
 	}
 	if t < 0 {
@@ -266,11 +268,11 @@ func (p *parser) read() (rune, error) {
 func (p *parser) next() error {
 	switch r, err := p.read(); {
 	case err == io.EOF:
-		p.current = eof
+		p.current = None
 	case err != nil:
 		return err
 	case r == p.delim:
-		p.current = eof
+		p.current = None
 	case r == '\\':
 		switch r1, err := p.read(); {
 		case err == io.EOF:
@@ -294,7 +296,7 @@ func (p *parser) next() error {
 
 func e0(p *parser) (*Regexp, error) {
 	l, err := e1(p)
-	if l == nil || err != nil || p.current == eof || p.current != or {
+	if l == nil || err != nil || p.current == None || p.current != or {
 		return l, err
 	}
 	if err := p.next(); err != nil {
@@ -353,7 +355,7 @@ func e2p(l *Regexp, p *parser) (*Regexp, error) {
 	}
 	re := &Regexp{start: new(state), end: new(state)}
 	switch p.current {
-	case eof:
+	case None:
 		return l, nil
 	case star:
 		if l.start.out[1].to == nil {
@@ -386,7 +388,7 @@ func e3(p *parser) (*Regexp, error) {
 	re := &Regexp{start: new(state), end: new(state)}
 	re.start.out[0].to = re.end
 	if p.flags&Literal != 0 {
-		if p.current == eof {
+		if p.current == None {
 			return nil, nil
 		}
 		if p.current < 0 {
@@ -399,7 +401,7 @@ func e3(p *parser) (*Regexp, error) {
 		return re, nil
 	}
 	switch p.current {
-	case eof:
+	case None:
 		return nil, nil
 	case oparen:
 		if err := p.next(); err != nil {
@@ -410,7 +412,7 @@ func e3(p *parser) (*Regexp, error) {
 		switch e, err := e0(p); {
 		case err != nil:
 			return nil, err
-		case p.current == eof:
+		case p.current == None:
 			return nil, errors.New("unclosed (")
 		case p.current != cparen:
 			panic("impossible unclose")
@@ -518,47 +520,62 @@ func subexpr(e *Regexp, n int) *Regexp {
 	return re
 }
 
-// Runes generalizes a slice or array of runes.
-type Runes interface {
-	// Rune returns the rune at a given index.
-	// If the index is out of bounds, i.e. < 0 or ≥ Size(), Rune panics.
-	Rune(int64) rune
-	// Size returns the number of runes.
-	Size() int64
-}
-
-// Match returns the left-most longest match beginning at from
-// and wrapping around if no match is found going forward.
+// Match returns the byte indices of the regular expression
+// and all subexpression matches.
 //
-// The return value is nil if the expression did not match anything.
-// Otherwise, the return value has as entry for each subexpression,
-// with the entry for subexpression 0 being the entire regular expression.
-// The 0th element of a subexpression entry is the inclusive start offset
-// of the subexpression match and the 1st entry is the exclusive end offset.
-// If the interval is empty then the subexpression did not match.
+// If the RuneReader only reads a substring of a larger text,
+// prev and next give the previous and next rune to those of the RuneReader.
+// Passing None for prev indicates no previous rune;
+// the RuneReader begins at the beginning of the text.
+// Passing None for next indicates no next rune;
+// the RuneReader ends at the end of the text.
 //
-// The empty regular expression returns non-nil with an empty interval
-// for subexpression 0.
-func (re *Regexp) Match(rs Runes, from int64) [][2]int64 {
+// The regular expression match is the left-most, longest match.
+//
+// The subexpression matches are the right-most, longest matches
+// within the match of their containing expression.
+// This means, in the case of nested subexpressions,
+// an inner expression match is always within its outter expression match.
+// For example,
+// 	CompileString("((a*)b)*").MatchString("abb")=[[0 3] [2 3] [2 2]]
+// 	// Subexpression 1, ((a*)b), matches [2 3].
+// 	// The contained subexpression 2, (a*), matches [2 2],
+// 	// the empty string at the beginning of the subexpression 1 match.
+func (re *Regexp) Match(prev rune, rr io.RuneReader, next rune) [][2]int64 {
 	m := re.get()
 	defer re.put(m)
-	m.init(from)
-	ms := m.match(rs, rs.Size())
-	if ms == nil {
-		m.init(0)
-		ms = m.match(rs, from)
-	}
-	return ms
+	return m.match(prev, rr, next)
 }
 
 func (re *Regexp) get() *machine {
 	re.lock.Lock()
 	defer re.lock.Unlock()
 	if len(re.mcache) == 0 {
-		return newMachine(re)
+		m := &machine{
+			re:    re,
+			q0:    newQueue(re.nStates),
+			q1:    newQueue(re.nStates),
+			stack: make([]*node, re.nStates),
+			seen:  make([]bool, re.nStates),
+			false: make([]bool, re.nStates),
+		}
+		if s := re.start.out[0].to; s.out[1].to == nil && s.out[0].consumes() {
+			m.prefix = s.out[0].label
+		}
+		return m
 	}
 	m := re.mcache[0]
 	re.mcache = re.mcache[1:]
+	m.n = 0
+	m.m = nil
+	for p := m.q0.head; p != nil; p = p.next {
+		m.put(p)
+	}
+	m.q0.head, m.q0.tail = nil, nil
+	for p := m.q1.head; p != nil; p = p.next {
+		m.put(p)
+	}
+	m.q1.head, m.q1.tail = nil, nil
 	return m
 }
 
@@ -586,34 +603,6 @@ type node struct {
 	state *state
 	m     [][2]int64
 	next  *node
-}
-
-func newMachine(re *Regexp) *machine {
-	m := &machine{
-		re:    re,
-		q0:    newQueue(re.nStates),
-		q1:    newQueue(re.nStates),
-		stack: make([]*node, re.nStates),
-		seen:  make([]bool, re.nStates),
-		false: make([]bool, re.nStates),
-	}
-	if s := re.start.out[0].to; s.out[1].to == nil && s.out[0].consumes() {
-		m.prefix = s.out[0].label
-	}
-	return m
-}
-
-func (m *machine) init(from int64) {
-	m.n = from
-	m.m = nil
-	for p := m.q0.head; p != nil; p = p.next {
-		m.put(p)
-	}
-	m.q0.head, m.q0.tail = nil, nil
-	for p := m.q1.head; p != nil; p = p.next {
-		m.put(p)
-	}
-	m.q1.head, m.q1.tail = nil, nil
 }
 
 func (m *machine) get(s *state) *node {
@@ -666,16 +655,23 @@ func (q *queue) pop() *node {
 	return s
 }
 
-func (m *machine) match(rs Runes, end int64) [][2]int64 {
-	sz := rs.Size()
-	p, c := runeOrEOF(rs, sz, m.n-1), runeOrEOF(rs, sz, m.n)
+func (m *machine) match(p rune, rr io.RuneReader, n rune) [][2]int64 {
+	var w int
+	var c rune
+	var err error
 	for {
-		for m.q0.empty() && m.prefix != nil && !m.prefix.accepts(p, c) && m.n <= end {
-			m.n++
-			p, c = c, runeOrEOF(rs, sz, m.n)
+		m.n += int64(w)
+		if c, w, err = rr.ReadRune(); err != nil {
+			c, w = n, 0
 		}
-
-		if m.m == nil && !m.q0.mem[m.re.start.n] && m.n <= end {
+		for m.q0.empty() && m.prefix != nil && !m.prefix.accepts(p, c) && w > 0 {
+			p = c
+			m.n += int64(w)
+			if c, w, err = rr.ReadRune(); err != nil {
+				c, w = n, 0
+			}
+		}
+		if m.m == nil && !m.q0.mem[m.re.start.n] {
 			m.q0.push(m.get(m.re.start))
 		}
 		if m.q0.empty() {
@@ -685,18 +681,13 @@ func (m *machine) match(rs Runes, end int64) [][2]int64 {
 			s := m.q0.pop()
 			m.step(s, p, c)
 		}
-		m.n++
-		p, c = c, runeOrEOF(rs, sz, m.n)
+		if w == 0 {
+			break
+		}
+		p = c
 		m.q0, m.q1 = m.q1, m.q0
 	}
 	return m.m
-}
-
-func runeOrEOF(rs Runes, sz, i int64) rune {
-	if i < 0 || i >= sz {
-		return eof
-	}
-	return rs.Rune(i)
 }
 
 func (m *machine) step(s0 *node, p, c rune) {

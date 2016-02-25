@@ -7,6 +7,7 @@
 package re1
 
 import (
+	"bytes"
 	"math/rand"
 	"strings"
 	"testing"
@@ -38,11 +39,10 @@ func benchmark(b *testing.B, re string, n int) {
 		panic(err)
 	}
 	t := makeRegexpText(n)
-	rs := sliceRunes([]rune(string(t)))
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		if r.Match(rs, 0) != nil {
+		if r.Match(None, bytes.NewReader(t), None) != nil {
 			b.Fatal("match!")
 		}
 	}
