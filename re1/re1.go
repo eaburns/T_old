@@ -494,6 +494,8 @@ func class(p *parser) (label, error) {
 		case r == '^' && len(c.runes) == 0 && len(c.ranges) == 0:
 			c.neg = true
 			c.runes = append(c.runes, '\n')
+			r, err = p.read()
+			continue
 		case r == '-':
 			return nil, errors.New("range incomplete")
 		}
