@@ -98,7 +98,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode"
 )
 
@@ -112,16 +111,10 @@ const (
 	Perl = "dDsSwWbBAz"
 )
 
-// nCache is the maximum number of machines to cache.
-const nCache = 2
-
 // A Regexp is the compiled form of a regular expression.
 type Regexp struct {
 	start, end         *state
 	nStates, nSubexprs int
-
-	lock   sync.Mutex
-	mcache []*machine
 }
 
 type state struct {
@@ -684,49 +677,12 @@ func subexpr(e *Regexp, n int) *Regexp {
 //
 // The size of a match (m[i][1]-m[i][0]) is always non-negative.
 func (re *Regexp) Match(prev rune, rr io.RuneReader, next rune) [][2]int64 {
-	m := re.get()
-	defer re.put(m)
-	return m.match(prev, rr, next)
+	return newMachine(re).match(prev, rr, next)
 }
 
-func (re *Regexp) get() *machine {
-	re.lock.Lock()
-	defer re.lock.Unlock()
-	if len(re.mcache) == 0 {
-		m := &machine{
-			re:    re,
-			q0:    newQueue(re.nStates),
-			q1:    newQueue(re.nStates),
-			stack: make([]*node, re.nStates),
-			seen:  make([]bool, re.nStates),
-			false: make([]bool, re.nStates),
-		}
-		if s := re.start.out[0].to; s.out[1].to == nil && s.out[0].consumes() {
-			m.prefix = s.out[0].label
-		}
-		return m
-	}
-	m := re.mcache[0]
-	re.mcache = re.mcache[1:]
-	m.n = 0
-	m.m = nil
-	for p := m.q0.head; p != nil; p = p.next {
-		m.put(p)
-	}
-	m.q0.head, m.q0.tail = nil, nil
-	for p := m.q1.head; p != nil; p = p.next {
-		m.put(p)
-	}
-	m.q1.head, m.q1.tail = nil, nil
-	return m
-}
-
-func (re *Regexp) put(m *machine) {
-	re.lock.Lock()
-	defer re.lock.Unlock()
-	if len(re.mcache) < nCache {
-		re.mcache = append(re.mcache, m)
-	}
+type node struct {
+	state *state
+	m     [][2]int64
 }
 
 type machine struct {
@@ -734,67 +690,69 @@ type machine struct {
 	n  int64
 	m  [][2]int64
 	// Prefix is a single-rune literal prefix of the regexp, or nil.
-	prefix      label
-	q0, q1      *queue
-	stack       []*node
-	seen, false []bool // false is to zero seen.
-	free        *node
+	prefix        label
+	q0, q1, stack queue
+	free          []*node
 }
 
-type node struct {
-	state *state
-	m     [][2]int64
-	next  *node
+func newMachine(re *Regexp) *machine {
+	var prefix label
+	if s := re.start.out[0].to; s.out[1].to == nil && s.out[0].consumes() {
+		prefix = s.out[0].label
+	} else {
+		// No literal prefix, don't skip anything.
+		prefix = funcLabel(func(rune) bool { return true })
+	}
+	return &machine{
+		re:     re,
+		prefix: prefix,
+		q0:     queue{seen: make([]bool, re.nStates)},
+		q1:     queue{seen: make([]bool, re.nStates)},
+		stack:  queue{seen: make([]bool, re.nStates)},
+	}
 }
 
 func (m *machine) get(s *state) *node {
-	if m.free == nil {
+	if len(m.free) == 0 {
 		return &node{state: s, m: make([][2]int64, m.re.nSubexprs)}
 	}
-	n := m.free
-	m.free = m.free.next
+	n := m.free[len(m.free)-1]
+	m.free = m.free[:len(m.free)-1]
+	n.state = s
 	for i := range n.m {
 		n.m[i] = [2]int64{}
 	}
-	n.state = s
 	return n
 }
 
-func (m *machine) put(s *node) {
-	s.next = m.free
-	m.free = s
-}
+func (m *machine) put(n *node) { m.free = append(m.free, n) }
 
 type queue struct {
-	head, tail *node
-	mem        []bool
+	nodes []*node
+	// Seen is whether the state with the number
+	// corresponding to the given index
+	// has been on the queue since the last call to clear().
+	seen []bool
 }
 
-func newQueue(n int) *queue { return &queue{mem: make([]bool, n)} }
+func (q *queue) empty() bool { return len(q.nodes) == 0 }
 
-func (q *queue) empty() bool { return q.head == nil }
+func (q *queue) clear() {
+	q.nodes = q.nodes[:0]
+	for i := range q.seen {
+		q.seen[i] = false
+	}
+}
 
-func (q *queue) push(s *node) {
-	if q.tail != nil {
-		q.tail.next = s
-	}
-	if q.head == nil {
-		q.head = s
-	}
-	q.tail = s
-	s.next = nil
-	q.mem[s.state.n] = true
+func (q *queue) push(n *node) {
+	q.nodes = append(q.nodes, n)
+	q.seen[n.state.n] = true
 }
 
 func (q *queue) pop() *node {
-	s := q.head
-	q.head = q.head.next
-	if q.head == nil {
-		q.tail = nil
-	}
-	s.next = nil
-	q.mem[s.state.n] = false
-	return s
+	n := q.nodes[len(q.nodes)-1]
+	q.nodes = q.nodes[:len(q.nodes)-1]
+	return n
 }
 
 func (m *machine) match(p rune, rr io.RuneReader, n rune) [][2]int64 {
@@ -806,23 +764,23 @@ func (m *machine) match(p rune, rr io.RuneReader, n rune) [][2]int64 {
 		if c, w, err = rr.ReadRune(); err != nil {
 			c, w = n, 0
 		}
-		for m.q0.empty() && m.prefix != nil && !m.prefix.accepts(p, c) && w > 0 {
+		for m.q0.empty() && !m.prefix.accepts(p, c) && w > 0 {
 			p = c
 			m.n += int64(w)
 			if c, w, err = rr.ReadRune(); err != nil {
 				c, w = n, 0
 			}
 		}
-		if m.m == nil && !m.q0.mem[m.re.start.n] {
+		if m.m == nil && !m.q0.seen[m.re.start.n] {
 			m.q0.push(m.get(m.re.start))
 		}
 		if m.q0.empty() {
 			break
 		}
-		for !m.q0.empty() {
-			s := m.q0.pop()
-			m.step(s, p, c)
+		for _, n := range m.q0.nodes {
+			m.step(n, p, c)
 		}
+		m.q0.clear()
 		if w == 0 {
 			break
 		}
@@ -833,12 +791,10 @@ func (m *machine) match(p rune, rr io.RuneReader, n rune) [][2]int64 {
 }
 
 func (m *machine) step(s0 *node, p, c rune) {
-	stack, seen := m.stack[:1], m.seen
-	copy(seen, m.false)
-	stack[0], seen[s0.state.n] = s0, true
-	for len(stack) > 0 {
-		n := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
+	m.stack.clear()
+	m.stack.push(s0)
+	for !m.stack.empty() {
+		n := m.stack.pop()
 
 		switch subexpr := n.state.subexpr; {
 		case subexpr > 0:
@@ -860,13 +816,12 @@ func (m *machine) step(s0 *node, p, c rune) {
 			case e.to == nil:
 				continue
 			case !e.consumes():
-				if !seen[e.to.n] && e.accepts(p, c) {
-					seen[e.to.n] = true
+				if !m.stack.seen[e.to.n] && e.accepts(p, c) {
 					t := m.get(e.to)
 					copy(t.m, n.m)
-					stack = append(stack, t)
+					m.stack.push(t)
 				}
-			case !m.q1.mem[e.to.n] && e.accepts(p, c):
+			case !m.q1.seen[e.to.n] && e.accepts(p, c):
 				t := m.get(e.to)
 				copy(t.m, n.m)
 				m.q1.push(t)
