@@ -17,10 +17,10 @@ const MaxRunes = 4096
 // A Buffer is an editable rune buffer.
 type Buffer struct {
 	sync.Mutex
-	runes      *runes.Buffer
-	eds        []*Editor
-	seq        int32
-	undo, redo *log
+	runes               *runes.Buffer
+	eds                 []*Editor
+	seq                 int32
+	pending, undo, redo *log
 }
 
 // NewBuffer returns a new, empty Buffer.
@@ -30,9 +30,10 @@ func NewBuffer() *Buffer {
 
 func newBuffer(rs *runes.Buffer) *Buffer {
 	return &Buffer{
-		runes: rs,
-		undo:  newLog(),
-		redo:  newLog(),
+		runes:   rs,
+		undo:    newLog(),
+		redo:    newLog(),
+		pending: newLog(),
 	}
 }
 
@@ -43,6 +44,7 @@ func (buf *Buffer) Close() error {
 	defer buf.Unlock()
 	errs := []error{
 		buf.runes.Close(),
+		buf.pending.close(),
 		buf.undo.close(),
 		buf.redo.close(),
 	}
@@ -89,10 +91,8 @@ func (buf *Buffer) change(at addr, src runes.Reader) error {
 
 // An Editor edits a Buffer of runes.
 type Editor struct {
-	buf     *Buffer
-	who     int32
-	marks   map[rune]addr
-	pending *log
+	buf   *Buffer
+	marks map[rune]addr
 }
 
 // NewEditor returns an Editor that edits the given buffer.
@@ -100,9 +100,8 @@ func NewEditor(buf *Buffer) *Editor {
 	buf.Lock()
 	defer buf.Unlock()
 	ed := &Editor{
-		buf:     buf,
-		marks:   make(map[rune]addr),
-		pending: newLog(),
+		buf:   buf,
+		marks: make(map[rune]addr),
 	}
 	buf.eds = append(buf.eds, ed)
 	return ed
@@ -119,7 +118,7 @@ func (ed *Editor) close() error {
 	for i := range ed.buf.eds {
 		if ed.buf.eds[i] == ed {
 			ed.buf.eds = append(ed.buf.eds[:i], ed.buf.eds[i+1:]...)
-			return ed.pending.close()
+			return nil
 		}
 	}
 	return errors.New("already closed")
@@ -248,7 +247,7 @@ func (ed *Editor) do(f func() (addr, error)) error {
 	}
 	defer func() { ed.marks = marks0 }()
 
-	if err := ed.pending.clear(); err != nil {
+	if err := ed.buf.pending.clear(); err != nil {
 		return err
 	}
 	at, err := f()
@@ -256,7 +255,7 @@ func (ed *Editor) do(f func() (addr, error)) error {
 		return err
 	}
 
-	if at, err = fixAddrs(at, ed.pending); err != nil {
+	if at, err = fixAddrs(at, ed.buf.pending); err != nil {
 		return err
 	}
 
@@ -264,7 +263,7 @@ func (ed *Editor) do(f func() (addr, error)) error {
 		return err
 	}
 
-	for e := logFirst(ed.pending); !e.end(); e = e.next() {
+	for e := logFirst(ed.buf.pending); !e.end(); e = e.next() {
 		undoAt := addr{from: e.at.from, to: e.at.from + e.size}
 		undoSrc := ed.buf.runes.Reader(e.at.from)
 		undoSrc = runes.LimitReader(undoSrc, e.at.size())
@@ -322,7 +321,7 @@ func inSequence(l *log) bool {
 }
 
 func pend(ed *Editor, at addr, src runes.Reader) error {
-	return ed.pending.append(ed.buf.seq, at, src)
+	return ed.buf.pending.append(ed.buf.seq, at, src)
 }
 
 func (ed *Editor) undoRedo(n int, undoRedo1 func() (addr, error)) (err error) {
