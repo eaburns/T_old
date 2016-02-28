@@ -471,11 +471,18 @@ var runeTests = []editTest{
 		do:    address(Rune(-2)),
 		want:  "a{aa}bc{.}def{.}",
 	},
+	// BUG(eaburns): Issue #196: Rune(3).Plus(Rune(-2)) evaluates as #3-#2, but String()s to #3+-#2 = #3+1-#2.
+	//	{
+	//		name:  "plus negative rune",
+	//		given: "{..}abcdefg",
+	//		do:    address(Rune(3).Plus(Rune(-2))), // #3+-#2
+	//		want:  "{..}abcde{aa}fg",
+	//	},
 	{
-		name:  "plus negative rune",
-		given: "abc{..}",
-		do:    address(Rune(3).Plus(Rune(-2))),
-		want:  "a{aa}bc{..}",
+		name:  "plus negative line",
+		given: "{..}abc\ndef\nghi",
+		do:    address(Line(2).Plus(Line(-2))), // 2+-2
+		want:  "{..a}abc\n{a}def\nghi",
 	},
 }
 
