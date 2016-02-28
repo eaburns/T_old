@@ -176,7 +176,7 @@ func (e change) String() string {
 }
 
 func (e change) do(ed *Editor, _ io.Writer) (addr, error) {
-	at, err := e.a.where(ed)
+	at, err := ed.where(e.a)
 	if err != nil {
 		return addr{}, err
 	}
@@ -202,11 +202,11 @@ func Move(src, dst Address) Edit { return move{src: src, dst: dst} }
 func (e move) String() string { return e.src.String() + "m" + e.dst.String() }
 
 func (e move) do(ed *Editor, _ io.Writer) (addr, error) {
-	s, err := e.src.where(ed)
+	s, err := ed.where(e.src)
 	if err != nil {
 		return addr{}, err
 	}
-	d, err := e.dst.where(ed)
+	d, err := ed.where(e.dst)
 	if err != nil {
 		return addr{}, err
 	}
@@ -247,11 +247,11 @@ func Copy(src, dst Address) Edit { return cpy{src: src, dst: dst} }
 func (e cpy) String() string { return e.src.String() + "t" + e.dst.String() }
 
 func (e cpy) do(ed *Editor, _ io.Writer) (addr, error) {
-	s, err := e.src.where(ed)
+	s, err := ed.where(e.src)
 	if err != nil {
 		return addr{}, err
 	}
-	d, err := e.dst.where(ed)
+	d, err := ed.where(e.dst)
 	if err != nil {
 		return addr{}, err
 	}
@@ -279,7 +279,7 @@ func Set(a Address, m rune) Edit {
 func (e set) String() string { return e.a.String() + "k" + string(e.m) }
 
 func (e set) do(ed *Editor, _ io.Writer) (addr, error) {
-	at, err := e.a.where(ed)
+	at, err := ed.where(e.a)
 	if err != nil {
 		return addr{}, err
 	}
@@ -297,7 +297,7 @@ func Print(a Address) Edit { return print{a: a} }
 func (e print) String() string { return e.a.String() + "p" }
 
 func (e print) do(ed *Editor, w io.Writer) (addr, error) {
-	at, err := e.a.where(ed)
+	at, err := ed.where(e.a)
 	if err != nil {
 		return addr{}, err
 	}
@@ -333,7 +333,7 @@ func (e where) String() string {
 }
 
 func (e where) do(ed *Editor, w io.Writer) (addr, error) {
-	at, err := e.a.where(ed)
+	at, err := ed.where(e.a)
 	if err != nil {
 		return addr{}, err
 	}
@@ -427,7 +427,7 @@ func (e Substitute) String() string {
 }
 
 func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
-	at, err := e.A.where(ed)
+	at, err := ed.where(e.A)
 	if err != nil {
 		return addr{}, err
 	}
@@ -439,26 +439,26 @@ func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
 	var prev []int
 	from := at.from
 	for from <= at.to { // Allow one run on an empty input.
-		match := rangeMatch(re, addr{from: from, to: at.to}, ed)
-		if len(match) < 2 {
+		m := match(re, Span{from, at.to}, ed)
+		if len(m) < 2 {
 			break
 		}
-		if match[0] == match[1] {
+		if m[0] == m[1] {
 			from++
 		} else {
-			from = int64(match[1])
+			from = int64(m[1])
 		}
 
-		if len(prev) >= 2 && match[0] == match[1] && match[1] == prev[1] {
+		if len(prev) >= 2 && m[0] == m[1] && m[1] == prev[1] {
 			// Skip an empty match immediately following the previous match.
-			prev = match
+			prev = m
 			continue
 		}
-		prev = match
+		prev = m
 
 		e.From--
 		if e.From <= 0 {
-			if err := regexpSub(re, match, e.With, ed); err != nil {
+			if err := regexpSub(re, m, e.With, ed); err != nil {
 				return addr{}, nil
 			}
 			if !e.Global {
@@ -572,7 +572,7 @@ func shell() string {
 }
 
 func (e pipe) do(ed *Editor, w io.Writer) (addr, error) {
-	at, err := e.a.where(ed)
+	at, err := ed.where(e.a)
 	if err != nil {
 		return addr{}, err
 	}

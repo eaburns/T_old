@@ -1949,7 +1949,7 @@ func (test editTest) run(t *testing.T) {
 		}
 	}
 	if !ed.hasState(test.want) {
-		t.Errorf("%s: got %q, want %q", test.name, ed.stateString(), test.want)
+		t.Errorf("%s: %#v got %q, want %q", test.do, test.name, ed.stateString(), test.want)
 	}
 	if got := print.String(); got != test.print {
 		t.Errorf("%s: printed %q, want %q", test.name, got, test.print)

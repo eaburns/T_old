@@ -16,10 +16,9 @@ import (
 
 // benchmark based on regexp/exec_test.go
 
-func makeEditor(n int) (*Editor, int) {
+func makeEditor(n int) (ed *Editor, lines int, runes int64) {
 	rand.Seed(0) // For reproducibility.
 	rs := make([]rune, n)
-	var lines int
 	for i := 0; i < n; i++ {
 		if rand.Intn(30) == 0 {
 			lines++
@@ -28,15 +27,32 @@ func makeEditor(n int) (*Editor, int) {
 			rs[i] = rune(rand.Intn(0x7E+1-0x20) + 0x20)
 		}
 	}
-	ed := NewEditor(NewBuffer())
+	ed = NewEditor(NewBuffer())
 	if err := ed.buf.runes.Insert(rs, 0); err != nil {
 		panic(err)
 	}
-	return ed, lines
+	return ed, lines, int64(n)
 }
 
+func benchmarkRune(b *testing.B, n int) {
+	ed, _, runes := makeEditor(n)
+	defer ed.buf.Close()
+	b.ResetTimer()
+	b.SetBytes(int64(n))
+	for i := 0; i < b.N; i++ {
+		if _, err := ed.where(Rune(runes)); err != nil {
+			b.Fatal(err.Error())
+		}
+	}
+}
+
+func BenchmarkRunex32(b *testing.B)  { benchmarkRune(b, 32<<0) }
+func BenchmarkRunex1K(b *testing.B)  { benchmarkRune(b, 1<<10) }
+func BenchmarkRunex1M(b *testing.B)  { benchmarkRune(b, 1<<20) }
+func BenchmarkRunex32M(b *testing.B) { benchmarkRune(b, 32<<20) }
+
 func benchmarkLine(b *testing.B, n int) {
-	ed, lines := makeEditor(n)
+	ed, lines, _ := makeEditor(n)
 	defer ed.buf.Close()
 	if lines == 0 {
 		b.Fatalf("too few lines: %d", lines)
@@ -44,7 +60,7 @@ func benchmarkLine(b *testing.B, n int) {
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		if _, err := Line(lines).where(ed); err != nil {
+		if _, err := ed.where(Line(lines)); err != nil {
 			b.Fatal(err.Error())
 		}
 	}
@@ -56,12 +72,12 @@ func BenchmarkLinex1M(b *testing.B)  { benchmarkLine(b, 1<<20) }
 func BenchmarkLinex32M(b *testing.B) { benchmarkLine(b, 32<<20) }
 
 func benchmarkRegexp(b *testing.B, re string, n int) {
-	ed, _ := makeEditor(n)
+	ed, _, _ := makeEditor(n)
 	defer ed.buf.Close()
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		switch _, err := Regexp(re).where(ed); {
+		switch _, err := ed.where(Regexp(re)); {
 		case err == nil:
 			panic("unexpected match")
 		case err != ErrNoMatch:

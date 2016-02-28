@@ -140,7 +140,7 @@ type readerFrom struct {
 func (rf readerFrom) ReadFrom(r io.Reader) (int64, error) {
 	cr := newCountingRuneReader(r)
 	err := rf.ed.do(func() (addr, error) {
-		at, err := rf.a.where(rf.ed)
+		at, err := rf.ed.where(rf.a)
 		if err != nil {
 			return addr{}, err
 		}
@@ -200,11 +200,15 @@ func (cw *countingWriter) Write(p []byte) (int, error) {
 func (ed *Editor) Where(a Address) (addr, error) {
 	ed.buf.Lock()
 	defer ed.buf.Unlock()
-	at, err := a.where(ed)
+	return ed.where(a)
+}
+
+func (ed *Editor) where(a Address) (addr, error) {
+	span, err := a.Where(ed)
 	if err != nil {
 		return addr{}, err
 	}
-	return at, err
+	return addr{from: span[0], to: span[1]}, err
 }
 
 // Do performs an Edit on the Editor's Buffer.
@@ -466,6 +470,42 @@ func (ed *Editor) lines(at addr) (l0, l1 int64, err error) {
 	return l0, l1, nil
 }
 
+// A addr identifies a substring within a buffer
+// by its inclusive start offset and its exclusive end offset.
+type addr struct{ from, to int64 }
+
+// Size returns the number of runes in
+// the string identified by the range.
+func (a addr) size() int64 { return a.to - a.from }
+
+// Update returns a, updated to account for b changing to size n.
+func (a addr) update(b addr, n int64) addr {
+	// Clip, unless b is entirely within a.
+	if a.from >= b.from || b.to > a.to {
+		if b.contains(a.from) {
+			a.from = b.to
+		}
+		if b.contains(a.to - 1) {
+			a.to = b.from
+		}
+		if a.from > a.to {
+			a.to = a.from
+		}
+	}
+
+	// Move.
+	d := n - b.size()
+	if a.to >= b.to {
+		a.to += d
+	}
+	if a.from >= b.to {
+		a.from += d
+	}
+	return a
+}
+
+func (a addr) contains(p int64) bool { return a.from <= p && p < a.to }
+
 // Size implements the Size method of the Text interface.
 //
 // It returns the number of Runes in the Buffer.
@@ -482,21 +522,18 @@ type runeReader struct {
 	editor *Editor
 }
 
-func (rr *runeReader) ReadRune() (rune, int, error) {
-	switch i, size := rr.span[0], rr.span.Size(); {
+func (rr *runeReader) ReadRune() (r rune, w int, err error) {
+	switch size := rr.span.Size(); {
 	case size == 0:
 		return 0, 0, io.EOF
-	case i < 0 || i >= rr.editor.Size():
-		return 0, 0, errors.New("out of range")
+	case size < 0:
+		rr.span[0]--
+		r, err = rr.editor.buf.rune(rr.span[0])
 	default:
-		r, err := rr.editor.buf.rune(i)
-		if size < 0 {
-			rr.span[0]--
-		} else {
-			rr.span[0]++
-		}
-		return r, 1, err
+		r, err = rr.editor.buf.rune(rr.span[0])
+		rr.span[0]++
 	}
+	return r, 1, err
 }
 
 // RuneReader implements the Runes method of the Text interface.
