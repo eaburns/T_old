@@ -471,25 +471,8 @@ func (a regexpAddr) whereFrom(from int64, ed *Editor) (addr, error) {
 	return addr{from: int64(m[0]), to: int64(m[1])}, nil
 }
 
-type runeReader struct {
-	addr
-	ed *Editor
-}
-
-func (rr *runeReader) ReadRune() (rune, int, error) {
-	switch {
-	case rr.size() <= 0:
-		return 0, 0, io.EOF
-	case rr.from < 0 || rr.from >= rr.ed.buf.size():
-		return 0, 0, errors.New("out of range")
-	}
-	r, err := rr.ed.buf.runes.Rune(rr.from)
-	rr.from++
-	return r, 1, err
-}
-
 func rangeMatch(re *regexp.Regexp, at addr, ed *Editor) []int {
-	rr := &runeReader{addr: at, ed: ed}
+	rr := ed.RuneReader(Span{at.from, at.to})
 	m := re.FindReaderSubmatchIndex(rr)
 	for i := range m {
 		m[i] += int(at.from)

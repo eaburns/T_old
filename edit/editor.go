@@ -465,3 +465,43 @@ func (ed *Editor) lines(at addr) (l0, l1 int64, err error) {
 	}
 	return l0, l1, nil
 }
+
+// Size implements the Size method of the Text interface.
+//
+// It returns the number of Runes in the Buffer.
+func (ed *Editor) Size() int64 { return ed.buf.size() }
+
+// Mark implements the Mark method of the Text interface.
+func (ed *Editor) Mark(m rune) Span {
+	at := ed.marks[m]
+	return Span{at.from, at.to}
+}
+
+type runeReader struct {
+	span   Span
+	editor *Editor
+}
+
+func (rr *runeReader) ReadRune() (rune, int, error) {
+	switch i, size := rr.span[0], rr.span.Size(); {
+	case size == 0:
+		return 0, 0, io.EOF
+	case i < 0 || i >= rr.editor.Size():
+		return 0, 0, errors.New("out of range")
+	default:
+		r, err := rr.editor.buf.rune(i)
+		if size < 0 {
+			rr.span[0]--
+		} else {
+			rr.span[0]++
+		}
+		return r, 1, err
+	}
+}
+
+// RuneReader implements the Runes method of the Text interface.
+//
+// Each non-error ReadRune operation returns a width of 1.
+func (ed *Editor) RuneReader(span Span) io.RuneReader {
+	return &runeReader{span: span, editor: ed}
+}
