@@ -2,7 +2,13 @@
 
 package edit
 
-import "io"
+import (
+	"errors"
+	"io"
+)
+
+// ErrMarkRange is retured by Editor.SetMark if the Span is out of range of the text.
+var ErrMarkRange = errors.New("mark out of range")
 
 // A Text provides a read-only view of a sequence of text.
 //
@@ -25,6 +31,68 @@ type Text interface {
 	// If either endpoint of the Span is negative or greater than the Size of the Text,
 	// an error is retured by the RuneReader.ReadRune method.
 	RuneReader(Span) io.RuneReader
+}
+
+// An Editor provides a read-write view of a sequence of text.
+//
+// An Editor changes the Text using a two-step procedure.
+//
+// The first step is to stage a batch of changes
+// using repeated calls to the Change method.
+// The Change method does not modify the Text,
+// but logs the desired change to a staging buffer.
+//
+// The second step is to apply the staged changes
+// by calling the Apply method.
+// The Apply method applies the changes to the Text
+// in the order that they were added to the staging log.
+//
+// An Editor also has an Undo stack and a Redo stack.
+// The stacks hold batches of changes,
+// providing support for unlimited undoing and redoing
+// of changes made by calls to Apply, Undo, and Redo.
+//
+// BUG(eaburns): Rename to Editor once the old Editor is removed.
+type editor interface {
+	Text
+
+	// SetMark sets the Span of a mark.
+	//
+	// ErrMarkRange is returned if either endpoint of the Span is negative
+	// or greater than the Size of the Text.
+	SetMark(rune, Span) error
+
+	// Change stages a change to be applied by the next call to Apply.
+	// It does not modify the Text.
+	//
+	// The change is defined by the Span of the Text to change
+	// and a Reader from which the new string of the Span will be read.
+	Change(Span, io.Reader) error
+
+	// Apply applies all changes since the last call to Apply or Cancel.
+	// It updates all marks to reflect the changes,
+	// logs the applied changes to the Undo stack,
+	// and clears the Redo stack.
+	//
+	// Changes are applied in the order that the Change method was called.
+	// It is an error if the changes are not in sequence;
+	// each change must not modify Text before its preceding change.
+	// In the case of such an error, all staged changes are canceled
+	// and the Text is left unchanged.
+	Apply() error
+
+	// Cancel cancels all changes since the last call to Apply or Cancel.
+	Cancel() error
+
+	// Undo undoes the changes at the top of the Undo stack.
+	// It updates all marks to reflect the changes,
+	// and logs the undone changes to the Redo stack.
+	Undo() error
+
+	// Redo redoes the changes at the top of the Redo stack.
+	// It updates all marks to reflect the changes,
+	// and logs the redone changes to the Undo stack.
+	Redo() error
 }
 
 // A Span identifies a string within a Text.

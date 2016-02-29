@@ -4,7 +4,6 @@ package edit
 
 import (
 	"bytes"
-	"errors"
 	"strings"
 	"testing"
 
@@ -166,29 +165,6 @@ func TestReaderFrom(t *testing.T) {
 		if dot := ed.marks['.']; dot != test.dot {
 			t.Errorf("ed.ReaderFrom(%q).ReadFrom(%q); ed.marks['.']=%v, want %v", test.a, test.read, dot, test.dot)
 		}
-	}
-}
-
-func TestEditorDoPendingError(t *testing.T) {
-	ed := NewEditor(NewBuffer())
-	defer ed.buf.Close()
-	maddr := addr{5, 10}
-	ed.marks['m'] = maddr
-
-	testErr := errors.New("test error")
-	err := ed.do(func() (addr, error) {
-		// Change a mark, it should be restored to its origin.
-		m := ed.marks['m']
-		m.to += 10
-		m.from += 20
-		ed.marks['m'] = m
-		return addr{}, testErr
-	})
-	if err != testErr {
-		t.Errorf("ed.do(…)=%v, want %v", err, testErr)
-	}
-	if ed.marks['m'] != maddr {
-		t.Errorf("ed.marks['m']=%v, want %v", ed.marks['m'], maddr)
 	}
 }
 

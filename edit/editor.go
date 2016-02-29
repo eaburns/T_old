@@ -215,9 +215,9 @@ func (ed *Editor) where(a Address) (addr, error) {
 func (ed *Editor) Do(e Edit, w io.Writer) error {
 	switch e := e.(type) {
 	case undo:
-		return ed.undoRedo(int(e), ed.undo1)
+		return ed.undoRedo(int(e), ed.Undo)
 	case redo:
-		return ed.undoRedo(int(e), ed.redo1)
+		return ed.undoRedo(int(e), ed.Redo)
 	default:
 		return ed.do(func() (addr, error) { return e.do(ed, w) })
 	}
@@ -244,91 +244,22 @@ func (ed *Editor) Do(e Edit, w io.Writer) error {
 func (ed *Editor) do(f func() (addr, error)) error {
 	ed.buf.Lock()
 	defer ed.buf.Unlock()
-
-	marks0 := make(map[rune]addr, len(ed.marks))
-	for r, a := range ed.marks {
-		marks0[r] = a
-	}
-	defer func() { ed.marks = marks0 }()
-
-	if err := ed.buf.pending.clear(); err != nil {
-		return err
-	}
 	at, err := f()
 	if err != nil {
 		return err
 	}
-
-	if at, err = fixAddrs(at, ed.buf.pending); err != nil {
-		return err
-	}
-
-	if err := ed.buf.redo.clear(); err != nil {
-		return err
-	}
-
-	for e := logFirst(ed.buf.pending); !e.end(); e = e.next() {
-		undoAt := addr{from: e.at.from, to: e.at.from + e.size}
-		undoSrc := ed.buf.runes.Reader(e.at.from)
-		undoSrc = runes.LimitReader(undoSrc, e.at.size())
-		if err := ed.buf.undo.append(ed.buf.seq, undoAt, undoSrc); err != nil {
-			return err
-		}
-
-		if err := ed.buf.change(e.at, e.data()); err != nil {
-			// TODO(eaburns): Very bad; what should we do?
-			return err
-		}
-	}
-
-	ed.buf.seq++
 	ed.marks['.'] = at
-	marks0 = ed.marks
-	return err
-}
-
-func fixAddrs(at addr, l *log) (addr, error) {
-	if !inSequence(l) {
-		return addr{}, errors.New("changes not in sequence")
+	if err := ed.Apply(); err != nil {
+		return err
 	}
-	for e := logFirst(l); !e.end(); e = e.next() {
-		if e.at.from == at.from {
-			// If they have the same from, grow at.
-			// This grows at, even if it's a point address,
-			// to include the change made by e.
-			// Otherwise, update would simply leave it
-			// as a point address and move it.
-			at.to = at.update(e.at, e.size).to
-		} else {
-			at = at.update(e.at, e.size)
-		}
-		for f := e.next(); !f.end(); f = f.next() {
-			f.at = f.at.update(e.at, e.size)
-			if err := f.store(); err != nil {
-				return addr{}, err
-			}
-		}
-	}
-	return at, nil
-}
-
-func inSequence(l *log) bool {
-	e := logFirst(l)
-	for !e.end() {
-		f := e.next()
-		if f.at != e.at && f.at.from < e.at.to {
-			return false
-		}
-		e = f
-	}
-	return true
+	return nil
 }
 
 func pend(ed *Editor, at addr, src runes.Reader) error {
-	return ed.buf.pending.append(ed.buf.seq, at, src)
+	return ed.Change(Span{at.from, at.to}, runes.UTF8Reader(src))
 }
 
-func (ed *Editor) undoRedo(n int, undoRedo1 func() (addr, error)) (err error) {
+func (ed *Editor) undoRedo(n int, undoRedo1 func() error) (err error) {
 	ed.buf.Lock()
 	defer ed.buf.Unlock()
 
@@ -336,115 +267,13 @@ func (ed *Editor) undoRedo(n int, undoRedo1 func() (addr, error)) (err error) {
 		n = 1
 	}
 
-	marks0 := make(map[rune]addr, len(ed.marks))
-	for r, a := range ed.marks {
-		marks0[r] = a
-	}
-	defer func() { ed.marks = marks0 }()
-
 	for i := 0; i < n; i++ {
-		dot, err := undoRedo1()
-		if err != nil {
+		if err := undoRedo1(); err != nil {
 			return err
 		}
-		ed.marks['.'] = dot
 	}
 
-	ed.buf.seq++
-	marks0 = ed.marks
 	return nil
-}
-
-// Undo1 undoes the most recent
-// sequence of changes.
-// A sequence of changes is one in which
-// all changes have the same seq.
-// It returns the address that covers
-// all changes in the sequence.
-// If nothing is undone, dot is returned.
-func (ed *Editor) undo1() (addr, error) {
-	e := logLast(ed.buf.undo)
-	if e.end() {
-		return ed.marks['.'], nil
-	}
-	for {
-		prev := e.prev()
-		if prev.end() || prev.seq != e.seq {
-			break
-		}
-		e = prev
-	}
-
-	all := addr{from: ed.buf.size() + 1, to: -1}
-	start := e
-	for !e.end() {
-		redoAt := addr{from: e.at.from, to: e.at.from + e.size}
-		redoSrc := ed.buf.runes.Reader(e.at.from)
-		redoSrc = runes.LimitReader(redoSrc, e.at.size())
-		if err := ed.buf.redo.append(ed.buf.seq, redoAt, redoSrc); err != nil {
-			return addr{}, err
-		}
-
-		// There is no need to call all.update,
-		// because changes always apply
-		// in sequence of increasing addresses.
-		if e.at.from < all.from {
-			all.from = e.at.from
-		}
-		if to := e.at.from + e.size; to > all.to {
-			all.to = to
-		}
-
-		if err := ed.buf.change(e.at, e.data()); err != nil {
-			return addr{}, err
-		}
-		e = e.next()
-	}
-	return all, start.pop()
-}
-
-// Redo1 redoes the most recent
-// sequence of changes.
-// A sequence of changes is one in which
-// all changes have the same seq.
-// It returns the address that covers
-// all changes in the sequence.
-// If nothing is undone, dot is returned.
-func (ed *Editor) redo1() (addr, error) {
-	e := logLast(ed.buf.redo)
-	if e.end() {
-		return ed.marks['.'], nil
-	}
-
-	all := addr{from: ed.buf.size() + 1, to: -1}
-	for {
-		undoAt := addr{from: e.at.from, to: e.at.from + e.size}
-		undoSrc := ed.buf.runes.Reader(e.at.from)
-		undoSrc = runes.LimitReader(undoSrc, e.at.size())
-		if err := ed.buf.undo.append(ed.buf.seq, undoAt, undoSrc); err != nil {
-			return addr{}, err
-		}
-
-		// There is no need to call all.update,
-		// because changes always apply
-		// in sequence of increasing addresses.
-		if e.at.from < all.from {
-			all.from = e.at.from
-		}
-		if to := e.at.from + e.size; to > all.to {
-			all.to = to
-		}
-
-		if err := ed.buf.change(e.at, e.data()); err != nil {
-			return addr{}, err
-		}
-		if p := e.prev(); p.end() || p.seq != e.seq {
-			break
-		} else {
-			e = p
-		}
-	}
-	return all, e.pop()
 }
 
 func (ed *Editor) lines(at addr) (l0, l1 int64, err error) {
@@ -506,15 +335,26 @@ func (a addr) update(b addr, n int64) addr {
 
 func (a addr) contains(p int64) bool { return a.from <= p && p < a.to }
 
+// BUG(eaburns): This is temporary to ensure that Editor implements editor.
+// Remove it once Editor goes away.
+var _ editor = &Editor{}
+
 // Size implements the Size method of the Text interface.
 //
 // It returns the number of Runes in the Buffer.
 func (ed *Editor) Size() int64 { return ed.buf.size() }
 
-// Mark implements the Mark method of the Text interface.
 func (ed *Editor) Mark(m rune) Span {
 	at := ed.marks[m]
 	return Span{at.from, at.to}
+}
+
+func (ed *Editor) SetMark(m rune, s Span) error {
+	if size := ed.Size(); s[0] < 0 || s[1] < 0 || s[0] > size || s[1] > size {
+		return ErrMarkRange
+	}
+	ed.marks[m] = addr{from: s[0], to: s[1]}
+	return nil
 }
 
 type runeReader struct {
@@ -541,4 +381,176 @@ func (rr *runeReader) ReadRune() (r rune, w int, err error) {
 // Each non-error ReadRune operation returns a width of 1.
 func (ed *Editor) RuneReader(span Span) io.RuneReader {
 	return &runeReader{span: span, editor: ed}
+}
+
+func (ed *Editor) Change(s Span, r io.Reader) error {
+	rr := runes.RunesReader(bufio.NewReader(r))
+	return ed.buf.pending.append(ed.buf.seq, addr{from: s[0], to: s[1]}, rr)
+}
+
+func (ed *Editor) Apply() error {
+	dot, err := fixAddrs(ed.marks['.'], ed.buf.pending)
+	if err != nil {
+		return err
+	}
+
+	if err := ed.buf.redo.clear(); err != nil {
+		return err
+	}
+	for e := logFirst(ed.buf.pending); !e.end(); e = e.next() {
+		undoAt := addr{from: e.at.from, to: e.at.from + e.size}
+		undoSrc := ed.buf.runes.Reader(e.at.from)
+		undoSrc = runes.LimitReader(undoSrc, e.at.size())
+		if err := ed.buf.undo.append(ed.buf.seq, undoAt, undoSrc); err != nil {
+			// TODO(eaburns): Very bad; what should we do?
+			return err
+		}
+		if err := ed.buf.change(e.at, e.data()); err != nil {
+			// TODO(eaburns): Very bad; what should we do?
+			return err
+		}
+	}
+	if err := ed.buf.pending.clear(); err != nil {
+		// TODO(eaburns): Very bad; what should we do?
+		return err
+	}
+
+	ed.marks['.'] = dot
+	ed.buf.seq++
+	return nil
+}
+
+func fixAddrs(at addr, l *log) (addr, error) {
+	if !inSequence(l) {
+		return addr{}, errors.New("changes not in sequence")
+	}
+	for e := logFirst(l); !e.end(); e = e.next() {
+		if e.at.from == at.from {
+			// If they have the same from, grow at.
+			// This grows at, even if it's a point address,
+			// to include the change made by e.
+			// Otherwise, update would simply leave it
+			// as a point address and move it.
+			at.to = at.update(e.at, e.size).to
+		} else {
+			at = at.update(e.at, e.size)
+		}
+		for f := e.next(); !f.end(); f = f.next() {
+			f.at = f.at.update(e.at, e.size)
+			if err := f.store(); err != nil {
+				return addr{}, err
+			}
+		}
+	}
+	return at, nil
+}
+
+func inSequence(l *log) bool {
+	e := logFirst(l)
+	for !e.end() {
+		f := e.next()
+		if f.at != e.at && f.at.from < e.at.to {
+			return false
+		}
+		e = f
+	}
+	return true
+}
+
+func (ed *Editor) Cancel() error { return ed.buf.pending.clear() }
+
+func (ed *Editor) Undo() error {
+	marks0 := make(map[rune]addr, len(ed.marks))
+	for r, a := range ed.marks {
+		marks0[r] = a
+	}
+	defer func() { ed.marks = marks0 }()
+
+	e := logLast(ed.buf.undo)
+	if e.end() {
+		return nil
+	}
+	for {
+		prev := e.prev()
+		if prev.end() || prev.seq != e.seq {
+			break
+		}
+		e = prev
+	}
+
+	all := addr{from: ed.buf.size() + 1, to: -1}
+	start := e
+	for !e.end() {
+		redoAt := addr{from: e.at.from, to: e.at.from + e.size}
+		redoSrc := ed.buf.runes.Reader(e.at.from)
+		redoSrc = runes.LimitReader(redoSrc, e.at.size())
+		if err := ed.buf.redo.append(ed.buf.seq, redoAt, redoSrc); err != nil {
+			return err
+		}
+
+		// There is no need to call all.update,
+		// because changes always apply
+		// in sequence of increasing addresses.
+		if e.at.from < all.from {
+			all.from = e.at.from
+		}
+		if to := e.at.from + e.size; to > all.to {
+			all.to = to
+		}
+
+		if err := ed.buf.change(e.at, e.data()); err != nil {
+			return err
+		}
+		e = e.next()
+	}
+	ed.marks['.'] = all
+	marks0 = ed.marks
+	ed.buf.seq++
+	return start.pop()
+}
+
+func (ed *Editor) Redo() error {
+	marks0 := make(map[rune]addr, len(ed.marks))
+	for r, a := range ed.marks {
+		marks0[r] = a
+	}
+	defer func() { ed.marks = marks0 }()
+
+	e := logLast(ed.buf.redo)
+	if e.end() {
+		return nil
+	}
+
+	all := addr{from: ed.buf.size() + 1, to: -1}
+	for {
+		undoAt := addr{from: e.at.from, to: e.at.from + e.size}
+		undoSrc := ed.buf.runes.Reader(e.at.from)
+		undoSrc = runes.LimitReader(undoSrc, e.at.size())
+		if err := ed.buf.undo.append(ed.buf.seq, undoAt, undoSrc); err != nil {
+			return err
+		}
+
+		// There is no need to call all.update,
+		// because changes always apply
+		// in sequence of increasing addresses.
+		if e.at.from < all.from {
+			all.from = e.at.from
+		}
+		if to := e.at.from + e.size; to > all.to {
+			all.to = to
+		}
+
+		if err := ed.buf.change(e.at, e.data()); err != nil {
+			return err
+		}
+		if p := e.prev(); p.end() || p.seq != e.seq {
+			break
+		} else {
+			e = p
+		}
+	}
+	ed.marks['.'] = all
+	marks0 = ed.marks
+	ed.buf.seq++
+	return e.pop()
 }

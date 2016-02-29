@@ -25,6 +25,13 @@ go test -test.timeout=1s ./... 2>&1 > $o || fail
 echo Linting
 golint .\
 	| grep -v 'should omit type SimpleAddress'\
+	| grep -v 'Editor.Mark should have comment'\
+	| grep -v 'Editor.SetMark should have comment'\
+	| grep -v 'Editor.Change should have comment'\
+	| grep -v 'Editor.Apply should have comment'\
+	| grep -v 'Editor.Cancel should have comment'\
+	| grep -v 'Editor.Undo should have comment'\
+	| grep -v 'Editor.Redo should have comment'\
 	> $o 2>&1
 # Silly: diff the grepped golint output with empty.
 # If it's non-empty, error, otherwise succeed.

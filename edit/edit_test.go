@@ -1710,10 +1710,10 @@ var redoTests = []editTest{
 		name:  "undo 2 appends redo 1",
 		given: "{..}",
 		do:    []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(2), Redo(1)},
-		want:  "{.}abcxyz{.}",
+		want:  "{.}abc{.}",
 	},
 	{
-		name:  "undo undo appends redo 1",
+		name:  "undo 1 undo 1 appends redo 1",
 		given: "{..}",
 		do:    []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(1), Undo(1), Redo(1)},
 		want:  "{.}abc{.}",
