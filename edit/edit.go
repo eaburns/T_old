@@ -1,118 +1,92 @@
 // Copyright © 2015, The T Authors.
 
-// Package edit provides a language and functions for editing buffers of runes.
-// This package is heavily inspired by the text Editor Sam.
+// Package edit provides a language and functions for editing text.
+// This package is heavily inspired by the text editor Sam.
 // In fact, the edit language of this package
 // is a dialect of the edit language of Sam.
 // For background, see the sam(1) manual page:
 // http://swtch.com/plan9port/man/man1/sam.html.
 //
-// This package has four primary types: Buffer, Editor, Address, and Edit.
-// These are described in detail below.
 //
-// Buffer
+// Text and Addresses
 //
-// Buffers are infinite-capacity, disk-backed, buffers of runes.
-// New Buffers, created with the NewBuffer function, are empty.
-// The only operation that can be done directly to a Buffer is closing it
-// with the Buffer.Close method.
-// All other operations are done using an Editor.
 //
-// Editor
+// The Text interface provides methods to operate on a read-only text.
+// The text is accessed using Spans,
+// defined by an inclusive start point
+// and an exclusive end point.
+// The units of a Span are unspecified,
+// but are defined by a Text implementation,
+// by way of its Size and ReadRune method.
 //
-// Editors view and modify Buffers.
-// Multiple Editors may operate on a single Buffer concurrently.
-// However, each Editor maintains its own state.
-// This state includes both 'dot'
-// (which is what T calls the position of the cursor)
-// and 'marks' (which are like bookmarks into a Buffer).
-//
-// One common use of an Editor is to call its Do.
-// The Do method performs an Edit,
-// which views or changes the Buffer,
-// typically at a particular Address.
-// Editors can also make streaming changes.
-// Streaming changes update the contents at an Address in the Buffer
-// using the data read from an io.Reader.
-// Likewise Editors can provide a streaming view of the Buffer
-// by writing the contents at an Address to an io.Writer.
-//
-// Address
-//
-// Addresses identify a substring of runes within a buffer.
+// Addresses provide a high-level language for identifying Spans of a Text.
 // They can be constructed in two different ways.
+// The first way is by parsing a string in T's Address language.
+// The Address language is parsed by the Addr function.
+// Here's an example:
+// 	// This Address identifies the Span from 3 runes past the end of line 1
+// 	// until the end of 8th line following the next occurrence of "the".
+// 	addr, err := Addr(strings.NewReader("1+#3,/the/+8"))
 //
-// The first way is by parsing a string in T's address language.
-// This is intended for handling addresses from user input.
-// An Address, specified by the user, can be parsed using the Addr function.
-// The return value is the Address,
-// the left over characters that weren't part of the parsed Address,
-// and any errors encountered while parsing.
+// See the documentation of the Addr function for more details.
 //
-// For example:
-// 	addr, leftOver, err := Addr(strings.NewReader("1+#3,/the/+8"))
-//
-// For details about the address language,
-// see the document on the Addr function below.
-//
-// The second way is by using function and method calls.
+// The second way to construct an Address is by using functions and methods.
 // This is intended for creating Addresses programmatically or in source code.
-// The functions and methods make it difficult to create an invalid address.
-// Errors creating addresses this way
-// are typically reported by the compiler
-// at compile-time.
-//
-// For example:
+// Unlike the Addr function, which reports errors at run-time,
+// errors that occur while creating Addresses using these functions and methods
+// are reported by the compiler at compile-time.
+// Here's an example; it creates the same address as above:
 //	addr := Line(1).Plus(Rune(3)).To(Regexp("the").Plus(Line(8)))
 //
-// Edit
+// Once created, whether by the Address language or using functions and methodts,
+// Addresses can be evaluated on a Text using their Where method.
+// The Where method returns the Span of the Text identified by the Address.
 //
-// Edits describe an operation that an Editor can perform on a Buffer.
-// Like with Addresses, they can be constructed in two different ways.
+// Editor and Edits
 //
-// The first way is by parsing a string in T's edit language.
-// This is intended for handling edits from user input.
-// It goes hand-in-hand with the address language.
-// In fact, the address language is a subset of the edit language.
-// An Edit, specified by the user, can be parsed using the Ed function.
-// The return value is the Edit,
-// the left over characters that weren't part of the parsed Edit,
-// and any errors encountered while parsing.
+// The Editor interface provides methods to operate on a read/write text.
+// A text is modified with the Change, Apply, Undo, and Redo methods of the Editor.
+// The Change method stages a change to a specified Span of the Text.
+// It does not modify the Text itself.
+// The Apply method modifies the Text by applying all staged changes in sequence.
+// Undo and Redo, undo and redo batches of changes made with Apply.
 //
+// Edits provide a high-level language for modifying a Text.
+// Like Addresses, they can be constructed in two different ways.
+// The first way is by parsing a string in T's Edit language.
+// The Edit language goes hand-in-hand with the Address language.
+// In fact, the Address language is a subset of the Edit language.
+// The Edit language is parsed by the Ed function.
 // Here's an example:
-//	edit, leftOver, err := Ed(strings.NewReader("1+#3,/the/+8 c/new text/"))
+// 	// This Edit changes the Span from 3 runes past the end of line 1
+// 	// until the end of 8th line following the next occurrence of "the",
+// 	// to have the text "new text".
+//	e, err := Ed(strings.NewReader("1+#3,/the/+8 c/new text/"))
 //
-// For details about the edit language,
-// see the document on the Ed function below.
+// See the documentation of the Ed function for more details.
 //
-// The second way is by using function calls.
+// The second way to construct an Edit is by using functions.
 // This is intended for creating Edits programmatically or in source code.
-// Like with Addresses, this technique makes it harder to create an invalid edit,
-// and errors can be reported at compile-time.
-//
-// Here's example:
+// Unlike the Ed function, which reports errors at run-time,
+// errors that occur while creating Edits using these functions
+// are reported by the compiler at compile-time.
+// Here's example; it makes the same modification as above:
 // 	addr := Line(1).Plus(Rune(3)).To(Regexp("the").Plus(Line(8)))
 //	edit := Change(addr, "new text")
 //
-// Once created,
-// regardless of whether by parsing the edit language or using functions,
-// Edits can be applied using Editor.Do as described above.
+// Once created, whether by the Edit language or using functions,
+// Edits can be applied to an Editor using their Do method.
 // The Do method can either
-// change the contents of the Buffer,
-// change the Editor's state based on the contents of the Buffer,
-// print runes from the Buffer or information about the Buffer to an io.Writer,
-// or a mix of the above.
+// modify Text,
+// change the Editor's state based on the contents of the Text,
+// print text from the Text or information about the Text to an io.Writer,
+// or a combination of the above of the above.
+// It all depends on the Edit being performed.
 //
-// Here are a few examples:
-// 	ed := NewEditor(NewBuffer())
-//	// Discards any printed output, of which there is none from the Insert Edit.
-//	ed.Do(Insert(End, "Hello, World!"), ioutil.Discard)
-//	// Prints the runes within the given address to standard output.
-//	ed.Do(Print(Rune(1).To(Rune(10)), os.Stdout)
-//	// Substitutes "World" with "世界". Nothing is printed.
-//	ed.Do(Sub("/World/", "世界"), ioutil.Discard)
-//	// Prints the address of dot, the cursor, to standard output.
-//	ed.Do(Where(Dot), os.Stdout)
+// Buffer
+//
+// The Buffer type provides an implementation of the Editor interface.
+// A Buffer is an infinite-capacity, disk-backed, buffers of runes.
 package edit
 
 import (
