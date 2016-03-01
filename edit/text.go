@@ -58,9 +58,7 @@ type Text interface {
 // The stacks hold batches of changes,
 // providing support for unlimited undoing and redoing
 // of changes made by calls to Apply, Undo, and Redo.
-//
-// BUG(eaburns): Rename to Editor once the old Editor is removed.
-type editor interface {
+type Editor interface {
 	Text
 
 	// SetMark sets the Span of a mark.

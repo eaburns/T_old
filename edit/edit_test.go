@@ -1935,12 +1935,12 @@ type editTest struct {
 }
 
 func (test editTest) run(t *testing.T) {
-	ed := newTestEditor(test.given)
-	defer ed.buf.Close()
+	buf := newTestBuffer(test.given)
+	defer buf.Close()
 
 	print := bytes.NewBuffer(nil)
 	for i, e := range test.do {
-		err := ed.Do(e, print)
+		err := e.Do(buf, print)
 		if !matchesError(test.error, err) {
 			t.Errorf("%s: Do(do[%d]=%q)=%v, want %q", test.name, i, e, err, test.error)
 		}
@@ -1948,8 +1948,8 @@ func (test editTest) run(t *testing.T) {
 			break
 		}
 	}
-	if !ed.hasState(test.want) {
-		t.Errorf("%s: %#v got %q, want %q", test.do, test.name, ed.stateString(), test.want)
+	if !buf.hasState(test.want) {
+		t.Errorf("%s: %#v got %q, want %q", test.do, test.name, buf.stateString(), test.want)
 	}
 	if got := print.String(); got != test.print {
 		t.Errorf("%s: printed %q, want %q", test.name, got, test.print)
@@ -1987,27 +1987,27 @@ func (test editTest) runFromString(t *testing.T) {
 	test.run(t)
 }
 
-func newTestEditor(str string) *Editor {
+func newTestBuffer(str string) *Buffer {
 	contents, marks := parseState(str)
-	ed := NewEditor(NewBuffer())
-	if err := ed.Change(Span{}, strings.NewReader(contents)); err != nil {
-		ed.buf.Close()
+	buf := NewBuffer()
+	if err := buf.Change(Span{}, strings.NewReader(contents)); err != nil {
+		buf.Close()
 		panic(err)
 	}
-	if err := ed.Apply(); err != nil {
-		ed.buf.Close()
+	if err := buf.Apply(); err != nil {
+		buf.Close()
 		panic(err)
 	}
-	ed.marks = marks
-	return ed
+	buf.marks = marks
+	return buf
 }
 
-func (ed *Editor) hasState(want string) bool {
+func (buf *Buffer) hasState(want string) bool {
 	want, marks := parseState(want)
-	if got := ed.String(); got != want {
+	if got := buf.String(); got != want {
 		return false
 	}
-	for m, a := range ed.marks {
+	for m, a := range buf.marks {
 		if marks[m] != a {
 			return false
 		}
@@ -2016,14 +2016,14 @@ func (ed *Editor) hasState(want string) bool {
 	return len(marks) == 0
 }
 
-func (ed *Editor) stateString() string {
+func (buf *Buffer) stateString() string {
 	marks := make(map[int64]RuneSlice)
-	for m, a := range ed.marks {
-		marks[a.from] = append(marks[a.from], m)
-		marks[a.to] = append(marks[a.to], m)
+	for m, a := range buf.marks {
+		marks[a[0]] = append(marks[a[0]], m)
+		marks[a[1]] = append(marks[a[1]], m)
 	}
 	var c []rune
-	str := []rune(ed.String())
+	str := []rune(buf.String())
 	for i := 0; i < len(str)+1; i++ {
 		if ms := marks[int64(i)]; len(ms) > 0 {
 			sort.Sort(ms)
@@ -2044,10 +2044,10 @@ func (rs RuneSlice) Len() int           { return len(rs) }
 func (rs RuneSlice) Less(i, j int) bool { return rs[i] < rs[j] }
 func (rs RuneSlice) Swap(i, j int)      { rs[i], rs[j] = rs[j], rs[i] }
 
-func parseState(str string) (string, map[rune]addr) {
+func parseState(str string) (string, map[rune]Span) {
 	var mark bool
 	var contents []rune
-	marks := make(map[rune]addr)
+	marks := make(map[rune]Span)
 	count := make(map[rune]int)
 	for _, r := range str {
 		switch {
@@ -2058,10 +2058,10 @@ func parseState(str string) (string, map[rune]addr) {
 		case mark:
 			count[r]++
 			at := int64(len(contents))
-			if a, ok := marks[r]; !ok {
-				marks[r] = addr{from: at}
+			if s, ok := marks[r]; !ok {
+				marks[r] = Span{at}
 			} else {
-				marks[r] = addr{from: a.from, to: at}
+				marks[r] = Span{s[0], at}
 			}
 		default:
 			contents = append(contents, r)

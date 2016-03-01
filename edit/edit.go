@@ -1,7 +1,7 @@
 // Copyright © 2015, The T Authors.
 
 // Package edit provides a language and functions for editing buffers of runes.
-// This package is heavily inspired by the text editor Sam.
+// This package is heavily inspired by the text Editor Sam.
 // In fact, the edit language of this package
 // is a dialect of the edit language of Sam.
 // For background, see the sam(1) manual page:
@@ -139,7 +139,7 @@ type Edit interface {
 
 	// Do performs the Edit on an Editor.
 	// Anything printed by the Edit is written to the Writer.
-	Do(editor, io.Writer) error
+	Do(Editor, io.Writer) error
 }
 
 type change struct {
@@ -176,7 +176,7 @@ func (e change) String() string {
 	return e.Address.String() + string(e.op) + "/" + Escape(e.str, '/') + "/"
 }
 
-func (e change) Do(ed editor, _ io.Writer) error {
+func (e change) Do(ed Editor, _ io.Writer) error {
 	s, err := e.Where(ed)
 	if err != nil {
 		return err
@@ -208,7 +208,7 @@ func Move(src, dst Address) Edit { return move{src: src, dst: dst} }
 
 func (e move) String() string { return e.src.String() + "m" + e.dst.String() }
 
-func (e move) Do(ed editor, _ io.Writer) error {
+func (e move) Do(ed Editor, _ io.Writer) error {
 	src, err := e.src.Where(ed)
 	if err != nil {
 		return err
@@ -256,7 +256,7 @@ func Copy(src, dst Address) Edit { return copyEdit{src: src, dst: dst} }
 
 func (e copyEdit) String() string { return e.src.String() + "t" + e.dst.String() }
 
-func (e copyEdit) Do(ed editor, _ io.Writer) error {
+func (e copyEdit) Do(ed Editor, _ io.Writer) error {
 	src, err := e.src.Where(ed)
 	if err != nil {
 		return err
@@ -293,7 +293,7 @@ func Set(a Address, m rune) Edit {
 
 func (e set) String() string { return e.Address.String() + "k" + string(e.mark) }
 
-func (e set) Do(ed editor, _ io.Writer) error {
+func (e set) Do(ed Editor, _ io.Writer) error {
 	s, err := e.Where(ed)
 	if err != nil {
 		return err
@@ -310,7 +310,7 @@ func Print(a Address) Edit { return print{a} }
 
 func (e print) String() string { return e.Address.String() + "p" }
 
-func (e print) Do(ed editor, print io.Writer) error {
+func (e print) Do(ed Editor, print io.Writer) error {
 	s, err := e.Where(ed)
 	if err != nil {
 		return err
@@ -345,7 +345,7 @@ func (e where) String() string {
 	return e.Address.String() + "=#"
 }
 
-func (e where) Do(ed editor, print io.Writer) error {
+func (e where) Do(ed Editor, print io.Writer) error {
 	s, err := e.Where(ed)
 	if err != nil {
 		return err
@@ -373,7 +373,7 @@ func (e where) Do(ed editor, print io.Writer) error {
 	return ed.SetMark('.', s)
 }
 
-func lines(ed editor, s Span) (l0, l1 int64, err error) {
+func lines(ed Editor, s Span) (l0, l1 int64, err error) {
 	var i int64
 	l0 = int64(1) // line numbers are 1 based.
 	rr := ed.RuneReader(Span{0, ed.Size()})
@@ -467,7 +467,7 @@ func (e Substitute) String() string {
 	return e.Address.String() + "s" + n + "/" + Escape(e.Regexp, '/') + "/" + Escape(e.With, '/') + "/" + g
 }
 
-func (e Substitute) Do(ed editor, _ io.Writer) error {
+func (e Substitute) Do(ed Editor, _ io.Writer) error {
 	s, err := e.Address.Where(ed)
 	if err != nil {
 		return err
@@ -512,7 +512,7 @@ func (e Substitute) Do(ed editor, _ io.Writer) error {
 
 }
 
-func regexpSub(re *regexp.Regexp, match []int, with string, ed editor) error {
+func regexpSub(re *regexp.Regexp, match []int, with string, ed Editor) error {
 	dst := Span{int64(match[0]), int64(match[1])}
 	src, err := ioutil.ReadAll(ed.Reader(dst))
 	if err != nil {
@@ -613,9 +613,7 @@ func shell() string {
 	return DefaultShell
 }
 
-func (e pipe) do(ed *Editor, w io.Writer) (addr, error) { panic("unimplemened") }
-
-func (e pipe) Do(ed editor, print io.Writer) error {
+func (e pipe) Do(ed Editor, print io.Writer) error {
 	s, err := e.a.Where(ed)
 	if err != nil {
 		return err
@@ -673,7 +671,7 @@ func (e undo) String() string {
 	return "u" + strconv.Itoa(int(e))
 }
 
-func (e undo) Do(ed editor, _ io.Writer) error {
+func (e undo) Do(ed Editor, _ io.Writer) error {
 	if e <= 0 {
 		e = 1
 	}
@@ -702,7 +700,7 @@ func (e redo) String() string {
 	return "r" + strconv.Itoa(int(e))
 }
 
-func (e redo) Do(ed editor, _ io.Writer) error {
+func (e redo) Do(ed Editor, _ io.Writer) error {
 	if e <= 0 {
 		e = 1
 	}
@@ -791,7 +789,6 @@ func (e redo) Do(ed editor, _ io.Writer) error {
 //	{addr} p
 //		Returns the runes identified by the address.
 //		If an address is not supplied, dot is used.
-// 		It is an error to print more than MaxRunes runes.
 //		Dot is set to the address.
 //	{addr} ={#}
 //		Without '#' returns the line offset(s) of the address.
@@ -819,13 +816,13 @@ func (e redo) Do(ed editor, _ io.Writer) error {
 //		Within cmd, \n is interpreted as a newline literal.
 //	u{n}
 //		Undoes the n most recent changes
-// 		made to the buffer by any editor.
+// 		made to the buffer by any Editor.
 //		If n is not specified, it defaults to 1.
 //		Dot is set to the address covering
 // 		the last undone change.
 //	r{n}
 //		Redoes the n most recent changes
-//		undone by any editor.
+//		undone by any Editor.
 //		If n is not specified, it defaults to 1.
 //		Dot is set to the address covering
 // 		the last redone change.

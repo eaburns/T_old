@@ -219,7 +219,7 @@ func (e *errReaderAt) WriteAt(b []byte, _ int64) (int, error) { return len(b), n
 
 // TestIOErrors tests IO errors when computing addresses.
 func TestIOErrors(t *testing.T) {
-	helloWorld := []rune("Hello,\nWorld!")
+	const helloWorld = "Hello,\nWorld!"
 	tests := []struct {
 		addr  string
 		error string
@@ -260,16 +260,19 @@ func TestIOErrors(t *testing.T) {
 		}
 		f := &errReaderAt{nil}
 		r := runes.NewBufferReaderWriterAt(1, f)
-		ed := NewEditor(newBuffer(r))
-		defer ed.buf.Close()
+		buf := newBuffer(r)
+		defer buf.Close()
 
-		if err := ed.buf.runes.Insert(helloWorld, 0); err != nil {
-			t.Fatalf("ed.buf.runes.Insert(%q, 0)=%q, want nil", helloWorld, err)
+		if err := buf.Change(Span{}, strings.NewReader(helloWorld)); err != nil {
+			t.Fatalf("buf.Change(Span{}, %q)=%q, want nil", helloWorld, err)
+		}
+		if err := buf.Apply(); err != nil {
+			t.Fatalf("buf.Apply()=%q, want nil", err)
 		}
 
 		// All subsequent reads will be errors.
 		f.error = errors.New("read error")
-		if a, err := addr.Where(ed); !matchesError(test.error, err) {
+		if a, err := addr.Where(buf); !matchesError(test.error, err) {
 			t.Errorf("Addr(%q).addr()=%v,%v, want addr{},%q", test, a, err, test.error)
 			continue
 		}

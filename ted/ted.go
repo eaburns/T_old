@@ -41,8 +41,6 @@ func main() {
 
 	buf := edit.NewBuffer()
 	defer buf.Close()
-	ed := edit.NewEditor(buf)
-	defer ed.Close()
 
 	var nl bool
 	var prevAddr edit.Edit
@@ -103,7 +101,7 @@ func main() {
 			continue
 		}
 
-		if err := ed.Do(e, os.Stdout); err != nil {
+		if err := e.Do(buf, os.Stdout); err != nil {
 			fmt.Println(err)
 			continue
 		}
@@ -123,7 +121,7 @@ func main() {
 		if strings.HasSuffix(e.String(), "k.") {
 			// The Edit just set the address of dot. Print dot.
 			prevAddr = e
-			if err := ed.Do(edit.Print(edit.Dot), os.Stdout); err != nil {
+			if err := edit.Print(edit.Dot).Do(buf, os.Stdout); err != nil {
 				fmt.Println("failed to edit:", err)
 				return
 			}

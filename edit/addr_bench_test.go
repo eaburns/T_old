@@ -10,33 +10,37 @@
 package edit
 
 import (
+	"bytes"
 	"math/rand"
 	"testing"
 )
 
 // benchmark based on regexp/exec_test.go
 
-func makeEditor(n int) (ed *Editor, lines int, runes int64) {
+func makeEditor(n int) (buf *Buffer, lines int, runes int64) {
 	rand.Seed(0) // For reproducibility.
-	rs := make([]rune, n)
+	data := make([]byte, n)
 	for i := 0; i < n; i++ {
 		if rand.Intn(30) == 0 {
 			lines++
-			rs[i] = '\n'
+			data[i] = '\n'
 		} else {
-			rs[i] = rune(rand.Intn(0x7E+1-0x20) + 0x20)
+			data[i] = byte(rand.Intn(0x7E+1-0x20) + 0x20)
 		}
 	}
-	ed = NewEditor(NewBuffer())
-	if err := ed.buf.runes.Insert(rs, 0); err != nil {
+	buf = NewBuffer()
+	if err := buf.Change(Span{}, bytes.NewReader(data)); err != nil {
 		panic(err)
 	}
-	return ed, lines, int64(n)
+	if err := buf.Apply(); err != nil {
+		panic(err)
+	}
+	return buf, lines, int64(n)
 }
 
 func benchmarkRune(b *testing.B, n int) {
 	ed, _, runes := makeEditor(n)
-	defer ed.buf.Close()
+	defer ed.Close()
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
@@ -52,15 +56,15 @@ func BenchmarkRunex1M(b *testing.B)  { benchmarkRune(b, 1<<20) }
 func BenchmarkRunex32M(b *testing.B) { benchmarkRune(b, 32<<20) }
 
 func benchmarkLine(b *testing.B, n int) {
-	ed, lines, _ := makeEditor(n)
-	defer ed.buf.Close()
+	buf, lines, _ := makeEditor(n)
+	defer buf.Close()
 	if lines == 0 {
 		b.Fatalf("too few lines: %d", lines)
 	}
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		if _, err := Line(lines).Where(ed); err != nil {
+		if _, err := Line(lines).Where(buf); err != nil {
 			b.Fatal(err.Error())
 		}
 	}
@@ -72,12 +76,12 @@ func BenchmarkLinex1M(b *testing.B)  { benchmarkLine(b, 1<<20) }
 func BenchmarkLinex32M(b *testing.B) { benchmarkLine(b, 32<<20) }
 
 func benchmarkRegexp(b *testing.B, re string, n int) {
-	ed, _, _ := makeEditor(n)
-	defer ed.buf.Close()
+	buf, _, _ := makeEditor(n)
+	defer buf.Close()
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		switch _, err := Regexp(re).Where(ed); {
+		switch _, err := Regexp(re).Where(buf); {
 		case err == nil:
 			panic("unexpected match")
 		case err != ErrNoMatch:
