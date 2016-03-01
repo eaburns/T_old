@@ -4,7 +4,6 @@ package edit
 
 import (
 	"bufio"
-	"errors"
 	"io"
 
 	"github.com/eaburns/T/edit/runes"
@@ -75,7 +74,7 @@ func (buf *Buffer) Mark(m rune) Span { return buf.marks[m] }
 
 func (buf *Buffer) SetMark(m rune, s Span) error {
 	if size := buf.Size(); s[0] < 0 || s[1] < 0 || s[0] > size || s[1] > size {
-		return ErrMarkRange
+		return ErrRange
 	}
 	buf.marks[m] = s
 	return nil
@@ -100,15 +99,26 @@ func (rr *runeReader) ReadRune() (r rune, w int, err error) {
 	return r, 1, err
 }
 
+type badRange struct{}
+
+func (badRange) Read([]byte) (int, error)     { return 0, ErrRange }
+func (badRange) ReadRune() (rune, int, error) { return 0, 0, ErrRange }
+
 // RuneReader implements the Runes method of the Text interface.
 //
 // Each non-error ReadRune operation returns a width of 1.
-func (buf *Buffer) RuneReader(span Span) io.RuneReader {
-	return &runeReader{span: span, buffer: buf}
+func (buf *Buffer) RuneReader(s Span) io.RuneReader {
+	if size := buf.Size(); s[0] < 0 || s[1] < 0 || s[0] > size || s[1] > size {
+		return badRange{}
+	}
+	return &runeReader{span: s, buffer: buf}
 }
 
-func (buf *Buffer) Reader(span Span) io.Reader {
-	rr := runes.LimitReader(buf.runes.Reader(span[0]), span.Size())
+func (buf *Buffer) Reader(s Span) io.Reader {
+	if size := buf.Size(); s[0] < 0 || s[1] < 0 || s[0] > size || s[1] > size {
+		return badRange{}
+	}
+	rr := runes.LimitReader(buf.runes.Reader(s[0]), s.Size())
 	return runes.UTF8Reader(rr)
 }
 
@@ -148,7 +158,7 @@ func (buf *Buffer) Apply() error {
 
 func fixAddrs(s Span, l *log) (Span, error) {
 	if !inSequence(l) {
-		return Span{}, errors.New("changes not in sequence")
+		return Span{}, ErrOutOfSequence
 	}
 	for e := logFirst(l); !e.end(); e = e.next() {
 		if e.span[0] == s[0] {

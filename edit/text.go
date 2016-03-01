@@ -7,8 +7,16 @@ import (
 	"io"
 )
 
-// ErrMarkRange is retured by Editor.SetMark if the Span is out of range of the text.
-var ErrMarkRange = errors.New("mark out of range")
+var (
+	// ErrNoMatch is returned when a regular expression fails to match.
+	ErrNoMatch = errors.New("no match")
+
+	// ErrRange is returned when an Address is out of range of the Text.
+	ErrRange = errors.New("out of range")
+
+	// ErrOutOfSequence is returned by Editor.Apply if the changes are not in squence.
+	ErrOutOfSequence = errors.New("out of sequence")
+)
 
 // A Text provides a read-only view of a sequence of text.
 //
@@ -29,12 +37,12 @@ type Text interface {
 	// If the Size of the Span is negative, the reader returns runes in reverse.
 	//
 	// If either endpoint of the Span is negative or greater than the Size of the Text,
-	// an error is retured by the RuneReader.ReadRune method.
+	// an ErrRange is retured by the RuneReader.ReadRune method.
 	RuneReader(Span) io.RuneReader
 
 	// Reader returns a Reader that reads the Span as bytes.
 	//
-	// An error is returned by the Reader.Read method if
+	// An ErrRange error is returned by the Reader.Read method if
 	// either endpoint of the Span is negative or greater than the Size of the Text,
 	// or if the Size of the Span is negative.
 	Reader(Span) io.Reader
@@ -63,7 +71,7 @@ type Editor interface {
 
 	// SetMark sets the Span of a mark.
 	//
-	// ErrMarkRange is returned if either endpoint of the Span is negative
+	// ErrRange is returned if either endpoint of the Span is negative
 	// or greater than the Size of the Text.
 	SetMark(rune, Span) error
 
@@ -80,7 +88,7 @@ type Editor interface {
 	// and clears the Redo stack.
 	//
 	// Changes are applied in the order that the Change method was called.
-	// It is an error if the changes are not in sequence;
+	// An ErrOutOfSequence error is returned if the changes are not in sequence;
 	// each change must not modify Text before its preceding change.
 	// In the case of such an error, all staged changes are canceled
 	// and the Text is left unchanged.

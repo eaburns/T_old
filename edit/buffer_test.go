@@ -26,6 +26,44 @@ func TestBufferClose(t *testing.T) {
 	}
 }
 
+var badSpans = []Span{
+	Span{-1, 0},
+	Span{0, -1},
+	Span{1, 0},
+	Span{0, 1},
+}
+
+func TestBufferBadSetMark(t *testing.T) {
+	for _, s := range badSpans {
+		buf := NewBuffer()
+		defer buf.Close()
+		if err := buf.SetMark('.', s); err != ErrRange {
+			t.Errorf("buf.SetMark('.', %v)=%v, want %v", s, err, ErrRange)
+		}
+	}
+}
+
+func TestBufferBadRuneReader(t *testing.T) {
+	for _, s := range badSpans {
+		buf := NewBuffer()
+		defer buf.Close()
+		if _, _, err := buf.RuneReader(s).ReadRune(); err != ErrRange {
+			t.Errorf("buf.RuneReader(%v).ReadRune()=_,_,%v, want %v", s, err, ErrRange)
+		}
+	}
+}
+
+func TestBufferBadReader(t *testing.T) {
+	for _, s := range badSpans {
+		buf := NewBuffer()
+		defer buf.Close()
+		var d [1]byte
+		if _, err := buf.Reader(s).Read(d[:]); err != ErrRange {
+			t.Errorf("buf.Reader(%v).Read(·)=_,%v, want %v", s, err, ErrRange)
+		}
+	}
+}
+
 func TestBufferChangeOutOfSequence(t *testing.T) {
 	buf := NewBuffer()
 	defer buf.Close()
@@ -43,8 +81,8 @@ func TestBufferChangeOutOfSequence(t *testing.T) {
 	if err := buf.Change(Span{0, 10}, strings.NewReader("")); err != nil {
 		panic(err)
 	}
-	if err := buf.Apply(); err == nil {
-		t.Error("buf.Apply()=<nil>, want error")
+	if err := buf.Apply(); err != ErrOutOfSequence {
+		t.Errorf("buf.Apply()=%v, want %v", err, ErrOutOfSequence)
 	}
 }
 

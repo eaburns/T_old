@@ -3,20 +3,11 @@
 package edit
 
 import (
-	"errors"
 	"io"
 	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
-)
-
-var (
-	// ErrNoMatch is returned when a regular expression fails to match.
-	ErrNoMatch = errors.New("no match")
-
-	// ErrRange is returned when an Address is out of range of the Text.
-	ErrRange = errors.New("address out of range")
 )
 
 var (
