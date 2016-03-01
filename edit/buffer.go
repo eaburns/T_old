@@ -124,7 +124,11 @@ func (buf *Buffer) Reader(s Span) io.Reader {
 
 func (buf *Buffer) Change(s Span, r io.Reader) error {
 	rr := runes.RunesReader(bufio.NewReader(r))
-	return buf.pending.append(buf.seq, s, rr)
+	err := buf.pending.append(buf.seq, s, rr)
+	if err != nil {
+		buf.pending.clear()
+	}
+	return err
 }
 
 func (buf *Buffer) Apply() error {
@@ -192,8 +196,6 @@ func inSequence(l *log) bool {
 	}
 	return true
 }
-
-func (buf *Buffer) Cancel() error { return buf.pending.clear() }
 
 func (buf *Buffer) Undo() error {
 	marks0 := make(map[rune]Span, len(buf.marks))

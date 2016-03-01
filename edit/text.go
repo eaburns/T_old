@@ -80,9 +80,12 @@ type Editor interface {
 	//
 	// The change is defined by the Span of the Text to change
 	// and a Reader from which the new string of the Span will be read.
+	//
+	// If an error is returned, previously staged changes are canceled.
+	// They will not be performed on the next call to Apply.
 	Change(Span, io.Reader) error
 
-	// Apply applies all changes since the last call to Apply or Cancel.
+	// Apply applies all changes since the last call to Apply.
 	// It updates all marks to reflect the changes,
 	// logs the applied changes to the Undo stack,
 	// and clears the Redo stack.
@@ -93,9 +96,6 @@ type Editor interface {
 	// In the case of such an error, all staged changes are canceled
 	// and the Text is left unchanged.
 	Apply() error
-
-	// Cancel cancels all changes since the last call to Apply or Cancel.
-	Cancel() error
 
 	// Undo undoes the changes at the top of the Undo stack.
 	// It updates all marks to reflect the changes,
