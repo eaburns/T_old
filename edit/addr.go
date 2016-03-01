@@ -3,7 +3,6 @@
 package edit
 
 import (
-	"errors"
 	"io"
 	"regexp"
 	"strconv"
@@ -12,428 +11,346 @@ import (
 )
 
 var (
-	// All is the address of the entire buffer: 0,$.
+	// All is the Address of the entire Text: 0,$.
 	All = Line(0).To(End)
-	// Dot is the address of the Editor's dot.
-	Dot SimpleAddress = simpleAddr{dotAddr{}}
-	// End is the address of the empty string at the end of the buffer.
-	End SimpleAddress = simpleAddr{endAddr{}}
+
+	// Dot is the Address of the dot mark.
+	Dot SimpleAddress = Mark('.')
+
+	// End is the Address of the empty string at the end of the Text.
+	End SimpleAddress = end{}
 )
 
-// An Address identifies a substring within a buffer.
+// An Address identifies a Span within a Text.
 type Address interface {
-	// String returns the string representation of the address.
-	// The returned string will result in an equivalent address
+	// String returns the string representation of the Address.
+	// The returned string will result in an equivalent Address
 	// when parsed with Addr().
 	String() string
-	// To returns an address identifying the string
+
+	// To returns an Address identifying the string
 	// from the start of the receiver to the end of the argument.
 	To(AdditiveAddress) Address
-	// Then returns an address like To,
-	// but with dot set to the receiver address
-	// and with the argument evaluated from the end of the reciver
+
+	// Then returns an Address like To,
+	// but with dot set to the receiver Address
+	// during evaluation of the argument.
 	Then(AdditiveAddress) Address
-	// Where returns the addr of the Address.
-	where(*Editor) (addr, error)
+
+	// Where returns the Span of the Address evaluated on a Text.
+	Where(Text) (Span, error)
 }
 
-// A addr identifies a substring within a buffer
-// by its inclusive start offset and its exclusive end offset.
-type addr struct{ from, to int64 }
-
-// Size returns the number of runes in
-// the string identified by the range.
-func (a addr) size() int64 { return a.to - a.from }
-
-// Update returns a, updated to account for b changing to size n.
-func (a addr) update(b addr, n int64) addr {
-	// Clip, unless b is entirely within a.
-	if a.from >= b.from || b.to > a.to {
-		if b.contains(a.from) {
-			a.from = b.to
-		}
-		if b.contains(a.to - 1) {
-			a.to = b.from
-		}
-		if a.from > a.to {
-			a.to = a.from
-		}
-	}
-
-	// Move.
-	d := n - b.size()
-	if a.to >= b.to {
-		a.to += d
-	}
-	if a.from >= b.to {
-		a.from += d
-	}
-	return a
+type to struct {
+	left  Address
+	right AdditiveAddress
 }
 
-func (a addr) contains(p int64) bool { return a.from <= p && p < a.to }
+func (a to) String() string                 { return a.left.String() + "," + a.right.String() }
+func (a to) To(b AdditiveAddress) Address   { return to{left: a, right: b} }
+func (a to) Then(b AdditiveAddress) Address { return then{left: a, right: b} }
 
-type compoundAddr struct {
-	op     rune
-	a1, a2 Address
-}
-
-func (a compoundAddr) To(a2 AdditiveAddress) Address {
-	return compoundAddr{op: ',', a1: a, a2: a2}
-}
-
-func (a compoundAddr) Then(a2 AdditiveAddress) Address {
-	return compoundAddr{op: ';', a1: a, a2: a2}
-}
-
-func (a compoundAddr) String() string {
-	return a.a1.String() + string(a.op) + a.a2.String()
-}
-
-func (a compoundAddr) where(ed *Editor) (addr, error) {
-	a1, err := a.a1.where(ed)
+func (a to) Where(text Text) (Span, error) {
+	left, err := a.left.Where(text)
 	if err != nil {
-		return addr{}, err
+		return Span{}, err
 	}
-	if a.op == ',' {
-		a2, err := a.a2.where(ed)
-		if err != nil {
-			return addr{}, err
-		}
-		return addr{from: a1.from, to: a2.to}, nil
-	}
-	origDot := ed.marks['.']
-	ed.marks['.'] = a1
-	a2, err := a.a2.where(ed)
+	right, err := a.right.Where(text)
 	if err != nil {
-		ed.marks['.'] = origDot // Restore dot on error.
-		return addr{}, err
+		return Span{}, err
 	}
-	return addr{from: a1.from, to: a2.to}, nil
+	return Span{left[0], right[1]}, nil
 }
 
-// A AdditiveAddress identifies a substring within a buffer.
+type then struct {
+	left  Address
+	right AdditiveAddress
+}
+
+func (a then) String() string                 { return a.left.String() + ";" + a.right.String() }
+func (a then) To(b AdditiveAddress) Address   { return to{left: a, right: b} }
+func (a then) Then(b AdditiveAddress) Address { return then{left: a, right: b} }
+
+type withDot struct {
+	Text
+	dot Span
+}
+
+func (text withDot) Mark(r rune) Span {
+	if r == '.' || unicode.IsSpace(r) {
+		return text.dot
+	}
+	return text.Text.Mark(r)
+}
+
+func (a then) Where(text Text) (Span, error) {
+	left, err := a.left.Where(text)
+	if err != nil {
+		return Span{}, err
+	}
+	right, err := a.right.Where(withDot{Text: text, dot: left})
+	if err != nil {
+		return Span{}, err
+	}
+	return Span{left[0], right[1]}, nil
+}
+
+// A AdditiveAddress identifies a Span within a Text.
 // AdditiveAddress can be composed
 // using the methods of the Address interface,
 // and the Plus and Minus methods
-// to form more-complex, composite addresses.
+// to form more-complex Addresses.
 type AdditiveAddress interface {
 	Address
-	// Plus returns an address identifying the string
-	// of the argument address evaluated from the end of the receiver.
 	Plus(SimpleAddress) AdditiveAddress
-	// Minus returns an address identifying the string
-	// of the argument address evaluated in reverse
-	// from the start of the receiver.
 	Minus(SimpleAddress) AdditiveAddress
-	// WhereFrom returns the addr of the AdditiveAddress,
-	// relative to the from point.
-	whereFrom(from int64, ed *Editor) (addr, error)
+	where(int64, Text) (Span, error)
 }
 
-type addAddr struct {
-	op rune
-	a1 AdditiveAddress
-	a2 SimpleAddress
+type plus struct {
+	left  AdditiveAddress
+	right SimpleAddress
 }
 
-func (a addAddr) To(a2 AdditiveAddress) Address {
-	return compoundAddr{op: ',', a1: a, a2: a2}
-}
+func (a plus) String() string                        { return a.left.String() + "+" + a.right.String() }
+func (a plus) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
+func (a plus) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a plus) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
+func (a plus) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+func (a plus) Where(text Text) (Span, error)         { return a.where(0, text) }
 
-func (a addAddr) Then(a2 AdditiveAddress) Address {
-	return compoundAddr{op: ';', a1: a, a2: a2}
-}
-
-func (a addAddr) Plus(a2 SimpleAddress) AdditiveAddress {
-	return addAddr{op: '+', a1: a, a2: a2}
-}
-
-func (a addAddr) Minus(a2 SimpleAddress) AdditiveAddress {
-	return addAddr{op: '-', a1: a, a2: a2}
-}
-
-func (a addAddr) String() string {
-	return a.a1.String() + string(a.op) + a.a2.String()
-}
-
-func (a addAddr) where(ed *Editor) (addr, error) { return a.whereFrom(0, ed) }
-
-func (a addAddr) whereFrom(from int64, ed *Editor) (addr, error) {
-	a1, err := a.a1.whereFrom(from, ed)
+func (a plus) where(from int64, text Text) (Span, error) {
+	left, err := a.left.where(from, text)
 	if err != nil {
-		return addr{}, err
+		return Span{}, err
 	}
-	if a.op == '+' {
-		return a.a2.whereFrom(a1.to, ed)
-	}
-	return a.a2.reverse().whereFrom(a1.from, ed)
+	return a.right.where(left[1], text)
 }
 
-// A SimpleAddress identifies a substring within a buffer.
+type minus struct {
+	left  AdditiveAddress
+	right SimpleAddress
+}
+
+func (a minus) String() string                        { return a.left.String() + "-" + a.right.String() }
+func (a minus) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
+func (a minus) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a minus) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
+func (a minus) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+func (a minus) Where(text Text) (Span, error)         { return a.where(0, text) }
+
+func (a minus) where(from int64, text Text) (Span, error) {
+	left, err := a.left.where(from, text)
+	if err != nil {
+		return Span{}, err
+	}
+	return a.right.reverse().where(left[0], text)
+}
+
+// A SimpleAddress identifies a Span within a Text.
 // SimpleAddresses can be composed
 // using the methods of the AdditiveAddress interface
-// to form more-complex, composite addresses.
+// to form more-complex Addresses.
 type SimpleAddress interface {
 	AdditiveAddress
 	reverse() SimpleAddress
 }
 
-type simpAddrImpl interface {
-	where(*Editor) (addr, error)
-	whereFrom(from int64, ed *Editor) (addr, error)
-	String() string
-	reverse() SimpleAddress
+type end struct{}
+
+func (a end) String() string                        { return "$" }
+func (a end) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
+func (a end) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a end) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
+func (a end) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+func (a end) Where(text Text) (Span, error)         { return a.where(0, text) }
+
+func (a end) where(from int64, text Text) (Span, error) {
+	size := text.Size()
+	return Span{size, size}, nil
 }
 
-type simpleAddr struct {
-	simpAddrImpl
-}
+func (a end) reverse() SimpleAddress { return a }
 
-func (a simpleAddr) To(a2 AdditiveAddress) Address {
-	return compoundAddr{op: ',', a1: a, a2: a2}
-}
+type line int
 
-func (a simpleAddr) Then(a2 AdditiveAddress) Address {
-	return compoundAddr{op: ';', a1: a, a2: a2}
-}
-
-func (a simpleAddr) Plus(a2 SimpleAddress) AdditiveAddress {
-	return addAddr{op: '+', a1: a, a2: a2}
-}
-
-func (a simpleAddr) Minus(a2 SimpleAddress) AdditiveAddress {
-	return addAddr{op: '-', a1: a, a2: a2}
-}
-
-type dotAddr struct{}
-
-func (dotAddr) String() string { return "." }
-
-func (a dotAddr) where(ed *Editor) (addr, error) {
-	return a.whereFrom(0, ed)
-}
-
-func (dotAddr) whereFrom(_ int64, ed *Editor) (addr, error) {
-	a := ed.marks['.']
-	if a.from < 0 || a.to < a.from || a.to > ed.buf.size() {
-		panic("bad dot")
+// Line returns the Address of the nth full line.
+// A negative n is interpreted as n=0.
+func Line(n int) SimpleAddress {
+	if n < 0 {
+		return line(0)
 	}
-	return ed.marks['.'], nil
+	return line(n)
 }
 
-func (d dotAddr) reverse() SimpleAddress { return simpleAddr{d} }
+func (a line) String() string                        { return strconv.Itoa(int(a)) }
+func (a line) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
+func (a line) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a line) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
+func (a line) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+func (a line) Where(text Text) (Span, error)         { return a.where(0, text) }
 
-type endAddr struct{}
-
-func (endAddr) String() string { return "$" }
-
-func (a endAddr) where(ed *Editor) (addr, error) { return a.whereFrom(0, ed) }
-
-func (endAddr) whereFrom(_ int64, ed *Editor) (addr, error) {
-	return addr{from: ed.buf.size(), to: ed.buf.size()}, nil
+func (a line) where(from int64, text Text) (Span, error) {
+	if a < 0 {
+		return lineBackward(int(-a), from, text)
+	}
+	return lineForward(int(a), from, text)
 }
 
-func (e endAddr) reverse() SimpleAddress { return simpleAddr{e} }
+func (a line) reverse() SimpleAddress { return line(int(-a)) }
 
-type markAddr rune
+func lineForward(n int, from int64, text Text) (Span, error) {
+	s := Span{from, from}
+	if from > 0 {
+		// Position s1 at the beginning of the next full line.
+		// If s1 is already at the beginning of a full line, we've got it.
+		// Start by going back 1 rune.
+		_, w, err := text.RuneReader(Span{from, 0}).ReadRune()
+		if err != nil {
+			return Span{}, err
+		}
+		s[1] -= int64(w)
+		rr := text.RuneReader(Span{s[1], text.Size()})
+	loop:
+		for {
+			switch r, w, err := rr.ReadRune(); {
+			case err != nil && err != io.EOF:
+				return Span{}, err
+			case err == io.EOF:
+				break loop
+			case r == '\n':
+				_, w, err := rr.ReadRune()
+				if err != nil {
+					return Span{}, err
+				}
+				s[1] += int64(w)
+				break loop
+			default:
+				s[1] += int64(w)
+			}
+		}
+		if n > 0 {
+			s[0] = s[1]
+		}
+	}
 
-// Mark returns the address of the named mark rune.
-// The rune must be a lower-case or upper-case letter or dot: [a-zA-Z.].
-// An invalid mark rune results in an address that returns an error when evaluated.
+	rr := text.RuneReader(Span{s[1], text.Size()})
+	for n > 0 && s[1] < text.Size() {
+		r, w, err := rr.ReadRune()
+		if err != nil { // The error can't be EOF; s[1] < text.Size().
+			return Span{}, err
+		}
+		s[1] += int64(w)
+		if r == '\n' {
+			n--
+			if n > 0 {
+				s[0] = s[1]
+			}
+		}
+	}
+	if n > 1 || n == 1 && s[1] < text.Size() {
+		return Span{}, ErrRange
+	}
+	return s, nil
+}
+
+func lineBackward(n int, from int64, text Text) (Span, error) {
+	s := Span{from, from}
+	if s[0] < text.Size() {
+		rr := text.RuneReader(Span{from, 0})
+	loop:
+		for {
+			switch r, w, err := rr.ReadRune(); {
+			case err != nil && err != io.EOF:
+				return Span{}, err
+			case err == io.EOF || r == '\n':
+				break loop
+			default:
+				s[0] -= int64(w)
+			}
+		}
+		s[1] = s[0]
+	}
+	rr := text.RuneReader(Span{s[0], 0})
+	for n > 0 {
+		r, w, err := rr.ReadRune()
+		if err != nil && err != io.EOF {
+			return Span{}, err
+		}
+		s[0] -= int64(w)
+		if r == '\n' {
+			n--
+			s[1] = s[0] + 1
+		} else if s[0] == 0 {
+			s[1] = s[0]
+		}
+		if err == io.EOF {
+			break
+		}
+	}
+	if n > 1 {
+		return Span{}, ErrRange
+	}
+	for {
+		r, w, err := rr.ReadRune()
+		if err != nil && err != io.EOF {
+			return Span{}, err
+		} else if r == '\n' {
+			break
+		}
+		s[0] -= int64(w)
+		if err == io.EOF {
+			break
+		}
+	}
+	return s, nil
+}
+
+type mark rune
+
+// Mark returns the Address of the named mark rune.
+// If the rune is a space character, . is used.
 func Mark(r rune) SimpleAddress {
 	if unicode.IsSpace(r) {
 		r = '.'
 	}
-	return simpleAddr{markAddr(r)}
+	return mark(r)
 }
 
-func (m markAddr) String() string { return "'" + string(rune(m)) }
-
-func (m markAddr) where(ed *Editor) (addr, error) { return m.whereFrom(0, ed) }
-
-func (m markAddr) whereFrom(_ int64, ed *Editor) (addr, error) {
-	a := ed.marks[rune(m)]
-	if a.from < 0 || a.to < a.from || a.to > ed.buf.size() {
-		panic("bad mark")
+func (a mark) String() string {
+	if a == '.' {
+		return "."
 	}
-	return a, nil
+	return "'" + string(rune(a))
 }
 
-func (m markAddr) reverse() SimpleAddress { return simpleAddr{m} }
-
-type runeAddr int64
-
-// Rune returns the address of the empty string after rune n.
-// If n is negative, this is equivalent to the compound address -#n.
-func Rune(n int64) SimpleAddress { return simpleAddr{runeAddr(n)} }
-
-func (n runeAddr) String() string {
-	if n < 0 {
-		return "-#" + strconv.FormatInt(int64(-n), 10)
-	}
-	return "#" + strconv.FormatInt(int64(n), 10)
-}
-
-func (n runeAddr) where(ed *Editor) (addr, error) {
-	if n < 0 {
-		return n.whereFrom(ed.marks['.'].from, ed)
-	}
-	return n.whereFrom(0, ed)
-}
-
-func (n runeAddr) whereFrom(from int64, ed *Editor) (addr, error) {
-	m := from + int64(n)
-	if m < 0 || m > ed.buf.size() {
-		return addr{}, errors.New("rune address out of range")
-	}
-	return addr{from: m, to: m}, nil
-}
-
-func (n runeAddr) reverse() SimpleAddress { return simpleAddr{runeAddr(-n)} }
-
-type lineAddr struct {
-	neg bool
-	n   int
-}
-
-// Line returns the address of the nth full line.
-// If n is negative, this is equivalent to the compound address -n.
-func Line(n int) SimpleAddress {
-	if n < 0 {
-		return simpleAddr{lineAddr{neg: true, n: -n}}
-	}
-	return simpleAddr{lineAddr{n: n}}
-}
-
-func (l lineAddr) String() string {
-	n := strconv.Itoa(int(l.n))
-	if l.neg {
-		return "-" + n
-	}
-	return n
-}
-
-func (l lineAddr) where(ed *Editor) (addr, error) {
-	if l.neg {
-		return l.whereFrom(ed.marks['.'].from, ed)
-	}
-	return l.whereFrom(0, ed)
-}
-
-func (l lineAddr) whereFrom(from int64, ed *Editor) (addr, error) {
-	if l.neg {
-		return l.rev(from, ed)
-	}
-	return l.fwd(from, ed)
-}
-
-func (l lineAddr) reverse() SimpleAddress {
-	l.neg = !l.neg
-	return simpleAddr{l}
-}
-
-func (l lineAddr) fwd(from int64, ed *Editor) (addr, error) {
-	a := addr{from: from, to: from}
-	if a.to > 0 {
-		for a.to < ed.buf.size() {
-			r, err := ed.buf.rune(a.to - 1)
-			if err != nil {
-				return a, err
-			} else if r == '\n' {
-				break
-			}
-			a.to++
-		}
-		if l.n > 0 {
-			a.from = a.to
-		}
-	}
-	for l.n > 0 && a.to < ed.buf.size() {
-		r, err := ed.buf.rune(a.to)
-		if err != nil {
-			return a, err
-		}
-		a.to++
-		if r == '\n' {
-			l.n--
-			if l.n > 0 {
-				a.from = a.to
-			}
-		}
-	}
-	if l.n > 1 || l.n == 1 && a.to < ed.buf.size() {
-		return addr{}, errors.New("line address out of range")
-	}
-	return a, nil
-}
-
-func (l lineAddr) rev(from int64, ed *Editor) (addr, error) {
-	a := addr{from: from, to: from}
-	if a.from < ed.buf.size() {
-		for a.from > 0 {
-			r, err := ed.buf.rune(a.from - 1)
-			if err != nil {
-				return a, err
-			} else if r == '\n' {
-				break
-			}
-			a.from--
-		}
-		a.to = a.from
-	}
-	for l.n > 0 && a.from > 0 {
-		r, err := ed.buf.rune(a.from - 1)
-		if err != nil {
-			return a, err
-		}
-		a.from--
-		if r == '\n' {
-			l.n--
-			a.to = a.from + 1
-		} else if a.from == 0 {
-			a.to = a.from
-		}
-	}
-	if l.n > 1 {
-		return addr{}, errors.New("line address out of range")
-	}
-	for a.from > 0 {
-		r, err := ed.buf.rune(a.from - 1)
-		if err != nil {
-			return a, err
-		} else if r == '\n' {
-			break
-		}
-		a.from--
-	}
-	return a, nil
-}
-
-// ErrNoMatch is returned when a regular expression address fails to match.
-var ErrNoMatch = errors.New("no match")
+func (a mark) To(b AdditiveAddress) Address           { return to{left: a, right: b} }
+func (a mark) Then(b AdditiveAddress) Address         { return then{left: a, right: b} }
+func (a mark) Plus(b SimpleAddress) AdditiveAddress   { return plus{left: a, right: b} }
+func (a mark) Minus(b SimpleAddress) AdditiveAddress  { return minus{left: a, right: b} }
+func (a mark) Where(text Text) (Span, error)          { return a.where(0, text) }
+func (a mark) where(_ int64, text Text) (Span, error) { return text.Mark(rune(a)), nil }
+func (a mark) reverse() SimpleAddress                 { return a }
 
 type regexpAddr struct {
 	regexp string
-	// Previous is whether to return the previous match instead of the next.
-	// It can only be true if the Regexp is the right-hand operand of a - address.
-	previous bool
+	rev    bool
 }
 
-// Regexp returns an address identifying the next match of a regular expression.
+// Regexp returns an Address identifying the next match of a regular expression.
 // If Regexp is the right-hand operand of + or -, next is relative to the left-hand operand.
-// Otherwise, next is relative to dot.
+// Otherwise, next is relative to the . mark.
 //
-// If a forward search reaches the end of the buffer without finding a match,
-// it wraps to the beginning of the buffer.
-// If a reverse search reaches the beginning of the buffer without finding a match,
-// it wraps to the end of the buffer.
+// If a forward search reaches the end of the Text without finding a match,
+// it wraps to the beginning of the Text.
+// If a reverse search reaches the beginning of the Text without finding a match,
+// it wraps to the end of the Text.
 //
 // The regular expression syntax is that of the standard library regexp package.
 // The syntax is documented here: https://github.com/google/re2/wiki/Syntax.
 // All regular expressions are wrapped in (?m:<re>), making them multi-line by default.
 // In a forward search, the relative start location
-// (dot or the right-hand operand of +)
+// (the . mark or the right-hand operand of +)
 // is considered to be the beginning of text.
 // So, for example, given:
 // 	abcabc
@@ -442,80 +359,63 @@ type regexpAddr struct {
 // the second "abc" in the first line.
 // Likewise, in a reverse search, the relative start location
 // is considered to be the end of text.
-func Regexp(re string) SimpleAddress {
-	return simpleAddr{regexpAddr{regexp: re}}
-}
+func Regexp(regexp string) SimpleAddress                   { return regexpAddr{regexp: regexp} }
+func (a regexpAddr) String() string                        { return "/" + Escape(a.regexp, '/') + "/" }
+func (a regexpAddr) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
+func (a regexpAddr) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a regexpAddr) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
+func (a regexpAddr) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+func (a regexpAddr) Where(text Text) (Span, error)         { return a.where(text.Mark('.')[1], text) }
 
-func (a regexpAddr) String() string {
-	return "/" + Escape(a.regexp, '/') + "/"
-}
-
-func (a regexpAddr) where(ed *Editor) (addr, error) {
-	return a.whereFrom(ed.marks['.'].to, ed)
-}
-
-func (a regexpAddr) whereFrom(from int64, ed *Editor) (addr, error) {
+func (a regexpAddr) where(from int64, text Text) (Span, error) {
 	re, err := regexpCompile(a.regexp)
 	if err != nil {
-		return addr{}, err
+		return Span{}, err
 	}
 	var m []int
-	if a.previous {
-		m = prevMatch(re, from, ed, true)
+	if a.rev {
+		m = prevMatch(re, from, text, true)
 	} else {
-		m = nextMatch(re, from, ed, true)
+		m = nextMatch(re, from, text, true)
 	}
 	if len(m) < 2 {
-		return addr{}, ErrNoMatch
+		return Span{}, ErrNoMatch
 	}
-	return addr{from: int64(m[0]), to: int64(m[1])}, nil
+	return Span{int64(m[0]), int64(m[1])}, nil
 }
 
-type runeReader struct {
-	addr
-	ed *Editor
+func (a regexpAddr) reverse() SimpleAddress {
+	a.rev = !a.rev
+	return a
 }
 
-func (rr *runeReader) ReadRune() (rune, int, error) {
-	switch {
-	case rr.size() <= 0:
-		return 0, 0, io.EOF
-	case rr.from < 0 || rr.from >= rr.ed.buf.size():
-		return 0, 0, errors.New("out of range")
-	}
-	r, err := rr.ed.buf.runes.Rune(rr.from)
-	rr.from++
-	return r, 1, err
-}
-
-func rangeMatch(re *regexp.Regexp, at addr, ed *Editor) []int {
-	rr := &runeReader{addr: at, ed: ed}
-	m := re.FindReaderSubmatchIndex(rr)
+func match(re *regexp.Regexp, s Span, text Text) []int {
+	m := re.FindReaderSubmatchIndex(text.RuneReader(s))
 	for i := range m {
-		m[i] += int(at.from)
+		m[i] += int(s[0])
 	}
 	return m
 }
 
-func nextMatch(re *regexp.Regexp, from int64, ed *Editor, wrap bool) []int {
-	m := rangeMatch(re, addr{from: from, to: ed.buf.size()}, ed)
+func nextMatch(re *regexp.Regexp, from int64, text Text, wrap bool) []int {
+	m := match(re, Span{from, text.Size()}, text)
 	if len(m) >= 2 && m[0] < m[1] {
 		return m
 	}
 	if from > 0 && wrap {
-		return nextMatch(re, 0, ed, false)
+		return nextMatch(re, 0, text, false)
 	}
 	return nil
 }
 
-func prevMatch(re *regexp.Regexp, from int64, ed *Editor, wrap bool) []int {
+func prevMatch(re *regexp.Regexp, from int64, text Text, wrap bool) []int {
 	var prev []int
 	for {
-		at := addr{to: from}
+		span := Span{0, from}
 		if len(prev) >= 2 {
-			at.from = int64(prev[1])
+			span[0] = int64(prev[1])
 		}
-		cur := rangeMatch(re, at, ed)
+		cur := match(re, span, text)
 		if len(cur) < 2 || cur[0] >= cur[1] {
 			break
 		}
@@ -524,8 +424,8 @@ func prevMatch(re *regexp.Regexp, from int64, ed *Editor, wrap bool) []int {
 	if prev != nil {
 		return prev
 	}
-	if from < ed.buf.size() && wrap {
-		return prevMatch(re, ed.buf.size(), ed, false)
+	if size := text.Size(); from < size && wrap {
+		return prevMatch(re, size, text, false)
 	}
 	return nil
 }
@@ -538,10 +438,48 @@ func regexpCompile(re string) (*regexp.Regexp, error) {
 	return regexp.Compile("(?m:" + re + ")")
 }
 
-func (a regexpAddr) reverse() SimpleAddress {
-	a.previous = !a.previous
-	return simpleAddr{a}
+type runeAddr int64
+
+// Rune returns the Address of the empty Span after rune n.
+// A negative n is interpreted as n=0.
+func Rune(n int64) SimpleAddress {
+	if n < 0 {
+		return runeAddr(0)
+	}
+	return runeAddr(n)
 }
+
+func (a runeAddr) String() string                        { return "#" + strconv.FormatInt(int64(a), 10) }
+func (a runeAddr) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
+func (a runeAddr) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a runeAddr) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
+func (a runeAddr) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+func (a runeAddr) Where(text Text) (Span, error)         { return a.where(0, text) }
+
+func (a runeAddr) where(from int64, text Text) (Span, error) {
+	delta := 1
+	s := Span{from, text.Size()}
+	if a < 0 {
+		a = -a
+		delta = -1
+		s[1] = 0
+	}
+	rr := text.RuneReader(s)
+	for a > 0 {
+		switch _, w, err := rr.ReadRune(); {
+		case err == io.EOF:
+			return Span{}, ErrRange
+		case err != nil:
+			return Span{}, err
+		default:
+			from += int64(w * delta)
+			a--
+		}
+	}
+	return Span{from, from}, nil
+}
+
+func (a runeAddr) reverse() SimpleAddress { return runeAddr(-a) }
 
 const (
 	digits      = "0123456789"
@@ -585,8 +523,8 @@ const (
 //		If the first address is missing, 0 is used.
 //		If the second address is missing, $ is used.
 //	{a} ';' {aa} is like the previous,
-//		but with the second address evaluated from the end of the first
-//		with dot set to the first address.
+// 		but with dot set to the receiver Address
+// 		during evaluation of the argument.
 //		If the first address is missing, 0 is used.
 //		If the second address is missing, $ is used.
 //

@@ -4,12 +4,89 @@ package edit
 
 import (
 	"errors"
+	"io/ioutil"
+	"strings"
 	"testing"
 
 	"github.com/eaburns/T/edit/runes"
 )
 
-func TestEntryEmpty(t *testing.T) {
+// String returns a string containing the entire editor contents.
+func (buf *Buffer) String() string {
+	data, err := ioutil.ReadAll(buf.Reader(Span{0, buf.Size()}))
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
+}
+
+func TestBufferClose(t *testing.T) {
+	if err := NewBuffer().Close(); err != nil {
+		t.Fatalf("failed to close the buffer: %v", err)
+	}
+}
+
+var badSpans = []Span{
+	Span{-1, 0},
+	Span{0, -1},
+	Span{1, 0},
+	Span{0, 1},
+}
+
+func TestBufferBadSetMark(t *testing.T) {
+	for _, s := range badSpans {
+		buf := NewBuffer()
+		defer buf.Close()
+		if err := buf.SetMark('.', s); err != ErrRange {
+			t.Errorf("buf.SetMark('.', %v)=%v, want %v", s, err, ErrRange)
+		}
+	}
+}
+
+func TestBufferBadRuneReader(t *testing.T) {
+	for _, s := range badSpans {
+		buf := NewBuffer()
+		defer buf.Close()
+		if _, _, err := buf.RuneReader(s).ReadRune(); err != ErrRange {
+			t.Errorf("buf.RuneReader(%v).ReadRune()=_,_,%v, want %v", s, err, ErrRange)
+		}
+	}
+}
+
+func TestBufferBadReader(t *testing.T) {
+	for _, s := range badSpans {
+		buf := NewBuffer()
+		defer buf.Close()
+		var d [1]byte
+		if _, err := buf.Reader(s).Read(d[:]); err != ErrRange {
+			t.Errorf("buf.Reader(%v).Read(·)=_,%v, want %v", s, err, ErrRange)
+		}
+	}
+}
+
+func TestBufferChangeOutOfSequence(t *testing.T) {
+	buf := NewBuffer()
+	defer buf.Close()
+	const init = "Hello, 世界"
+	if err := buf.Change(Span{}, strings.NewReader(init)); err != nil {
+		panic(err)
+	}
+	if err := buf.Apply(); err != nil {
+		panic(err)
+	}
+
+	if err := buf.Change(Span{10, 20}, strings.NewReader("")); err != nil {
+		panic(err)
+	}
+	if err := buf.Change(Span{0, 10}, strings.NewReader("")); err != nil {
+		panic(err)
+	}
+	if err := buf.Apply(); err != ErrOutOfSequence {
+		t.Errorf("buf.Apply()=%v, want %v", err, ErrOutOfSequence)
+	}
+}
+
+func TestLogEntryEmpty(t *testing.T) {
 	l := newLog()
 	defer l.close()
 	if !logFirst(l).end() {
@@ -26,9 +103,9 @@ func TestEntryEmpty(t *testing.T) {
 	}
 }
 
-func TestEntryWrap(t *testing.T) {
+func TestLogEntryWrap(t *testing.T) {
 	entries := []testEntry{
-		{seq: 0, at: addr{0, 0}, str: "Hello, World!"},
+		{seq: 0, span: Span{0, 0}, str: "Hello, World!"},
 	}
 	l := initTestLog(t, entries)
 	defer l.close()
@@ -51,12 +128,12 @@ func TestEntryWrap(t *testing.T) {
 	}
 }
 
-func TestEntryBackAndForth(t *testing.T) {
+func TestLogEntryBackAndForth(t *testing.T) {
 	entries := []testEntry{
-		{seq: 0, at: addr{0, 0}, str: "Hello, World!"},
-		{seq: 1, at: addr{0, 5}, str: "Foo, Bar, Baz"},
-		{seq: 1, at: addr{8, 10}, str: "Ms. Pepper"},
-		{seq: 2, at: addr{20, 50}, str: "Hello, 世界"},
+		{seq: 0, span: Span{0, 0}, str: "Hello, World!"},
+		{seq: 1, span: Span{0, 5}, str: "Foo, Bar, Baz"},
+		{seq: 1, span: Span{8, 10}, str: "Ms. Pepper"},
+		{seq: 2, span: Span{20, 50}, str: "Hello, 世界"},
 	}
 	l := initTestLog(t, entries)
 	defer l.close()
@@ -84,10 +161,10 @@ func TestEntryBackAndForth(t *testing.T) {
 
 func TestLogAt(t *testing.T) {
 	entries := []testEntry{
-		{seq: 0, at: addr{0, 0}, str: "Hello, World!"},
-		{seq: 1, at: addr{0, 5}, str: "Foo, Bar, Baz"},
-		{seq: 1, at: addr{8, 10}, str: "Ms. Pepper"},
-		{seq: 2, at: addr{20, 50}, str: "Hello, 世界"},
+		{seq: 0, span: Span{0, 0}, str: "Hello, World!"},
+		{seq: 1, span: Span{0, 5}, str: "Foo, Bar, Baz"},
+		{seq: 1, span: Span{8, 10}, str: "Ms. Pepper"},
+		{seq: 2, span: Span{20, 50}, str: "Hello, 世界"},
 	}
 	l := initTestLog(t, entries)
 	defer l.close()
@@ -107,12 +184,12 @@ func TestLogAt(t *testing.T) {
 	}
 }
 
-func TestEntryError(t *testing.T) {
+func TestLogEntryError(t *testing.T) {
 	entries := []testEntry{
-		{seq: 0, at: addr{0, 0}, str: "Hello, World!"},
-		{seq: 1, at: addr{0, 5}, str: "Foo, Bar, Baz"},
-		{seq: 1, at: addr{8, 10}, str: "Ms. Pepper"},
-		{seq: 2, at: addr{20, 50}, str: "Hello, 世界"},
+		{seq: 0, span: Span{0, 0}, str: "Hello, World!"},
+		{seq: 1, span: Span{0, 5}, str: "Foo, Bar, Baz"},
+		{seq: 1, span: Span{8, 10}, str: "Ms. Pepper"},
+		{seq: 2, span: Span{20, 50}, str: "Hello, 世界"},
 	}
 	l := initTestLog(t, entries)
 	defer l.close()
@@ -126,12 +203,12 @@ func TestEntryError(t *testing.T) {
 	}
 }
 
-func TestEntryStore(t *testing.T) {
+func TestLogEntryStore(t *testing.T) {
 	entries := []testEntry{
-		{seq: 0, at: addr{0, 0}, str: "Hello, World!"},
-		{seq: 1, at: addr{0, 5}, str: "Foo, Bar, Baz"},
-		{seq: 1, at: addr{8, 10}, str: "Ms. Pepper"},
-		{seq: 2, at: addr{20, 50}, str: "Hello, 世界"},
+		{seq: 0, span: Span{0, 0}, str: "Hello, World!"},
+		{seq: 1, span: Span{0, 5}, str: "Foo, Bar, Baz"},
+		{seq: 1, span: Span{8, 10}, str: "Ms. Pepper"},
+		{seq: 2, span: Span{20, 50}, str: "Hello, 世界"},
 	}
 	l := initTestLog(t, entries)
 	defer l.close()
@@ -150,7 +227,7 @@ func TestEntryStore(t *testing.T) {
 	}
 }
 
-func TestEntryPop(t *testing.T) {
+func TestLogEntryPop(t *testing.T) {
 	entries := []testEntry{
 		{seq: 0, str: "Hello, World"},
 		{seq: 1, str: "☹☺"},
@@ -195,9 +272,9 @@ func TestEntryPop(t *testing.T) {
 }
 
 type testEntry struct {
-	seq int32
-	at  addr
-	str string
+	seq  int32
+	span Span
+	str  string
 }
 
 func checkEntry(t *testing.T, i int, entries []testEntry, e entry) {
@@ -208,8 +285,8 @@ func checkEntry(t *testing.T, i int, entries []testEntry, e entry) {
 	if e.seq != te.seq {
 		t.Fatalf("entry %d: e.h.seq=%v, want %v\n", i, e.seq, te.seq)
 	}
-	if e.at != te.at {
-		t.Fatalf("entry %d: e.h.at=%v, want %v\n", i, e.at, te.at)
+	if e.span != te.span {
+		t.Fatalf("entry %d: e.h.span=%v, want %v\n", i, e.span, te.span)
 	}
 	t.Logf("entry %d ok", i)
 }
@@ -218,8 +295,8 @@ func initTestLog(t *testing.T, entries []testEntry) *log {
 	l := newLog()
 	for _, e := range entries {
 		r := runes.StringReader(e.str)
-		if err := l.append(e.seq, e.at, r); err != nil {
-			t.Fatalf("l.append(%v, %v, %q)=%v", e.seq, e.at, e.str, err)
+		if err := l.append(e.seq, e.span, r); err != nil {
+			t.Fatalf("l.append(%v, %v, %q)=%v", e.seq, e.span, e.str, err)
 		}
 	}
 	return l

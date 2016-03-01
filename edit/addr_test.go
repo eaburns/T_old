@@ -184,12 +184,10 @@ func TestAddressString(t *testing.T) {
 		{addr: All},
 		{addr: Rune(0)},
 		{addr: Rune(100)},
-		// Rune(-100) is the string -#100, when parsed, the implicit . is inserted: .-#100.
-		{addr: Rune(-100), want: Dot.Minus(Rune(100))},
+		{addr: Rune(-100), want: Rune(0)},
 		{addr: Line(0)},
 		{addr: Line(100)},
-		// Line(-100) is the string -100, when parsed, the implicit . is inserted: .-100.
-		{addr: Line(-100), want: Dot.Minus(Line(100))},
+		{addr: Line(-100), want: Line(0)},
 		{addr: Mark('a')},
 		{addr: Mark('z')},
 		{addr: Mark(' ')},
@@ -221,7 +219,7 @@ func (e *errReaderAt) WriteAt(b []byte, _ int64) (int, error) { return len(b), n
 
 // TestIOErrors tests IO errors when computing addresses.
 func TestIOErrors(t *testing.T) {
-	helloWorld := []rune("Hello,\nWorld!")
+	const helloWorld = "Hello,\nWorld!"
 	tests := []struct {
 		addr  string
 		error string
@@ -262,16 +260,19 @@ func TestIOErrors(t *testing.T) {
 		}
 		f := &errReaderAt{nil}
 		r := runes.NewBufferReaderWriterAt(1, f)
-		ed := NewEditor(newBuffer(r))
-		defer ed.buf.Close()
+		buf := newBuffer(r)
+		defer buf.Close()
 
-		if err := ed.buf.runes.Insert(helloWorld, 0); err != nil {
-			t.Fatalf("ed.buf.runes.Insert(%q, 0)=%q, want nil", helloWorld, err)
+		if err := buf.Change(Span{}, strings.NewReader(helloWorld)); err != nil {
+			t.Fatalf("buf.Change(Span{}, %q)=%q, want nil", helloWorld, err)
+		}
+		if err := buf.Apply(); err != nil {
+			t.Fatalf("buf.Apply()=%q, want nil", err)
 		}
 
 		// All subsequent reads will be errors.
 		f.error = errors.New("read error")
-		if a, err := addr.where(ed); !matchesError(test.error, err) {
+		if a, err := addr.Where(buf); !matchesError(test.error, err) {
 			t.Errorf("Addr(%q).addr()=%v,%v, want addr{},%q", test, a, err, test.error)
 			continue
 		}
@@ -408,6 +409,30 @@ var endTests = []editTest{
 		do:    address(End),
 		want:  "{..}abcxzy{aa}",
 	},
+	{
+		name:  "plus",
+		given: "{..}abc",
+		do:    address(End.Plus(Rune(0))),
+		want:  "{..}abc{aa}",
+	},
+	{
+		name:  "minus",
+		given: "{..}abc",
+		do:    address(End.Minus(Rune(1))),
+		want:  "{..}ab{aa}c",
+	},
+	{
+		name:  "to",
+		given: "{..}abc",
+		do:    address(End.To(End)),
+		want:  "{..}abc{aa}",
+	},
+	{
+		name:  "then",
+		given: "{..}abc",
+		do:    address(End.Then(End)),
+		want:  "{..}abc{aa}",
+	},
 }
 
 func TestAddressEnd(t *testing.T) {
@@ -432,7 +457,7 @@ var runeTests = []editTest{
 	{
 		name:  "out of range negative",
 		given: "{..}",
-		do:    address(Rune(-1)),
+		do:    address(Dot.Minus(Rune(1))),
 		error: "out of range",
 	},
 	{
@@ -448,6 +473,12 @@ var runeTests = []editTest{
 		want:  "{aa}abc{..}",
 	},
 	{
+		name:  "reverse to beginning",
+		given: "abc{..}",
+		do:    address(Rune(1).Minus(Rune(1))),
+		want:  "{aa}abc{..}",
+	},
+	{
 		name:  "middle",
 		given: "{..}abc",
 		do:    address(Rune(1)),
@@ -460,22 +491,16 @@ var runeTests = []editTest{
 		want:  "{..}abc{aa}",
 	},
 	{
-		name:  "negative",
+		name:  "negative is zero",
 		given: "abc{..}",
 		do:    address(Rune(-1)),
-		want:  "ab{aa}c{..}",
-	},
-	{
-		name:  "negative relative to start of dot",
-		given: "abc{.}def{.}",
-		do:    address(Rune(-2)),
-		want:  "a{aa}bc{.}def{.}",
+		want:  "{aa}abc{..}",
 	},
 	{
 		name:  "plus negative rune",
-		given: "abc{..}",
-		do:    address(Rune(3).Plus(Rune(-2))),
-		want:  "a{aa}bc{..}",
+		given: "{..}abcdefg",
+		do:    address(Rune(3).Plus(Rune(-2))), // #3+#0
+		want:  "{..}abc{aa}defg",
 	},
 }
 
@@ -496,6 +521,12 @@ var lineTests = []editTest{
 		name:  "out of range",
 		given: "{..}",
 		do:    address(Line(2)),
+		error: "out of range",
+	},
+	{
+		name:  "negative out of range",
+		given: "{..}",
+		do:    address(Dot.Minus(Line(2))),
 		error: "out of range",
 	},
 	{
@@ -553,22 +584,36 @@ var lineTests = []editTest{
 		want:  "{..}abc\n{a}xyz\n{a}",
 	},
 	{
-		name:  "negative",
-		given: "abc{..}",
+		name:  "negative is zero",
+		given: "{..}abc",
 		do:    address(Line(-1)),
-		want:  "{aa}abc{..}",
+		want:  "{..aa}abc",
 	},
 	{
-		name:  "negative relative to start of dot",
-		given: "abc\nde{.}f\nghi{.}",
-		do:    address(Line(-1)),
-		want:  "{a}abc\n{a}de{.}f\nghi{.}",
+		name:  "plus line to EOF",
+		given: "abc\n{..}abc",
+		do:    address(Dot.Plus(Line(1))),
+		want:  "abc\n{..a}abc{a}",
+	},
+	{
+		name:  "plus line minus rune",
+		given: "abc{..}",
+		do:    address(Rune(3).Plus(Line(1)).Minus(Rune(2))),
+		want:  "a{aa}bc{..}",
 	},
 	{
 		name:  "plus negative line",
 		given: "{..}abc\ndef\nghi",
-		do:    address(Line(3).Plus(Line(-2))),
-		want:  "{..a}abc\n{a}def\nghi",
+		do:    address(Line(2).Plus(Line(-2))), // 2+0
+		want:  "{..}abc\ndef\n{aa}ghi",
+	},
+	// BUG(eaburns): This should be an out of range error.
+	{
+		name:  "plus to out of range",
+		given: "abc{..}",
+		do:    address(Rune(3).Plus(Line(1))),
+		//error: "out of range",
+		want: "abc{..aa}",
 	},
 }
 
@@ -1110,43 +1155,49 @@ var thenTests = []editTest{
 		name:  "simple address then simple address",
 		given: "{..}abc",
 		do:    address(Rune(1).Then(Rune(2))),
-		want:  "a{..a}b{a}c",
+		want:  "{..}a{a}b{a}c",
 	},
 	{
 		name:  "simple address then compound address",
 		given: "{..}abc",
 		do:    address(Rune(1).Then(Rune(1).Plus(Rune(1)))),
-		want:  "a{..a}b{a}c",
+		want:  "{..}a{a}b{a}c",
 	},
 	{
 		name:  "compound address then simple address",
 		given: "{..}abcde",
 		do:    address(Rune(0).Plus(Rune(1)).Then(Rune(3))),
-		want:  "a{..a}bc{a}de",
+		want:  "{..}a{a}bc{a}de",
 	},
 	{
 		name:  "compound address then compound address",
 		given: "{..}abcde",
 		do:    address(Rune(0).Plus(Rune(1)).Then(Rune(2).Plus(Rune(1)))),
-		want:  "a{..a}bc{a}de",
+		want:  "{..}a{a}bc{a}de",
 	},
 	{
 		name:  "range address then simple address",
 		given: "{..}abcdef",
 		do:    address(Rune(0).To(Rune(1)).Then(Rune(2))),
-		want:  "{.a}a{.}b{a}cdef",
+		want:  "{..a}ab{a}cdef",
 	},
 	{
 		name:  "range address then compound address",
 		given: "{..}abcde",
 		do:    address(Rune(0).To(Rune(1)).Then(Rune(2).Plus(Rune(1)))),
-		want:  "{.a}a{.}bc{a}de",
+		want:  "{..a}abc{a}de",
 	},
 	{
 		name:  "a2 evaluated from end of a1",
 		given: "{..}abcxyzabc",
 		do:    address(Regexp("xyz").Then(Regexp("abc"))),
-		want:  "abc{.a}xyz{.}abc{a}",
+		want:  "{..}abc{a}xyzabc{a}",
+	},
+	{
+		name:  "a2 is a mark",
+		given: "{..}1234567{mm}89",
+		do:    address(Line(0).Then(Mark('m'))),
+		want:  "{..a}1234567{amm}89",
 	},
 }
 

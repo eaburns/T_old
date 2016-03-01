@@ -1,122 +1,96 @@
 // Copyright © 2015, The T Authors.
 
-// Package edit provides a language and functions for editing buffers of runes.
+// Package edit provides a language and functions for editing text.
 // This package is heavily inspired by the text editor Sam.
 // In fact, the edit language of this package
 // is a dialect of the edit language of Sam.
 // For background, see the sam(1) manual page:
 // http://swtch.com/plan9port/man/man1/sam.html.
 //
-// This package has four primary types: Buffer, Editor, Address, and Edit.
-// These are described in detail below.
 //
-// Buffer
+// Text and Addresses
 //
-// Buffers are infinite-capacity, disk-backed, buffers of runes.
-// New Buffers, created with the NewBuffer function, are empty.
-// The only operation that can be done directly to a Buffer is closing it
-// with the Buffer.Close method.
-// All other operations are done using an Editor.
 //
-// Editor
+// The Text interface provides methods to operate on a read-only text.
+// The text is accessed using Spans,
+// defined by an inclusive start point
+// and an exclusive end point.
+// The units of a Span are unspecified,
+// but are defined by a Text implementation,
+// by way of its Size and ReadRune method.
 //
-// Editors view and modify Buffers.
-// Multiple Editors may operate on a single Buffer concurrently.
-// However, each Editor maintains its own state.
-// This state includes both 'dot'
-// (which is what T calls the position of the cursor)
-// and 'marks' (which are like bookmarks into a Buffer).
-//
-// One common use of an Editor is to call its Do.
-// The Do method performs an Edit,
-// which views or changes the Buffer,
-// typically at a particular Address.
-// Editors can also make streaming changes.
-// Streaming changes update the contents at an Address in the Buffer
-// using the data read from an io.Reader.
-// Likewise Editors can provide a streaming view of the Buffer
-// by writing the contents at an Address to an io.Writer.
-//
-// Address
-//
-// Addresses identify a substring of runes within a buffer.
+// Addresses provide a high-level language for identifying Spans of a Text.
 // They can be constructed in two different ways.
+// The first way is by parsing a string in T's Address language.
+// The Address language is parsed by the Addr function.
+// Here's an example:
+// 	// This Address identifies the Span from 3 runes past the end of line 1
+// 	// until the end of 8th line following the next occurrence of "the".
+// 	addr, err := Addr(strings.NewReader("1+#3,/the/+8"))
 //
-// The first way is by parsing a string in T's address language.
-// This is intended for handling addresses from user input.
-// An Address, specified by the user, can be parsed using the Addr function.
-// The return value is the Address,
-// the left over characters that weren't part of the parsed Address,
-// and any errors encountered while parsing.
+// See the documentation of the Addr function for more details.
 //
-// For example:
-// 	addr, leftOver, err := Addr(strings.NewReader("1+#3,/the/+8"))
-//
-// For details about the address language,
-// see the document on the Addr function below.
-//
-// The second way is by using function and method calls.
+// The second way to construct an Address is by using functions and methods.
 // This is intended for creating Addresses programmatically or in source code.
-// The functions and methods make it difficult to create an invalid address.
-// Errors creating addresses this way
-// are typically reported by the compiler
-// at compile-time.
-//
-// For example:
+// Unlike the Addr function, which reports errors at run-time,
+// errors that occur while creating Addresses using these functions and methods
+// are reported by the compiler at compile-time.
+// Here's an example; it creates the same address as above:
 //	addr := Line(1).Plus(Rune(3)).To(Regexp("the").Plus(Line(8)))
 //
-// Edit
+// Once created, whether by the Address language or using functions and methodts,
+// Addresses can be evaluated on a Text using their Where method.
+// The Where method returns the Span of the Text identified by the Address.
 //
-// Edits describe an operation that an Editor can perform on a Buffer.
-// Like with Addresses, they can be constructed in two different ways.
+// Editor and Edits
 //
-// The first way is by parsing a string in T's edit language.
-// This is intended for handling edits from user input.
-// It goes hand-in-hand with the address language.
-// In fact, the address language is a subset of the edit language.
-// An Edit, specified by the user, can be parsed using the Ed function.
-// The return value is the Edit,
-// the left over characters that weren't part of the parsed Edit,
-// and any errors encountered while parsing.
+// The Editor interface provides methods to operate on a read/write text.
+// A text is modified with the Change, Apply, Undo, and Redo methods of the Editor.
+// The Change method stages a change to a specified Span of the Text.
+// It does not modify the Text itself.
+// The Apply method modifies the Text by applying all staged changes in sequence.
+// Undo and Redo, undo and redo batches of changes made with Apply.
 //
+// Edits provide a high-level language for modifying a Text.
+// Like Addresses, they can be constructed in two different ways.
+// The first way is by parsing a string in T's Edit language.
+// The Edit language goes hand-in-hand with the Address language.
+// In fact, the Address language is a subset of the Edit language.
+// The Edit language is parsed by the Ed function.
 // Here's an example:
-//	edit, leftOver, err := Ed(strings.NewReader("1+#3,/the/+8 c/new text/"))
+// 	// This Edit changes the Span from 3 runes past the end of line 1
+// 	// until the end of 8th line following the next occurrence of "the",
+// 	// to have the text "new text".
+//	e, err := Ed(strings.NewReader("1+#3,/the/+8 c/new text/"))
 //
-// For details about the edit language,
-// see the document on the Ed function below.
+// See the documentation of the Ed function for more details.
 //
-// The second way is by using function calls.
+// The second way to construct an Edit is by using functions.
 // This is intended for creating Edits programmatically or in source code.
-// Like with Addresses, this technique makes it harder to create an invalid edit,
-// and errors can be reported at compile-time.
-//
-// Here's example:
+// Unlike the Ed function, which reports errors at run-time,
+// errors that occur while creating Edits using these functions
+// are reported by the compiler at compile-time.
+// Here's example; it makes the same modification as above:
 // 	addr := Line(1).Plus(Rune(3)).To(Regexp("the").Plus(Line(8)))
 //	edit := Change(addr, "new text")
 //
-// Once created,
-// regardless of whether by parsing the edit language or using functions,
-// Edits can be applied using Editor.Do as described above.
+// Once created, whether by the Edit language or using functions,
+// Edits can be applied to an Editor using their Do method.
 // The Do method can either
-// change the contents of the Buffer,
-// change the Editor's state based on the contents of the Buffer,
-// print runes from the Buffer or information about the Buffer to an io.Writer,
-// or a mix of the above.
+// modify Text,
+// change the Editor's state based on the contents of the Text,
+// print text from the Text or information about the Text to an io.Writer,
+// or a combination of the above of the above.
+// It all depends on the Edit being performed.
 //
-// Here are a few examples:
-// 	ed := NewEditor(NewBuffer())
-//	// Discards any printed output, of which there is none from the Insert Edit.
-//	ed.Do(Insert(End, "Hello, World!"), ioutil.Discard)
-//	// Prints the runes within the given address to standard output.
-//	ed.Do(Print(Rune(1).To(Rune(10)), os.Stdout)
-//	// Substitutes "World" with "世界". Nothing is printed.
-//	ed.Do(Sub("/World/", "世界"), ioutil.Discard)
-//	// Prints the address of dot, the cursor, to standard output.
-//	ed.Do(Where(Dot), os.Stdout)
+// Buffer
+//
+// The Buffer type provides an implementation of the Editor interface.
+// A Buffer is an infinite-capacity, disk-backed, buffers of runes.
 package edit
 
 import (
-	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -125,10 +99,9 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"github.com/eaburns/T/edit/runes"
 )
 
 // An Edit is an operation that can be made on a Buffer by an Editor.
@@ -138,11 +111,13 @@ type Edit interface {
 	// when parsed with Ed().
 	String() string
 
-	do(*Editor, io.Writer) (addr, error)
+	// Do performs the Edit on an Editor.
+	// Anything printed by the Edit is written to the Writer.
+	Do(Editor, io.Writer) error
 }
 
 type change struct {
-	a   Address
+	Address
 	op  rune
 	str string
 }
@@ -150,43 +125,49 @@ type change struct {
 // Change returns an Edit
 // that changes the string at a to str,
 // and sets dot to the changed runes.
-func Change(a Address, str string) Edit { return change{a: a, op: 'c', str: str} }
+func Change(a Address, str string) Edit { return change{Address: a, op: 'c', str: str} }
 
 // Append returns an Edit
 // that appends str after the string at a,
 // and sets dot to the appended runes.
-func Append(a Address, str string) Edit { return change{a: a, op: 'a', str: str} }
+func Append(a Address, str string) Edit { return change{Address: a, op: 'a', str: str} }
 
 // Insert returns an Edit
 // that inserts str before the string at a,
 // and sets dot to the inserted runes.
-func Insert(a Address, str string) Edit { return change{a: a, op: 'i', str: str} }
+func Insert(a Address, str string) Edit { return change{Address: a, op: 'i', str: str} }
 
 // Delete returns an Edit
 // that deletes the string at a,
 // and sets dot to the empty string
 // that was deleted.
-func Delete(a Address) Edit { return change{a: a, op: 'd'} }
+func Delete(a Address) Edit { return change{Address: a, op: 'd'} }
 
 func (e change) String() string {
 	if e.op == 'd' {
-		return e.a.String() + "d"
+		return e.Address.String() + "d"
 	}
-	return e.a.String() + string(e.op) + "/" + Escape(e.str, '/') + "/"
+	return e.Address.String() + string(e.op) + "/" + Escape(e.str, '/') + "/"
 }
 
-func (e change) do(ed *Editor, _ io.Writer) (addr, error) {
-	at, err := e.a.where(ed)
+func (e change) Do(ed Editor, _ io.Writer) error {
+	s, err := e.Where(ed)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
 	switch e.op {
 	case 'a':
-		at.from = at.to
+		s[0] = s[1]
 	case 'i':
-		at.to = at.from
+		s[1] = s[0]
 	}
-	return at, pend(ed, at, runes.StringReader(e.str))
+	if err := ed.Change(s, strings.NewReader(e.str)); err != nil {
+		return err
+	}
+	if err := ed.SetMark('.', s); err != nil {
+		return err
+	}
+	return ed.Apply()
 }
 
 type move struct {
@@ -201,68 +182,76 @@ func Move(src, dst Address) Edit { return move{src: src, dst: dst} }
 
 func (e move) String() string { return e.src.String() + "m" + e.dst.String() }
 
-func (e move) do(ed *Editor, _ io.Writer) (addr, error) {
-	s, err := e.src.where(ed)
+func (e move) Do(ed Editor, _ io.Writer) error {
+	src, err := e.src.Where(ed)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
-	d, err := e.dst.where(ed)
+	dst, err := e.dst.Where(ed)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
-	d.from = d.to
+	dst[0] = dst[1]
 
-	if d.from > s.from && d.from < s.to {
-		return addr{}, errors.New("addresses overlap")
+	if dst[0] > src[0] && dst[0] < src[1] {
+		return errors.New("move addresses overlap")
 	}
 
-	if d.from >= s.to {
+	if dst[0] >= src[1] {
 		// Moving to after the source. Delete the source first.
-		if err := pend(ed, s, runes.EmptyReader()); err != nil {
-			return addr{}, err
+		if err := ed.Change(src, strings.NewReader("")); err != nil {
+			return err
 		}
 	}
-	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
-	if err := pend(ed, d, r); err != nil {
-		return addr{}, err
+	if err := ed.Change(dst, ed.Reader(src)); err != nil {
+		return err
 	}
-	if d.from <= s.from {
+	if dst[0] <= src[0] {
 		// Moving to before the source. Delete the source second.
-		if err := pend(ed, s, runes.EmptyReader()); err != nil {
-			return addr{}, err
+		if err := ed.Change(src, strings.NewReader("")); err != nil {
+			return err
 		}
 	}
-	return d, nil
+	if err := ed.SetMark('.', dst); err != nil {
+		return err
+	}
+	return ed.Apply()
+
 }
 
-type cpy struct {
+type copyEdit struct {
 	src, dst Address
 }
 
 // Copy returns an Edit
 // that copies runes from src to after dst
 // and sets dot to the copied runes.
-func Copy(src, dst Address) Edit { return cpy{src: src, dst: dst} }
+func Copy(src, dst Address) Edit { return copyEdit{src: src, dst: dst} }
 
-func (e cpy) String() string { return e.src.String() + "t" + e.dst.String() }
+func (e copyEdit) String() string { return e.src.String() + "t" + e.dst.String() }
 
-func (e cpy) do(ed *Editor, _ io.Writer) (addr, error) {
-	s, err := e.src.where(ed)
+func (e copyEdit) Do(ed Editor, _ io.Writer) error {
+	src, err := e.src.Where(ed)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
-	d, err := e.dst.where(ed)
+	dst, err := e.dst.Where(ed)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
-	d.from = d.to
-	r := runes.LimitReader(ed.buf.runes.Reader(s.from), s.size())
-	return d, pend(ed, d, r)
+	dst[0] = dst[1]
+	if err := ed.Change(dst, ed.Reader(src)); err != nil {
+		return err
+	}
+	if err := ed.SetMark('.', dst); err != nil {
+		return err
+	}
+	return ed.Apply()
 }
 
 type set struct {
-	a Address
-	m rune
+	Address
+	mark rune
 }
 
 // Set returns an Edit
@@ -273,43 +262,41 @@ func Set(a Address, m rune) Edit {
 	if unicode.IsSpace(m) {
 		m = '.'
 	}
-	return set{a: a, m: m}
+	return set{Address: a, mark: m}
 }
 
-func (e set) String() string { return e.a.String() + "k" + string(e.m) }
+func (e set) String() string { return e.Address.String() + "k" + string(e.mark) }
 
-func (e set) do(ed *Editor, _ io.Writer) (addr, error) {
-	at, err := e.a.where(ed)
+func (e set) Do(ed Editor, _ io.Writer) error {
+	s, err := e.Where(ed)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
-	ed.marks[e.m] = at
-	return ed.marks['.'], nil
+	return ed.SetMark(e.mark, s)
 }
 
-type print struct{ a Address }
+type print struct{ Address }
 
 // Print returns an Edit
 // that prints the string at a to an io.Writer
 // and sets dot to the printed string.
-func Print(a Address) Edit { return print{a: a} }
+func Print(a Address) Edit { return print{a} }
 
-func (e print) String() string { return e.a.String() + "p" }
+func (e print) String() string { return e.Address.String() + "p" }
 
-func (e print) do(ed *Editor, w io.Writer) (addr, error) {
-	at, err := e.a.where(ed)
+func (e print) Do(ed Editor, print io.Writer) error {
+	s, err := e.Where(ed)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
-	r := runes.LimitReader(ed.buf.runes.Reader(at.from), at.size())
-	if _, err := runes.Copy(runes.UTF8Writer(w), r); err != nil {
-		return addr{}, err
+	if _, err := io.Copy(print, ed.Reader(s)); err != nil {
+		return err
 	}
-	return at, nil
+	return ed.SetMark('.', s)
 }
 
 type where struct {
-	a    Address
+	Address
 	line bool
 }
 
@@ -317,55 +304,80 @@ type where struct {
 // that prints the rune location of a
 // to an io.Writer
 // and sets dot to the a.
-func Where(a Address) Edit { return where{a: a} }
+func Where(a Address) Edit { return where{Address: a} }
 
 // WhereLine returns an Edit that prints both
 // the rune address and the lines containing a
 // to an io.Writer
 // and sets dot to the a.
-func WhereLine(a Address) Edit { return where{a: a, line: true} }
+func WhereLine(a Address) Edit { return where{Address: a, line: true} }
 
 func (e where) String() string {
 	if e.line {
-		return e.a.String() + "="
+		return e.Address.String() + "="
 	}
-	return e.a.String() + "=#"
+	return e.Address.String() + "=#"
 }
 
-func (e where) do(ed *Editor, w io.Writer) (addr, error) {
-	at, err := e.a.where(ed)
+func (e where) Do(ed Editor, print io.Writer) error {
+	s, err := e.Where(ed)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
 	if e.line {
-		l0, l1, err := ed.lines(at)
+		l0, l1, err := lines(ed, s)
 		if err != nil {
-			return addr{}, err
+			return err
 		}
 		if l0 == l1 {
-			_, err = fmt.Fprintf(w, "%d", l0)
+			_, err = fmt.Fprintf(print, "%d", l0)
 		} else {
-			_, err = fmt.Fprintf(w, "%d,%d", l0, l1)
+			_, err = fmt.Fprintf(print, "%d,%d", l0, l1)
 		}
 	} else {
-		if at.size() == 0 {
-			_, err = fmt.Fprintf(w, "#%d", at.from)
+		if s.Size() == 0 {
+			_, err = fmt.Fprintf(print, "#%d", s[0])
 		} else {
-			_, err = fmt.Fprintf(w, "#%d,#%d", at.from, at.to)
+			_, err = fmt.Fprintf(print, "#%d,#%d", s[0], s[1])
 		}
 	}
 	if err != nil {
-		return addr{}, err
+		return err
 	}
-	return at, err
+	return ed.SetMark('.', s)
+}
+
+func lines(ed Editor, s Span) (l0, l1 int64, err error) {
+	var i int64
+	l0 = int64(1) // line numbers are 1 based.
+	rr := ed.RuneReader(Span{0, ed.Size()})
+	for ; i < s[0]; i++ {
+		switch r, _, err := rr.ReadRune(); {
+		case err != nil:
+			return 0, 0, err
+		case r == '\n':
+			l0++
+		}
+	}
+	l1 = l0
+	for ; i < s[1]-1; i++ {
+		switch r, _, err := rr.ReadRune(); {
+		case err != nil:
+			return 0, 0, err
+		case r == '\n':
+			l1++
+		}
+	}
+	return l0, l1, nil
 }
 
 // Substitute is an Edit that substitutes regular expression matches.
 type Substitute struct {
-	// A is the address in which to search for matches.
+	// Address is the address in which to search for matches.
 	// After performing the edit, Dot is set the modified address A.
-	A Address
-	// RE is the regular expression to match.
+	Address Address
+
+	// Regexp is the regular expression to match.
 	//
 	// The regular expression syntax is that of the standard library regexp package.
 	// The syntax is documented here: https://github.com/google/re2/wiki/Syntax.
@@ -376,11 +388,13 @@ type Substitute struct {
 	// 	xyzabc123
 	// The substitution #3,#6s/^abc$/αβξ will result in:
 	// 	xyzαβξ123
-	RE string
-	// With is the template with which to replace each match of RE.
+	Regexp string
+
+	// With is the template with which to replace each match of Regexp.
 	// The syntax is that of the standard regexp package's Regexp.Expand method
 	// described here: https://golang.org/pkg/regexp/#Regexp.Expand.
 	With string
+
 	// Global is whether to replace all matches, or just one.
 	// If Global is false, only one match is replaced.
 	// If Global is true, all matches are replaced.
@@ -388,6 +402,7 @@ type Substitute struct {
 	// When Global is true, matches skipped via From (see below)
 	// are not replaced.
 	Global bool
+
 	// From is the number of the first match to begin substituting.
 	// For example:
 	// If From is 1, substitution begins with the first match.
@@ -403,7 +418,7 @@ type Substitute struct {
 // of the regular expression within a
 // and sets dot to the modified address a.
 func Sub(a Address, re, with string) Edit {
-	return Substitute{A: a, RE: re, With: with, From: 1}
+	return Substitute{Address: a, Regexp: re, With: with, From: 1}
 }
 
 // SubGlobal returns a Substitute Edit
@@ -411,7 +426,7 @@ func Sub(a Address, re, with string) Edit {
 // of the regular expression within a
 // and sets dot to the modified address a.
 func SubGlobal(a Address, re, with string) Edit {
-	return Substitute{A: a, RE: re, With: with, Global: true, From: 1}
+	return Substitute{Address: a, Regexp: re, With: with, Global: true, From: 1}
 }
 
 func (e Substitute) String() string {
@@ -423,56 +438,57 @@ func (e Substitute) String() string {
 	if e.Global {
 		g = "g"
 	}
-	return e.A.String() + "s" + n + "/" + Escape(e.RE, '/') + "/" + Escape(e.With, '/') + "/" + g
+	return e.Address.String() + "s" + n + "/" + Escape(e.Regexp, '/') + "/" + Escape(e.With, '/') + "/" + g
 }
 
-func (e Substitute) do(ed *Editor, _ io.Writer) (addr, error) {
-	at, err := e.A.where(ed)
+func (e Substitute) Do(ed Editor, _ io.Writer) error {
+	s, err := e.Address.Where(ed)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
-	re, err := regexpCompile(e.RE)
+	re, err := regexpCompile(e.Regexp)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
 
 	var prev []int
-	from := at.from
-	for from <= at.to { // Allow one run on an empty input.
-		match := rangeMatch(re, addr{from: from, to: at.to}, ed)
-		if len(match) < 2 {
+	from := s[0]
+	for from <= s[1] { // Allow one run on an empty input.
+		m := match(re, Span{from, s[1]}, ed)
+		if len(m) < 2 {
 			break
 		}
-		if match[0] == match[1] {
+		if m[0] == m[1] {
 			from++
 		} else {
-			from = int64(match[1])
+			from = int64(m[1])
 		}
-
-		if len(prev) >= 2 && match[0] == match[1] && match[1] == prev[1] {
+		if len(prev) >= 2 && m[0] == m[1] && m[1] == prev[1] {
 			// Skip an empty match immediately following the previous match.
-			prev = match
+			prev = m
 			continue
 		}
-		prev = match
-
+		prev = m
 		e.From--
 		if e.From <= 0 {
-			if err := regexpSub(re, match, e.With, ed); err != nil {
-				return addr{}, nil
+			if err := regexpSub(re, m, e.With, ed); err != nil {
+				return nil
 			}
 			if !e.Global {
 				break
 			}
 		}
 	}
-	return at, nil
+	if err := ed.SetMark('.', s); err != nil {
+		return err
+	}
+	return ed.Apply()
+
 }
 
-func regexpSub(re *regexp.Regexp, match []int, with string, ed *Editor) error {
-	m := addr{from: int64(match[0]), to: int64(match[1])}
-	r := runes.LimitReader(ed.buf.runes.Reader(m.from), m.size())
-	src, err := ioutil.ReadAll(runes.UTF8Reader(r))
+func regexpSub(re *regexp.Regexp, match []int, with string, ed Editor) error {
+	dst := Span{int64(match[0]), int64(match[1])}
+	src, err := ioutil.ReadAll(ed.Reader(dst))
 	if err != nil {
 		return err
 	}
@@ -494,7 +510,7 @@ func regexpSub(re *regexp.Regexp, match []int, with string, ed *Editor) error {
 	}
 
 	repl := re.Expand(nil, []byte(with), src, matchSrc)
-	return pend(ed, m, runes.ByteReader(repl))
+	return ed.Change(dst, bytes.NewReader(repl))
 }
 
 type pipe struct {
@@ -571,44 +587,45 @@ func shell() string {
 	return DefaultShell
 }
 
-func (e pipe) do(ed *Editor, w io.Writer) (addr, error) {
-	at, err := e.a.where(ed)
+func (e pipe) Do(ed Editor, print io.Writer) error {
+	s, err := e.a.Where(ed)
 	if err != nil {
-		return addr{}, err
+		return err
 	}
 
 	cmd := exec.Command(shell(), "-c", e.cmd)
-	cmd.Stderr = w
+	cmd.Stderr = print
 
 	if e.to {
-		r := ed.buf.runes.Reader(at.from)
-		r = runes.LimitReader(r, at.size())
-		cmd.Stdin = runes.UTF8Reader(r)
+		cmd.Stdin = ed.Reader(s)
 	}
 
 	if !e.from {
-		cmd.Stdout = w
+		cmd.Stdout = print
 		if err := cmd.Run(); err != nil {
-			return addr{}, err
+			return err
 		}
-		return at, nil
+		return ed.SetMark('.', s)
 	}
 
 	r, err := cmd.StdoutPipe()
 	if err != nil {
-		return addr{}, err
+		return err
 	}
 	if err := cmd.Start(); err != nil {
-		return addr{}, err
+		return err
 	}
-	pendErr := pend(ed, at, runes.RunesReader(bufio.NewReader(r)))
+	changeErr := ed.Change(s, r)
 	if err = cmd.Wait(); err != nil {
-		return addr{}, err
+		return err
 	}
-	if pendErr != nil {
-		return addr{}, pendErr
+	if changeErr != nil {
+		return changeErr
 	}
-	return at, nil
+	if err := ed.SetMark('.', s); err != nil {
+		return err
+	}
+	return ed.Apply()
 }
 
 type undo int
@@ -628,8 +645,17 @@ func (e undo) String() string {
 	return "u" + strconv.Itoa(int(e))
 }
 
-// Undo is special-cased by Editor.Do.
-func (e undo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
+func (e undo) Do(ed Editor, _ io.Writer) error {
+	if e <= 0 {
+		e = 1
+	}
+	for i := 0; i < int(e); i++ {
+		if err := ed.Undo(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 type redo int
 
@@ -648,8 +674,17 @@ func (e redo) String() string {
 	return "r" + strconv.Itoa(int(e))
 }
 
-// Redo is special-cased by Editor.Do.
-func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
+func (e redo) Do(ed Editor, _ io.Writer) error {
+	if e <= 0 {
+		e = 1
+	}
+	for i := 0; i < int(e); i++ {
+		if err := ed.Redo(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // Ed parses and returns an Edit.
 //
@@ -728,7 +763,6 @@ func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
 //	{addr} p
 //		Returns the runes identified by the address.
 //		If an address is not supplied, dot is used.
-// 		It is an error to print more than MaxRunes runes.
 //		Dot is set to the address.
 //	{addr} ={#}
 //		Without '#' returns the line offset(s) of the address.
@@ -756,13 +790,13 @@ func (e redo) do(*Editor, io.Writer) (addr, error) { panic("unimplemented") }
 //		Within cmd, \n is interpreted as a newline literal.
 //	u{n}
 //		Undoes the n most recent changes
-// 		made to the buffer by any editor.
+// 		made to the buffer by any Editor.
 //		If n is not specified, it defaults to 1.
 //		Dot is set to the address covering
 // 		the last undone change.
 //	r{n}
 //		Redoes the n most recent changes
-//		undone by any editor.
+//		undone by any Editor.
 //		If n is not specified, it defaults to 1.
 //		Dot is set to the address covering
 // 		the last redone change.
@@ -853,7 +887,7 @@ func Ed(rs io.RuneScanner) (Edit, error) {
 		}
 		return Move(a, a1), nil
 	case r == 's':
-		n, err := parseNumber(rs)
+		from, err := parseNumber(rs)
 		if err != nil {
 			return nil, err
 		}
@@ -880,7 +914,7 @@ func Ed(rs io.RuneScanner) (Edit, error) {
 		if err != nil {
 			return nil, err
 		}
-		sub := Substitute{A: a, RE: re, With: with, From: n}
+		sub := Substitute{Address: a, Regexp: re, With: with, From: from}
 		switch r, _, err := rs.ReadRune(); {
 		case err == io.EOF:
 			return sub, nil

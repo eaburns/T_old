@@ -197,11 +197,11 @@ func TestEd(t *testing.T) {
 		{str: "s1/a/b", edit: Sub(Dot, "a", "b")},
 		{str: "s/a/b/g", edit: SubGlobal(Dot, "a", "b")},
 		{str: " #1 + 1 s/a/b/g", edit: SubGlobal(Rune(1).Plus(Line(1)), "a", "b")},
-		{str: "s2/a/b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
-		{str: "s2;a;b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
-		{str: "s1000/a/b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 1000}},
-		{str: "s 2 /a/b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
-		{str: "s 1000 /a/b/g", edit: Substitute{A: Dot, RE: "a", With: "b", Global: true, From: 1000}},
+		{str: "s2/a/b", edit: Substitute{Address: Dot, Regexp: "a", With: "b", From: 2}},
+		{str: "s2;a;b", edit: Substitute{Address: Dot, Regexp: "a", With: "b", From: 2}},
+		{str: "s1000/a/b", edit: Substitute{Address: Dot, Regexp: "a", With: "b", From: 1000}},
+		{str: "s 2 /a/b", edit: Substitute{Address: Dot, Regexp: "a", With: "b", From: 2}},
+		{str: "s 1000 /a/b/g", edit: Substitute{Address: Dot, Regexp: "a", With: "b", Global: true, From: 1000}},
 		{str: "s", edit: Sub(Dot, "", "")},
 		{str: "s\nabc", left: "\nabc", edit: Sub(Dot, "", "")},
 		{str: "s/", edit: Sub(Dot, "", "")},
@@ -389,9 +389,9 @@ func TestEditString(t *testing.T) {
 		{SubGlobal(All, "a*", "\n"), `0,$s/a*/\n/g`},
 		{SubGlobal(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\\1/g`},
 
-		{Substitute{A: All, RE: "a*", With: "b", From: 2}, `0,$s2/a*/b/`},
-		{Substitute{A: All, RE: "a*", With: "b", From: 0}, `0,$s/a*/b/`},
-		{Substitute{A: All, RE: "a*", With: "b", From: -1}, `0,$s/a*/b/`},
+		{Substitute{Address: All, Regexp: "a*", With: "b", From: 2}, `0,$s2/a*/b/`},
+		{Substitute{Address: All, Regexp: "a*", With: "b", From: 0}, `0,$s/a*/b/`},
+		{Substitute{Address: All, Regexp: "a*", With: "b", From: -1}, `0,$s/a*/b/`},
 	}
 	for _, test := range tests {
 		if s := test.edit.String(); s != test.str {
@@ -1095,7 +1095,7 @@ var substituteTests = []editTest{
 	},
 	{
 		name:  "bad regexp",
-		do:    []Edit{Substitute{A: Rune(0), RE: "*"}},
+		do:    []Edit{Substitute{Address: Rune(0), Regexp: "*"}},
 		error: "missing",
 	},
 	{
@@ -1227,37 +1227,37 @@ var substituteTests = []editTest{
 	{
 		name:  "from negative",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: -1}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: -1}},
 		want:  "{.}baaa{.}",
 	},
 	{
 		name:  "from 0",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 0}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: 0}},
 		want:  "{.}baaa{.}",
 	},
 	{
 		name:  "from 1",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 1}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: 1}},
 		want:  "{.}baaa{.}",
 	},
 	{
 		name:  "from 2",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 2}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: 2}},
 		want:  "{.}abaa{.}",
 	},
 	{
 		name:  "from 3",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 3}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: 3}},
 		want:  "{.}aaba{.}",
 	},
 	{
 		name:  "from 3 global",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 3, Global: true}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: 3, Global: true}},
 		want:  "{.}aabb{.}",
 	},
 
@@ -1431,6 +1431,12 @@ var pipeFromTests = []editTest{
 		given: "{..}Hello ",
 		do:    []Edit{PipeFrom(End, "echo -n 世界")},
 		want:  "Hello {.}世界{.}",
+	},
+	{
+		name:  "raw newline",
+		given: "{..}",
+		do:    []Edit{PipeFrom(All, "echo -n '\nhi'")},
+		want:  "{.}\nhi{.}",
 	},
 }
 
@@ -1710,10 +1716,10 @@ var redoTests = []editTest{
 		name:  "undo 2 appends redo 1",
 		given: "{..}",
 		do:    []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(2), Redo(1)},
-		want:  "{.}abcxyz{.}",
+		want:  "{.}abc{.}",
 	},
 	{
-		name:  "undo undo appends redo 1",
+		name:  "undo 1 undo 1 appends redo 1",
 		given: "{..}",
 		do:    []Edit{Append(End, "abc"), Append(End, "xyz"), Undo(1), Undo(1), Redo(1)},
 		want:  "{.}abc{.}",
@@ -1935,12 +1941,12 @@ type editTest struct {
 }
 
 func (test editTest) run(t *testing.T) {
-	ed := newTestEditor(test.given)
-	defer ed.buf.Close()
+	buf := newTestBuffer(test.given)
+	defer buf.Close()
 
 	print := bytes.NewBuffer(nil)
 	for i, e := range test.do {
-		err := ed.Do(e, print)
+		err := e.Do(buf, print)
 		if !matchesError(test.error, err) {
 			t.Errorf("%s: Do(do[%d]=%q)=%v, want %q", test.name, i, e, err, test.error)
 		}
@@ -1948,8 +1954,8 @@ func (test editTest) run(t *testing.T) {
 			break
 		}
 	}
-	if !ed.hasState(test.want) {
-		t.Errorf("%s: got %q, want %q", test.name, ed.stateString(), test.want)
+	if !buf.hasState(test.want) {
+		t.Errorf("%s: %#v got %q, want %q", test.do, test.name, buf.stateString(), test.want)
 	}
 	if got := print.String(); got != test.print {
 		t.Errorf("%s: printed %q, want %q", test.name, got, test.print)
@@ -1987,24 +1993,27 @@ func (test editTest) runFromString(t *testing.T) {
 	test.run(t)
 }
 
-func newTestEditor(str string) *Editor {
+func newTestBuffer(str string) *Buffer {
 	contents, marks := parseState(str)
-	ed := NewEditor(NewBuffer())
-	r := strings.NewReader(contents)
-	if _, err := ed.ReaderFrom(All).ReadFrom(r); err != nil {
-		ed.buf.Close()
+	buf := NewBuffer()
+	if err := buf.Change(Span{}, strings.NewReader(contents)); err != nil {
+		buf.Close()
 		panic(err)
 	}
-	ed.marks = marks
-	return ed
+	if err := buf.Apply(); err != nil {
+		buf.Close()
+		panic(err)
+	}
+	buf.marks = marks
+	return buf
 }
 
-func (ed *Editor) hasState(want string) bool {
+func (buf *Buffer) hasState(want string) bool {
 	want, marks := parseState(want)
-	if got := ed.String(); got != want {
+	if got := buf.String(); got != want {
 		return false
 	}
-	for m, a := range ed.marks {
+	for m, a := range buf.marks {
 		if marks[m] != a {
 			return false
 		}
@@ -2013,14 +2022,14 @@ func (ed *Editor) hasState(want string) bool {
 	return len(marks) == 0
 }
 
-func (ed *Editor) stateString() string {
+func (buf *Buffer) stateString() string {
 	marks := make(map[int64]RuneSlice)
-	for m, a := range ed.marks {
-		marks[a.from] = append(marks[a.from], m)
-		marks[a.to] = append(marks[a.to], m)
+	for m, a := range buf.marks {
+		marks[a[0]] = append(marks[a[0]], m)
+		marks[a[1]] = append(marks[a[1]], m)
 	}
 	var c []rune
-	str := []rune(ed.String())
+	str := []rune(buf.String())
 	for i := 0; i < len(str)+1; i++ {
 		if ms := marks[int64(i)]; len(ms) > 0 {
 			sort.Sort(ms)
@@ -2041,10 +2050,10 @@ func (rs RuneSlice) Len() int           { return len(rs) }
 func (rs RuneSlice) Less(i, j int) bool { return rs[i] < rs[j] }
 func (rs RuneSlice) Swap(i, j int)      { rs[i], rs[j] = rs[j], rs[i] }
 
-func parseState(str string) (string, map[rune]addr) {
+func parseState(str string) (string, map[rune]Span) {
 	var mark bool
 	var contents []rune
-	marks := make(map[rune]addr)
+	marks := make(map[rune]Span)
 	count := make(map[rune]int)
 	for _, r := range str {
 		switch {
@@ -2055,10 +2064,10 @@ func parseState(str string) (string, map[rune]addr) {
 		case mark:
 			count[r]++
 			at := int64(len(contents))
-			if a, ok := marks[r]; !ok {
-				marks[r] = addr{from: at}
+			if s, ok := marks[r]; !ok {
+				marks[r] = Span{at}
 			} else {
-				marks[r] = addr{from: a.from, to: at}
+				marks[r] = Span{s[0], at}
 			}
 		default:
 			contents = append(contents, r)

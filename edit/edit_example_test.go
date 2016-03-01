@@ -1,17 +1,16 @@
 package edit
 
 import (
-	"bytes"
+	"io"
 	"io/ioutil"
 	"os"
 	"strings"
 )
 
 func ExampleAddress() {
-	// Create a new editor, editing a buffer initialized with some text.
-	ed := NewEditor(NewBuffer())
-	defer ed.buf.Close()
-	if err := ed.Do(Append(All, "Hello, 世界!"), ioutil.Discard); err != nil {
+	buf := NewBuffer()
+	defer buf.Close()
+	if err := Append(All, "Hello, 世界!").Do(buf, ioutil.Discard); err != nil {
 		panic(err)
 	}
 
@@ -63,11 +62,14 @@ func ExampleAddress() {
 
 	// Print the contents of the editor at each address to os.Stdout.
 	for _, a := range addrs {
-		buf := bytes.NewBuffer(nil)
-		if _, err := ed.WriterTo(a).WriteTo(buf); err != nil {
+		s, err := a.Where(buf)
+		if err != nil {
 			panic(err)
 		}
-		os.Stdout.WriteString(buf.String() + "\n")
+		if _, err := io.Copy(os.Stdout, buf.Reader(s)); err != nil {
+			panic(err)
+		}
+		os.Stdout.WriteString("\n")
 	}
 
 	// Output:
@@ -89,10 +91,9 @@ func ExampleAddress() {
 }
 
 func ExampleEdit() {
-	// Create a new editor, editing a buffer initialized with some text.
-	ed := NewEditor(NewBuffer())
-	defer ed.buf.Close()
-	if err := ed.Do(Append(All, "Hello, World!\n"), ioutil.Discard); err != nil {
+	buf := NewBuffer()
+	defer buf.Close()
+	if err := Append(All, "Hello, World!\n").Do(buf, ioutil.Discard); err != nil {
 		panic(err)
 	}
 
@@ -151,7 +152,7 @@ func ExampleEdit() {
 	// Perform the Edits.
 	// Printed output is written to os.Stdout.
 	for _, e := range edits {
-		if err := ed.Do(e, os.Stdout); err != nil {
+		if err := e.Do(buf, os.Stdout); err != nil {
 			panic(err)
 		}
 	}
