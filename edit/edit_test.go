@@ -1432,6 +1432,12 @@ var pipeFromTests = []editTest{
 		do:    []Edit{PipeFrom(End, "echo -n 世界")},
 		want:  "Hello {.}世界{.}",
 	},
+	{
+		name:  "raw newline",
+		given: "{..}",
+		do:    []Edit{PipeFrom(All, "echo -n '\nhi'")},
+		want:  "{.}\nhi{.}",
+	},
 }
 
 func TestEditPipeFrom(t *testing.T) {
