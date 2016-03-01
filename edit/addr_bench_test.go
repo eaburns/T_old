@@ -40,7 +40,7 @@ func benchmarkRune(b *testing.B, n int) {
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		if _, err := ed.where(Rune(runes)); err != nil {
+		if _, err := Rune(runes).Where(ed); err != nil {
 			b.Fatal(err.Error())
 		}
 	}
@@ -60,7 +60,7 @@ func benchmarkLine(b *testing.B, n int) {
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		if _, err := ed.where(Line(lines)); err != nil {
+		if _, err := Line(lines).Where(ed); err != nil {
 			b.Fatal(err.Error())
 		}
 	}
@@ -77,7 +77,7 @@ func benchmarkRegexp(b *testing.B, re string, n int) {
 	b.ResetTimer()
 	b.SetBytes(int64(n))
 	for i := 0; i < b.N; i++ {
-		switch _, err := ed.where(Regexp(re)); {
+		switch _, err := Regexp(re).Where(ed); {
 		case err == nil:
 			panic("unexpected match")
 		case err != ErrNoMatch:

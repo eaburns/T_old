@@ -2,6 +2,7 @@ package edit
 
 import (
 	"bytes"
+	"io"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -64,7 +65,11 @@ func ExampleAddress() {
 	// Print the contents of the editor at each address to os.Stdout.
 	for _, a := range addrs {
 		buf := bytes.NewBuffer(nil)
-		if _, err := ed.WriterTo(a).WriteTo(buf); err != nil {
+		s, err := a.Where(ed)
+		if err != nil {
+			panic(err)
+		}
+		if _, err := io.Copy(buf, ed.Reader(s)); err != nil {
 			panic(err)
 		}
 		os.Stdout.WriteString(buf.String() + "\n")

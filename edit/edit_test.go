@@ -197,11 +197,11 @@ func TestEd(t *testing.T) {
 		{str: "s1/a/b", edit: Sub(Dot, "a", "b")},
 		{str: "s/a/b/g", edit: SubGlobal(Dot, "a", "b")},
 		{str: " #1 + 1 s/a/b/g", edit: SubGlobal(Rune(1).Plus(Line(1)), "a", "b")},
-		{str: "s2/a/b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
-		{str: "s2;a;b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
-		{str: "s1000/a/b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 1000}},
-		{str: "s 2 /a/b", edit: Substitute{A: Dot, RE: "a", With: "b", From: 2}},
-		{str: "s 1000 /a/b/g", edit: Substitute{A: Dot, RE: "a", With: "b", Global: true, From: 1000}},
+		{str: "s2/a/b", edit: Substitute{Address: Dot, Regexp: "a", With: "b", From: 2}},
+		{str: "s2;a;b", edit: Substitute{Address: Dot, Regexp: "a", With: "b", From: 2}},
+		{str: "s1000/a/b", edit: Substitute{Address: Dot, Regexp: "a", With: "b", From: 1000}},
+		{str: "s 2 /a/b", edit: Substitute{Address: Dot, Regexp: "a", With: "b", From: 2}},
+		{str: "s 1000 /a/b/g", edit: Substitute{Address: Dot, Regexp: "a", With: "b", Global: true, From: 1000}},
 		{str: "s", edit: Sub(Dot, "", "")},
 		{str: "s\nabc", left: "\nabc", edit: Sub(Dot, "", "")},
 		{str: "s/", edit: Sub(Dot, "", "")},
@@ -389,9 +389,9 @@ func TestEditString(t *testing.T) {
 		{SubGlobal(All, "a*", "\n"), `0,$s/a*/\n/g`},
 		{SubGlobal(All, `(a*)bc`, `\1`), `0,$s/(a*)bc/\\1/g`},
 
-		{Substitute{A: All, RE: "a*", With: "b", From: 2}, `0,$s2/a*/b/`},
-		{Substitute{A: All, RE: "a*", With: "b", From: 0}, `0,$s/a*/b/`},
-		{Substitute{A: All, RE: "a*", With: "b", From: -1}, `0,$s/a*/b/`},
+		{Substitute{Address: All, Regexp: "a*", With: "b", From: 2}, `0,$s2/a*/b/`},
+		{Substitute{Address: All, Regexp: "a*", With: "b", From: 0}, `0,$s/a*/b/`},
+		{Substitute{Address: All, Regexp: "a*", With: "b", From: -1}, `0,$s/a*/b/`},
 	}
 	for _, test := range tests {
 		if s := test.edit.String(); s != test.str {
@@ -1095,7 +1095,7 @@ var substituteTests = []editTest{
 	},
 	{
 		name:  "bad regexp",
-		do:    []Edit{Substitute{A: Rune(0), RE: "*"}},
+		do:    []Edit{Substitute{Address: Rune(0), Regexp: "*"}},
 		error: "missing",
 	},
 	{
@@ -1227,37 +1227,37 @@ var substituteTests = []editTest{
 	{
 		name:  "from negative",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: -1}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: -1}},
 		want:  "{.}baaa{.}",
 	},
 	{
 		name:  "from 0",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 0}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: 0}},
 		want:  "{.}baaa{.}",
 	},
 	{
 		name:  "from 1",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 1}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: 1}},
 		want:  "{.}baaa{.}",
 	},
 	{
 		name:  "from 2",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 2}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: 2}},
 		want:  "{.}abaa{.}",
 	},
 	{
 		name:  "from 3",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 3}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: 3}},
 		want:  "{.}aaba{.}",
 	},
 	{
 		name:  "from 3 global",
 		given: "{..}aaaa",
-		do:    []Edit{Substitute{A: All, RE: "a", With: "b", From: 3, Global: true}},
+		do:    []Edit{Substitute{Address: All, Regexp: "a", With: "b", From: 3, Global: true}},
 		want:  "{.}aabb{.}",
 	},
 
@@ -1990,8 +1990,11 @@ func (test editTest) runFromString(t *testing.T) {
 func newTestEditor(str string) *Editor {
 	contents, marks := parseState(str)
 	ed := NewEditor(NewBuffer())
-	r := strings.NewReader(contents)
-	if _, err := ed.ReaderFrom(All).ReadFrom(r); err != nil {
+	if err := ed.Change(Span{}, strings.NewReader(contents)); err != nil {
+		ed.buf.Close()
+		panic(err)
+	}
+	if err := ed.Apply(); err != nil {
 		ed.buf.Close()
 		panic(err)
 	}

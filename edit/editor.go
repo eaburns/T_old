@@ -124,179 +124,11 @@ func (ed *Editor) close() error {
 	return errors.New("already closed")
 }
 
-// ReaderFrom returns an io.ReaderFrom
-// that, when it's ReadFrom method is called,
-// atomically evaluates the address,
-// changes the addressed runes
-// to those read from the io.Reader,
-// and sets dot to the newly changed runes.
-func (ed *Editor) ReaderFrom(a Address) io.ReaderFrom { return readerFrom{a: a, ed: ed} }
-
-type readerFrom struct {
-	a  Address
-	ed *Editor
-}
-
-func (rf readerFrom) ReadFrom(r io.Reader) (int64, error) {
-	cr := newCountingRuneReader(r)
-	err := rf.ed.do(func() (addr, error) {
-		at, err := rf.ed.where(rf.a)
-		if err != nil {
-			return addr{}, err
-		}
-		return at, pend(rf.ed, at, runes.RunesReader(cr))
-	})
-	return cr.n, err
-}
-
-type countingRuneReader struct {
-	rr io.RuneReader
-	n  int64
-}
-
-func newCountingRuneReader(r io.Reader) *countingRuneReader {
-	if rr, ok := r.(io.RuneReader); ok {
-		return &countingRuneReader{rr: rr}
-	}
-	return &countingRuneReader{rr: bufio.NewReader(r)}
-}
-
-func (cr *countingRuneReader) ReadRune() (rune, int, error) {
-	r, n, err := cr.rr.ReadRune()
-	cr.n += int64(n)
-	return r, n, err
-}
-
-// WriterTo returns an io.WriterTo
-// that, when it's WriteTo method is called,
-// atomically evaluates the address,
-// writes the addressed runes to an io.Writer,
-// and sets dot to the address.
-func (ed *Editor) WriterTo(a Address) io.WriterTo { return writerTo{a: a, ed: ed} }
-
-type writerTo struct {
-	a  Address
-	ed *Editor
-}
-
-func (wt writerTo) WriteTo(w io.Writer) (int64, error) {
-	cw := countingWriter{w: w}
-	err := wt.ed.Do(Print(wt.a), &cw)
-	return cw.n, err
-}
-
-type countingWriter struct {
-	w io.Writer
-	n int64
-}
-
-func (cw *countingWriter) Write(p []byte) (int, error) {
-	n, err := cw.w.Write(p)
-	cw.n += int64(n)
-	return n, err
-}
-
-// Where returns rune offsets of the address.
-func (ed *Editor) Where(a Address) (addr, error) {
-	ed.buf.Lock()
-	defer ed.buf.Unlock()
-	return ed.where(a)
-}
-
-func (ed *Editor) where(a Address) (addr, error) {
-	span, err := a.Where(ed)
-	if err != nil {
-		return addr{}, err
-	}
-	return addr{from: span[0], to: span[1]}, err
-}
-
 // Do performs an Edit on the Editor's Buffer.
-func (ed *Editor) Do(e Edit, w io.Writer) error {
-	switch e := e.(type) {
-	case undo:
-		return ed.undoRedo(int(e), ed.Undo)
-	case redo:
-		return ed.undoRedo(int(e), ed.Redo)
-	default:
-		return ed.do(func() (addr, error) { return e.do(ed, w) })
-	}
-}
-
-// Do applies changes to an Editor's Buffer.
-//
-// Changes are applied in two phases:
-// Phase one logs the changes without modifying the Buffer.
-// Phase two applies the changes to the Buffer.
-// The two phases occur with the buffer Lock held.
-//
-// The f function performs phase one.
-// It is called with the Editor's pending log cleared.
-// It will typically append changes to the Editor's pending log
-// and/or modify the Editor's marks.
-// In the case of an error, the marks are restored
-// to their values before any changes were made.
-//
-// The f function must return the address
-// over which changes were computed.
-// This address is used to compute and set dot
-// after the changes are applied.
-func (ed *Editor) do(f func() (addr, error)) error {
-	ed.buf.Lock()
-	defer ed.buf.Unlock()
-	at, err := f()
-	if err != nil {
-		return err
-	}
-	ed.marks['.'] = at
-	if err := ed.Apply(); err != nil {
-		return err
-	}
-	return nil
-}
+func (ed *Editor) Do(e Edit, print io.Writer) error { return e.Do(ed, print) }
 
 func pend(ed *Editor, at addr, src runes.Reader) error {
 	return ed.Change(Span{at.from, at.to}, runes.UTF8Reader(src))
-}
-
-func (ed *Editor) undoRedo(n int, undoRedo1 func() error) (err error) {
-	ed.buf.Lock()
-	defer ed.buf.Unlock()
-
-	if n <= 0 {
-		n = 1
-	}
-
-	for i := 0; i < n; i++ {
-		if err := undoRedo1(); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (ed *Editor) lines(at addr) (l0, l1 int64, err error) {
-	var i int64
-	l0 = int64(1) // line numbers are 1 based.
-	for ; i < at.from; i++ {
-		r, err := ed.buf.rune(i)
-		if err != nil {
-			return 0, 0, err
-		} else if r == '\n' {
-			l0++
-		}
-	}
-	l1 = l0
-	for ; i < at.to; i++ {
-		r, err := ed.buf.rune(i)
-		if err != nil {
-			return 0, 0, err
-		} else if r == '\n' && i < at.to-1 {
-			l1++
-		}
-	}
-	return l0, l1, nil
 }
 
 // A addr identifies a substring within a buffer
@@ -381,6 +213,12 @@ func (rr *runeReader) ReadRune() (r rune, w int, err error) {
 // Each non-error ReadRune operation returns a width of 1.
 func (ed *Editor) RuneReader(span Span) io.RuneReader {
 	return &runeReader{span: span, editor: ed}
+}
+
+func (ed *Editor) Reader(span Span) io.Reader {
+	rr := ed.buf.runes.Reader(span[0])
+	rr = runes.LimitReader(rr, span.Size())
+	return runes.UTF8Reader(rr)
 }
 
 func (ed *Editor) Change(s Span, r io.Reader) error {

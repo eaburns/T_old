@@ -31,7 +31,9 @@ golint .\
 	| grep -v 'Editor.Apply should have comment'\
 	| grep -v 'Editor.Cancel should have comment'\
 	| grep -v 'Editor.Undo should have comment'\
+	| grep -v 'Editor.Reader should have comment'\
 	| grep -v 'Editor.Redo should have comment'\
+	| grep -v 'Substitute.Do should have comment'\
 	> $o 2>&1
 # Silly: diff the grepped golint output with empty.
 # If it's non-empty, error, otherwise succeed.

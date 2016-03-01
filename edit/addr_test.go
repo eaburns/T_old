@@ -269,7 +269,7 @@ func TestIOErrors(t *testing.T) {
 
 		// All subsequent reads will be errors.
 		f.error = errors.New("read error")
-		if a, err := ed.where(addr); !matchesError(test.error, err) {
+		if a, err := addr.Where(ed); !matchesError(test.error, err) {
 			t.Errorf("Addr(%q).addr()=%v,%v, want addr{},%q", test, a, err, test.error)
 			continue
 		}

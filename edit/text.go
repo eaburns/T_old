@@ -31,6 +31,13 @@ type Text interface {
 	// If either endpoint of the Span is negative or greater than the Size of the Text,
 	// an error is retured by the RuneReader.ReadRune method.
 	RuneReader(Span) io.RuneReader
+
+	// Reader returns a Reader that reads the Span as bytes.
+	//
+	// An error is returned by the Reader.Read method if
+	// either endpoint of the Span is negative or greater than the Size of the Text,
+	// or if the Size of the Span is negative.
+	Reader(Span) io.Reader
 }
 
 // An Editor provides a read-write view of a sequence of text.
