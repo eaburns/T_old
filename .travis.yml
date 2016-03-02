@@ -10,7 +10,8 @@ env:
 
 install:
     - go get golang.org/x/tools/cmd/cover
-    - go get github.com/mattn/goveralls
+    - go get github.com/eaburns/goveralls
+    - (cd $HOME/gopath/src/github.com/eaburns/goveralls && git checkout issue61_statements && go install)
     - go get golang.org/x/tools/cmd/vet
     - go get github.com/golang/lint/golint
     - go get -d -v ./... && go build -v ./...
