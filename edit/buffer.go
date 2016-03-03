@@ -132,14 +132,10 @@ func (buf *Buffer) Change(s Span, r io.Reader) error {
 }
 
 func (buf *Buffer) Apply() error {
-	dot, err := fixAddrs(buf.marks['.'], buf.pending)
-	if err != nil {
-		return err
+	if !inSequence(buf.pending) {
+		return ErrOutOfSequence
 	}
 
-	if err := buf.redo.clear(); err != nil {
-		return err
-	}
 	for e := logFirst(buf.pending); !e.end(); e = e.next() {
 		undoSpan := Span{e.span[0], e.span[0] + e.size}
 		undoSrc := buf.runes.Reader(e.span[0])
@@ -147,6 +143,16 @@ func (buf *Buffer) Apply() error {
 		if err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
 			return err
 		}
+	}
+
+	dot, err := fixAddrs(buf.marks['.'], buf.pending)
+	if err != nil {
+		return err
+	}
+	if err := buf.redo.clear(); err != nil {
+		return err
+	}
+	for e := logFirst(buf.pending); !e.end(); e = e.next() {
 		if err := buf.change(e.span, e.data()); err != nil {
 			return err
 		}
@@ -161,9 +167,6 @@ func (buf *Buffer) Apply() error {
 }
 
 func fixAddrs(s Span, l *log) (Span, error) {
-	if !inSequence(l) {
-		return Span{}, ErrOutOfSequence
-	}
 	for e := logFirst(l); !e.end(); e = e.next() {
 		if e.span[0] == s[0] {
 			// If they have the same from, grow at.
