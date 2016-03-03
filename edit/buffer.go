@@ -74,7 +74,7 @@ func (buf *Buffer) Mark(m rune) Span { return buf.marks[m] }
 
 func (buf *Buffer) SetMark(m rune, s Span) error {
 	if size := buf.Size(); s[0] < 0 || s[1] < 0 || s[0] > size || s[1] > size {
-		return ErrRange
+		return ErrInvalidArgument
 	}
 	buf.marks[m] = s
 	return nil
@@ -101,8 +101,8 @@ func (rr *runeReader) ReadRune() (r rune, w int, err error) {
 
 type badRange struct{}
 
-func (badRange) Read([]byte) (int, error)     { return 0, ErrRange }
-func (badRange) ReadRune() (rune, int, error) { return 0, 0, ErrRange }
+func (badRange) Read([]byte) (int, error)     { return 0, ErrInvalidArgument }
+func (badRange) ReadRune() (rune, int, error) { return 0, 0, ErrInvalidArgument }
 
 // RuneReader implements the Runes method of the Text interface.
 //

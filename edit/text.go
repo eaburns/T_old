@@ -8,11 +8,8 @@ import (
 )
 
 var (
-	// ErrNoMatch is returned when a regular expression fails to match.
-	ErrNoMatch = errors.New("no match")
-
-	// ErrRange is returned when an Address is out of range of the Text.
-	ErrRange = errors.New("out of range")
+	// ErrInvalidArgument is returned when accessing a Text using an invalid Span.
+	ErrInvalidArgument = errors.New("invalid argument")
 
 	// ErrOutOfSequence is returned by Editor.Apply if the changes are not in squence.
 	ErrOutOfSequence = errors.New("out of sequence")
@@ -37,12 +34,12 @@ type Text interface {
 	// If the Size of the Span is negative, the reader returns runes in reverse.
 	//
 	// If either endpoint of the Span is negative or greater than the Size of the Text,
-	// an ErrRange is retured by the RuneReader.ReadRune method.
+	// an ErrInvalidArgument is retured by the RuneReader.ReadRune method.
 	RuneReader(Span) io.RuneReader
 
 	// Reader returns a Reader that reads the Span as bytes.
 	//
-	// An ErrRange error is returned by the Reader.Read method if
+	// An ErrInvalidArgument error is returned by the Reader.Read method if
 	// either endpoint of the Span is negative or greater than the Size of the Text,
 	// or if the Size of the Span is negative.
 	Reader(Span) io.Reader
@@ -71,7 +68,7 @@ type Editor interface {
 
 	// SetMark sets the Span of a mark.
 	//
-	// ErrRange is returned if either endpoint of the Span is negative
+	// ErrInvalidArgument is returned if either endpoint of the Span is negative
 	// or greater than the Size of the Text.
 	SetMark(rune, Span) error
 

@@ -37,8 +37,8 @@ func TestBufferBadSetMark(t *testing.T) {
 	for _, s := range badSpans {
 		buf := NewBuffer()
 		defer buf.Close()
-		if err := buf.SetMark('.', s); err != ErrRange {
-			t.Errorf("buf.SetMark('.', %v)=%v, want %v", s, err, ErrRange)
+		if err := buf.SetMark('.', s); err != ErrInvalidArgument {
+			t.Errorf("buf.SetMark('.', %v)=%v, want %v", s, err, ErrInvalidArgument)
 		}
 	}
 }
@@ -47,8 +47,8 @@ func TestBufferBadRuneReader(t *testing.T) {
 	for _, s := range badSpans {
 		buf := NewBuffer()
 		defer buf.Close()
-		if _, _, err := buf.RuneReader(s).ReadRune(); err != ErrRange {
-			t.Errorf("buf.RuneReader(%v).ReadRune()=_,_,%v, want %v", s, err, ErrRange)
+		if _, _, err := buf.RuneReader(s).ReadRune(); err != ErrInvalidArgument {
+			t.Errorf("buf.RuneReader(%v).ReadRune()=_,_,%v, want %v", s, err, ErrInvalidArgument)
 		}
 	}
 }
@@ -58,8 +58,8 @@ func TestBufferBadReader(t *testing.T) {
 		buf := NewBuffer()
 		defer buf.Close()
 		var d [1]byte
-		if _, err := buf.Reader(s).Read(d[:]); err != ErrRange {
-			t.Errorf("buf.Reader(%v).Read(·)=_,%v, want %v", s, err, ErrRange)
+		if _, err := buf.Reader(s).Read(d[:]); err != ErrInvalidArgument {
+			t.Errorf("buf.Reader(%v).Read(·)=_,%v, want %v", s, err, ErrInvalidArgument)
 		}
 	}
 }
