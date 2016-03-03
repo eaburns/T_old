@@ -1656,7 +1656,7 @@ var undoTests = []editTest{
 		name:  "multi-change undo 2",
 		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
 		do: []Edit{
-			SubGlobal(All, `<[^>]*>`, "_"),
+			SubGlobal(All, `<[^>]*>`, "___"),
 			Undo(1),
 		},
 		want: "abc{.}<abc>abc<abcXYZabc>abcXYZabc<abc>{.}abc",
@@ -1775,6 +1775,38 @@ var redoTests = []editTest{
 			Redo(1),
 		},
 		want: "abc{.}xyz{.}",
+	},
+	{
+		name:  "multi-change, redo undo, repeat",
+		given: "{..}aabaab",
+		do: []Edit{
+			SubGlobal(All, `a*`, "_"),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+		},
+		want: "{.}_b_b_{.}",
+	},
+	{
+		name:  "multi-change, redo undo, repeat 2",
+		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
+		do: []Edit{
+			SubGlobal(All, `<[^>]*>`, "___"),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+		},
+		want: "abc{.}___abc___abcXYZabc___{.}abc",
 	},
 }
 
