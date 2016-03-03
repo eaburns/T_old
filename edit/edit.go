@@ -514,8 +514,8 @@ func regexpSub(re *regexp.Regexp, match []int, with string, ed Editor) error {
 }
 
 type pipe struct {
+	Address
 	cmd      string
-	a        Address
 	to, from bool
 }
 
@@ -534,7 +534,7 @@ type pipe struct {
 // the SHELL environment variable
 // or DefaultShell if SHELL is unset.
 func Pipe(a Address, cmd string) Edit {
-	return pipe{cmd: cmd, a: a, to: true, from: true}
+	return pipe{Address: a, cmd: cmd, to: true, from: true}
 }
 
 // PipeTo returns an Edit like Pipe,
@@ -542,14 +542,14 @@ func Pipe(a Address, cmd string) Edit {
 // is written to the writer,
 // and does not overwrite the address a.
 func PipeTo(a Address, cmd string) Edit {
-	return pipe{cmd: cmd, a: a, to: true}
+	return pipe{Address: a, cmd: cmd, to: true}
 }
 
 // PipeFrom returns an Edit like Pipe,
 // but the standard input of the command
 // is connected to an empty reader.
 func PipeFrom(a Address, cmd string) Edit {
-	return pipe{cmd: cmd, a: a, from: true}
+	return pipe{Address: a, cmd: cmd, from: true}
 }
 
 func (e pipe) String() string {
@@ -559,7 +559,7 @@ func (e pipe) String() string {
 	} else if !e.from {
 		pipe = ">"
 	}
-	return e.a.String() + pipe + escNewlines(e.cmd) + "\n"
+	return e.Address.String() + pipe + escNewlines(e.cmd) + "\n"
 }
 
 func escNewlines(s string) string {
@@ -588,7 +588,7 @@ func shell() string {
 }
 
 func (e pipe) Do(ed Editor, print io.Writer) error {
-	s, err := e.a.Where(ed)
+	s, err := e.Where(ed)
 	if err != nil {
 		return err
 	}
