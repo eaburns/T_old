@@ -211,11 +211,15 @@ func fastReadFrom(dst *readerFrom, r Reader, sz int64) (int64, error) {
 			return tot, err
 		}
 	}
-	// Sanity check: no more to read.
-	if n, err := r.Read(make([]rune, 1)); n != 0 || err != io.EOF {
+	var more [1]rune
+	switch n, err := r.Read(more[:]); {
+	case n > 0:
 		panic("more to read")
+	case err == io.EOF:
+		return tot, nil
+	default:
+		return tot, err
 	}
-	return tot, nil
 }
 
 func readFull(r Reader, p []rune) (int, error) {
