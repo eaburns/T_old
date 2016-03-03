@@ -1245,13 +1245,50 @@ var clampTests = []editTest{
 		want:  "{..}abc\nxyz{aa}",
 	},
 	{
-		name:  "clamp plus",
+		name:  "no need to clamp",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(1))),
+		want:  "1{aa}2{..}34",
+	},
+	{
+		name:  "clamp dot",
+		given: "12{..}34",
+		do:    address(Clamp(Dot)),
+		want:  "12{..aa}34",
+	},
+	{
+		name:  "clamp end",
+		given: "12{..}34",
+		do:    address(Clamp(End)),
+		want:  "12{..}34{aa}",
+	},
+	{
+		name:  "clamp mark",
+		given: "12{..}3{mm}4",
+		do:    address(Clamp(Mark('m'))),
+		want:  "12{..}3{aamm}4",
+	},
+	{
+		name:  "clamp regexp",
+		given: "12{..}34",
+		do:    address(Clamp(Regexp("4"))),
+		want:  "12{..}3{a}4{a}",
+	},
+	{
+		name:  "clamp regexp not found",
+		given: "12{..}34",
+		do:    address(Clamp(Regexp("5"))),
+		error: "no match",
+		want:  "12{..}34",
+	},
+	{
+		name:  "plus clamp",
 		given: "{..}abc\nxyz",
 		do:    address(Dot.Plus(Clamp(Line(25)))),
 		want:  "{..}abc\nxyz{aa}",
 	},
 	{
-		name:  "clamp minus",
+		name:  "minus clamp",
 		given: "abc\nxyz{..}",
 		do:    address(Dot.Minus(Clamp(Rune(1000)))),
 		want:  "{aa}abc\nxyz{..}",
@@ -1261,12 +1298,14 @@ var clampTests = []editTest{
 		given: "12{..}34",
 		do:    address(Dot.Minus(Rune(5)).To(Dot.Plus(Clamp(Rune(5))))),
 		error: "out of range",
+		want:  "12{..}34",
 	},
 	{
 		name:  "clamp beginning but not end",
 		given: "12{..}34",
 		do:    address(Dot.Minus(Clamp(Rune(5))).To(Dot.Plus(Rune(5)))),
 		error: "out of range",
+		want:  "12{..}34",
 	},
 	{
 		name:  "clamp end and beginning",
@@ -1274,16 +1313,40 @@ var clampTests = []editTest{
 		do:    address(Dot.Minus(Clamp(Rune(5))).To(Dot.Plus(Clamp(Rune(5))))),
 		want:  "{a}12{..}34{a}",
 	},
+	{
+		name:  "clamp plus",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(5)).Plus(Rune(0))),
+		want:  "12{..}34{aa}",
+	},
+	{
+		name:  "clamp minus",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(5)).Minus(Rune(1))),
+		want:  "12{..}3{aa}4",
+	},
+	{
+		name:  "clamp to",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(5)).To(Rune(4))),
+		want:  "12{..}34{aa}",
+	},
+	{
+		name:  "clamp then",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(5)).Then(Rune(4))),
+		want:  "12{..}34{aa}",
+	},
 }
 
 func TestAddressClamp(t *testing.T) {
-	for _, test := range dotTests {
+	for _, test := range clampTests {
 		test.run(t)
 	}
 }
 
 func TestAddressClampFromString(t *testing.T) {
-	for _, test := range dotTests {
+	for _, test := range clampTests {
 		test.runFromString(t)
 	}
 }

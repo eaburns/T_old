@@ -166,7 +166,7 @@ type SimpleAddress interface {
 	reverse() SimpleAddress
 }
 
-type clamp struct{ SimpleAddress }
+type clamp struct{ addr SimpleAddress }
 
 // Clamp returns the SimpleAddress, a,
 // clamped to the endpoints of the Text.
@@ -174,14 +174,16 @@ type clamp struct{ SimpleAddress }
 // Clamp(a) returns the empty Address
 // at the beginning or end of the text.
 func Clamp(a SimpleAddress) SimpleAddress             { return clamp{a} }
-func (a clamp) String() string                        { return "!" + a.SimpleAddress.String() }
+func (a clamp) String() string                        { return "!" + a.addr.String() }
 func (a clamp) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
 func (a clamp) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
 func (a clamp) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a clamp) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+func (a clamp) reverse() SimpleAddress                { return Clamp(a.addr.reverse()) }
+func (a clamp) Where(text Text) (Span, error)         { return a.where(0, text) }
 
-func (a clamp) Where(text Text) (Span, error) {
-	s, err := a.SimpleAddress.Where(text)
+func (a clamp) where(from int64, text Text) (Span, error) {
+	s, err := a.addr.where(from, text)
 	if r, ok := err.(RangeError); ok {
 		return Span{int64(r), int64(r)}, nil
 	}
@@ -195,14 +197,13 @@ func (a end) To(b AdditiveAddress) Address          { return to{left: a, right: 
 func (a end) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
 func (a end) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a end) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+func (a end) reverse() SimpleAddress                { return a }
 func (a end) Where(text Text) (Span, error)         { return a.where(0, text) }
 
 func (a end) where(from int64, text Text) (Span, error) {
 	size := text.Size()
 	return Span{size, size}, nil
 }
-
-func (a end) reverse() SimpleAddress { return a }
 
 type line int
 
@@ -220,6 +221,7 @@ func (a line) To(b AdditiveAddress) Address          { return to{left: a, right:
 func (a line) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
 func (a line) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a line) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+func (a line) reverse() SimpleAddress                { return line(int(-a)) }
 func (a line) Where(text Text) (Span, error)         { return a.where(0, text) }
 
 func (a line) where(from int64, text Text) (Span, error) {
@@ -228,8 +230,6 @@ func (a line) where(from int64, text Text) (Span, error) {
 	}
 	return lineForward(int(a), from, text)
 }
-
-func (a line) reverse() SimpleAddress { return line(int(-a)) }
 
 func lineForward(n int, from int64, text Text) (Span, error) {
 	s := Span{from, from}
@@ -360,9 +360,9 @@ func (a mark) To(b AdditiveAddress) Address           { return to{left: a, right
 func (a mark) Then(b AdditiveAddress) Address         { return then{left: a, right: b} }
 func (a mark) Plus(b SimpleAddress) AdditiveAddress   { return plus{left: a, right: b} }
 func (a mark) Minus(b SimpleAddress) AdditiveAddress  { return minus{left: a, right: b} }
+func (a mark) reverse() SimpleAddress                 { return a }
 func (a mark) Where(text Text) (Span, error)          { return a.where(0, text) }
 func (a mark) where(_ int64, text Text) (Span, error) { return text.Mark(rune(a)), nil }
-func (a mark) reverse() SimpleAddress                 { return a }
 
 type regexpAddr struct {
 	regexp string
@@ -397,7 +397,13 @@ func (a regexpAddr) To(b AdditiveAddress) Address          { return to{left: a, 
 func (a regexpAddr) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
 func (a regexpAddr) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a regexpAddr) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
-func (a regexpAddr) Where(text Text) (Span, error)         { return a.where(text.Mark('.')[1], text) }
+
+func (a regexpAddr) reverse() SimpleAddress {
+	a.rev = !a.rev
+	return a
+}
+
+func (a regexpAddr) Where(text Text) (Span, error) { return a.where(text.Mark('.')[1], text) }
 
 func (a regexpAddr) where(from int64, text Text) (Span, error) {
 	re, err := regexpCompile(a.regexp)
@@ -414,11 +420,6 @@ func (a regexpAddr) where(from int64, text Text) (Span, error) {
 		return Span{}, errors.New("no match")
 	}
 	return Span{int64(m[0]), int64(m[1])}, nil
-}
-
-func (a regexpAddr) reverse() SimpleAddress {
-	a.rev = !a.rev
-	return a
 }
 
 func match(re *regexp.Regexp, s Span, text Text) []int {
@@ -485,6 +486,7 @@ func (a runeAddr) String() string                        { return "#" + strconv.
 func (a runeAddr) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
 func (a runeAddr) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
 func (a runeAddr) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
+func (a runeAddr) reverse() SimpleAddress                { return runeAddr(-a) }
 func (a runeAddr) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
 func (a runeAddr) Where(text Text) (Span, error)         { return a.where(0, text) }
 
@@ -514,8 +516,6 @@ func (a runeAddr) where(from int64, text Text) (Span, error) {
 	}
 	return Span{from, from}, nil
 }
-
-func (a runeAddr) reverse() SimpleAddress { return runeAddr(-a) }
 
 const (
 	digits      = "0123456789"
