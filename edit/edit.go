@@ -483,7 +483,6 @@ func (e Substitute) Do(ed Editor, _ io.Writer) error {
 		return err
 	}
 	return ed.Apply()
-
 }
 
 func regexpSub(re *regexp.Regexp, match []int, with string, ed Editor) error {
@@ -513,9 +512,81 @@ func regexpSub(re *regexp.Regexp, match []int, with string, ed Editor) error {
 	return ed.Change(dst, bytes.NewReader(repl))
 }
 
+type loop struct {
+	Address
+	regexp string
+	body   Edit
+}
+
+// Loop returns an Edit that performs another Edit, body,
+// for each match of a regular expression within an Address.
+// The body edit is executed with dot set to the corresponding match.
+// After all matches, dot is set to the last match;
+// if there were no matches then it is set to the Address.
+//
+// If the regexp is empty, ".*\n" is used.
+func Loop(a Address, re string, body Edit) Edit {
+	if re == "" {
+		re = ".*\n"
+	}
+	return loop{Address: a, regexp: re, body: body}
+}
+
+func (e loop) String() string {
+	return e.Address.String() + "x/" + Escape(e.regexp, '/') + "/" + e.body.String()
+}
+
+type ignoreApply struct{ Editor }
+
+func (ignoreApply) Apply() error { return nil }
+
+func (e loop) Do(ed Editor, print io.Writer) error {
+	s, err := e.Address.Where(ed)
+	if err != nil {
+		return err
+	}
+	re, err := regexpCompile(e.regexp)
+	if err != nil {
+		return err
+	}
+
+	dot := s
+	var prev []int
+	from := s[0]
+	for from <= s[1] { // Allow one run on an empty input.
+		m := match(re, Span{from, s[1]}, ed)
+		if len(m) < 2 {
+			break
+		}
+		if m[0] == m[1] {
+			from++
+		} else {
+			from = int64(m[1])
+		}
+		if len(prev) >= 2 && m[0] == m[1] && m[1] == prev[1] {
+			// Skip an empty match immediately following the previous match.
+			prev = m
+			continue
+		}
+		prev = m
+
+		dot = Span{int64(m[0]), int64(m[1])}
+		if err := ed.SetMark('.', dot); err != nil {
+			return err
+		}
+		if err := e.body.Do(ignoreApply{ed}, print); err != nil {
+			return err
+		}
+	}
+	if err := ed.SetMark('.', dot); err != nil {
+		return err
+	}
+	return ed.Apply()
+}
+
 type pipe struct {
+	Address
 	cmd      string
-	a        Address
 	to, from bool
 }
 
@@ -534,7 +605,7 @@ type pipe struct {
 // the SHELL environment variable
 // or DefaultShell if SHELL is unset.
 func Pipe(a Address, cmd string) Edit {
-	return pipe{cmd: cmd, a: a, to: true, from: true}
+	return pipe{Address: a, cmd: cmd, to: true, from: true}
 }
 
 // PipeTo returns an Edit like Pipe,
@@ -542,14 +613,14 @@ func Pipe(a Address, cmd string) Edit {
 // is written to the writer,
 // and does not overwrite the address a.
 func PipeTo(a Address, cmd string) Edit {
-	return pipe{cmd: cmd, a: a, to: true}
+	return pipe{Address: a, cmd: cmd, to: true}
 }
 
 // PipeFrom returns an Edit like Pipe,
 // but the standard input of the command
 // is connected to an empty reader.
 func PipeFrom(a Address, cmd string) Edit {
-	return pipe{cmd: cmd, a: a, from: true}
+	return pipe{Address: a, cmd: cmd, from: true}
 }
 
 func (e pipe) String() string {
@@ -559,7 +630,7 @@ func (e pipe) String() string {
 	} else if !e.from {
 		pipe = ">"
 	}
-	return e.a.String() + pipe + escNewlines(e.cmd) + "\n"
+	return e.Address.String() + pipe + escNewlines(e.cmd) + "\n"
 }
 
 func escNewlines(s string) string {
@@ -588,7 +659,7 @@ func shell() string {
 }
 
 func (e pipe) Do(ed Editor, print io.Writer) error {
-	s, err := e.a.Where(ed)
+	s, err := e.Where(ed)
 	if err != nil {
 		return err
 	}
@@ -753,6 +824,18 @@ func (e redo) Do(ed Editor, _ io.Writer) error {
 //
 //		If an address is not supplied, dot is used.
 //		Dot is set to the modified address.
+//
+// 	{addr} x/regexp/edit
+// 		Executes an edit for each match of regexp within the Address.
+// 		The edit is executed with dot set to the match.
+//
+// 		The regexp uses the same syntax as described for substitute.
+// 		However, if the regexp is empty, ".*\n" is used.
+//
+//		If an address is not supplied, dot is used.
+// 		After all matches, dot is set to the last match;
+// 		if there were no matches then it is set to the Address.
+//
 //	{addr} k {name}
 //		Sets the named mark to the address.
 //		If an address is not supplied, dot is used.
@@ -928,6 +1011,31 @@ func Ed(rs io.RuneScanner) (Edit, error) {
 			}
 		}
 		return sub, nil
+	case r == 'x':
+		if err := skipSpace(rs); err != nil {
+			return nil, err
+		}
+		delim, _, err := rs.ReadRune()
+		switch {
+		case err != nil && err != io.EOF:
+			return nil, err
+		case err == io.EOF:
+			return Loop(a, "", Set(Dot, '.')), nil
+		case delim == '\n':
+			return Loop(a, "", Set(Dot, '.')), rs.UnreadRune()
+		}
+		re, err := parseDelimited(delim, rs)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := regexpCompile(re); err != nil {
+			return nil, err
+		}
+		edit, err := Ed(rs)
+		if err != nil {
+			return nil, err
+		}
+		return Loop(a, re, edit), nil
 	case r == '|' || r == '>' || r == '<':
 		c, err := parseCmd(rs)
 		if err != nil {

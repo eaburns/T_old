@@ -210,6 +210,21 @@ func TestEd(t *testing.T) {
 		{str: "s" + strconv.FormatInt(math.MaxInt64, 10) + "0" + "/a/b/g", error: "value out of range"},
 		{str: "s/*", error: "missing"},
 
+		{str: "x/*", error: "missing"},
+		{str: ",x/abc/.d", edit: Loop(All, "abc", Delete(Dot))},
+		{str: ",x//.d", edit: Loop(All, ".*\n", Delete(Dot))},
+		{str: ",x/abc/s/b/B", edit: Loop(All, "abc", Sub(Dot, "b", "B"))},
+		{
+			str:  ",x/[a-zA-Z]*/x/[a-z]*/x/[abc]/d",
+			edit: Loop(All, "[a-zA-Z]*", Loop(Dot, "[a-z]*", Loop(Dot, "[abc]", Delete(Dot)))),
+		},
+		{str: "x/abc/d", edit: Loop(Dot, "abc", Delete(Dot))},
+		{str: "x /abc/d", edit: Loop(Dot, "abc", Delete(Dot))},
+		{str: "x", edit: Loop(Dot, "", Set(Dot, '.'))},
+		{str: "x/", edit: Loop(Dot, "", Set(Dot, '.'))},
+		{str: "x//", edit: Loop(Dot, "", Set(Dot, '.'))},
+		{str: "x//\nd", left: "\nd", edit: Loop(Dot, "", Set(Dot, '.'))},
+
 		{str: "|cmd", edit: Pipe(Dot, "cmd")},
 		{str: "|	   cmd", edit: Pipe(Dot, "cmd")},
 		{str: "|cmd\nleft", left: "\nleft", edit: Pipe(Dot, "cmd")},
@@ -392,6 +407,13 @@ func TestEditString(t *testing.T) {
 		{Substitute{Address: All, Regexp: "a*", With: "b", From: 2}, `0,$s2/a*/b/`},
 		{Substitute{Address: All, Regexp: "a*", With: "b", From: 0}, `0,$s/a*/b/`},
 		{Substitute{Address: All, Regexp: "a*", With: "b", From: -1}, `0,$s/a*/b/`},
+
+		{Loop(All, `\w*`, Delete(Dot)), `0,$x/\\w*/.d`},
+		{Loop(All, `\w*`, Sub(Dot, `\w`, "B")), `0,$x/\\w*/.s/\\w/B/`},
+		{
+			Loop(All, "[a-zA-Z]*", Loop(Dot, "[a-z]*", Loop(Dot, "[abc]", Delete(Dot)))),
+			`0,$x/[a-zA-Z]*/.x/[a-z]*/.x/[abc]/.d`,
+		},
 	}
 	for _, test := range tests {
 		if s := test.edit.String(); s != test.str {
@@ -1392,6 +1414,99 @@ func TestEditSubstituteFromString(t *testing.T) {
 	}
 }
 
+var loopTests = []editTest{
+	{
+		name:  "out of range",
+		do:    []Edit{Loop(Rune(1), "a", Delete(Dot))},
+		error: "out of range",
+	},
+	{
+		name:  "bad regexp",
+		do:    []Edit{Loop(Rune(0), "*", Delete(Dot))},
+		error: "missing",
+	},
+	{
+		name:  "empty buffer",
+		given: "{..}",
+		do:    []Edit{Loop(Rune(0), ".*", Append(Dot, "abc"))},
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "loop where",
+		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
+		do:    []Edit{Loop(All, `<[^>]*>`, Where(Dot))},
+		want:  "abc<abc>abc<abcXYZabc>abcXYZabc{.}<abc>{.}abc",
+		// BUG(eaburns): #201 where doesn't print newlines.
+		print: "#3,#8#11,#22#31,#36",
+	},
+	{
+		name:  "loop where line",
+		given: "{..}abc<abc>\nabc\n<abcXYZabc>abcXYZabc\n<abc>abc",
+		do:    []Edit{Loop(All, `<[^>]*>`, WhereLine(Dot))},
+		want:  "abc<abc>\nabc\n<abcXYZabc>abcXYZabc\n{.}<abc>{.}abc",
+		// BUG(eaburns): #201 where line doesn't print newlines.
+		print: "134",
+	},
+	{
+		name:  "loop print",
+		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
+		do:    []Edit{Loop(All, `<[^>]*>`, Print(Dot))},
+		want:  "abc<abc>abc<abcXYZabc>abcXYZabc{.}<abc>{.}abc",
+		print: "<abc><abcXYZabc><abc>",
+	},
+	{
+		name:  "loop change",
+		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
+		do:    []Edit{Loop(All, `<[^>]*>`, Change(Dot, "_"))},
+		want:  "abc_abc_abcXYZabc{.}_{.}abc",
+	},
+	{
+		name:  "loop subst",
+		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
+		do:    []Edit{Loop(All, `<[^>]*>`, SubGlobal(Dot, "[abc]+", "xyz"))},
+		want:  "abc<xyz>abc<xyzXYZxyz>abcXYZabc{.}<xyz>{.}abc",
+	},
+	{
+		name:  "loop loop",
+		given: "{..}♔♞<[Hello]abc[World]>abc[ABC]xyz<[αβξ]123[☺☹☺]456[___]>",
+		do:    []Edit{Loop(All, `<[^>]*>`, Loop(Dot, `\[[^\]]*\]`, Delete(Dot)))},
+		want:  "♔♞<abc>abc[ABC]xyz{.}<123456>{.}",
+	},
+	{
+		name:  "loop address not all",
+		given: "{..}abc<123>___<123456>___<123>abc",
+		do:    []Edit{Loop(Regexp("___").Then(Regexp("___")), `<[^>]*>`, Delete(Dot))},
+		want:  "abc<123>___{..}___<123>abc",
+	},
+	{
+		name:  "loop every rune",
+		given: "{..}abcdefg",
+		do:    []Edit{Loop(All, `.`, Append(Dot, "."))},
+		// BUG(eaburns): It would be best to set dot only around g.
+		// But I suspect that it's difficult to fix this particular bug,
+		// and perhaps not worth the effort.
+		want: "a.b.c.d.e.f{.}.g.{.}",
+	},
+	{
+		name:  "loop empty match",
+		given: "{..}abcxyz",
+		do:    []Edit{Loop(All, `x*`, Change(Dot, "."))},
+		want:  ".a.b.c.y.z{.}.{.}",
+	},
+}
+
+func TestEditLoop(t *testing.T) {
+	for _, test := range loopTests {
+		test.run(t)
+	}
+}
+
+func TestEditLoopFromString(t *testing.T) {
+	for _, test := range loopTests {
+		test.runFromString(t)
+	}
+}
+
 var pipeFromTests = []editTest{
 	{
 		name:  "out of range",
@@ -1662,6 +1777,15 @@ var undoTests = []editTest{
 		want: "abc{.}<abc>abc<abcXYZabc>abcXYZabc<abc>{.}abc",
 	},
 	{
+		name:  "multi-edit undo",
+		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
+		do: []Edit{
+			Loop(All, `<[^>]*>`, Change(Dot, "___")),
+			Undo(1),
+		},
+		want: "abc{.}<abc>abc<abcXYZabc>abcXYZabc<abc>{.}abc",
+	},
+	{
 		name:  "update marks",
 		given: "{.}{z}ZZZ{z}{a}AbA{a}{x}XXX{x}{.}",
 		do: []Edit{
@@ -1748,6 +1872,16 @@ var redoTests = []editTest{
 		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
 		do: []Edit{
 			SubGlobal(All, `<[^>]*>`, "___"),
+			Undo(1),
+			Redo(1),
+		},
+		want: "abc{.}___abc___abcXYZabc___{.}abc",
+	},
+	{
+		name:  "multi-edit redo",
+		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
+		do: []Edit{
+			Loop(All, `<[^>]*>`, Change(Dot, "___")),
 			Undo(1),
 			Redo(1),
 		},
