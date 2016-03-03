@@ -330,15 +330,15 @@ func (e where) Do(ed Editor, print io.Writer) error {
 			return err
 		}
 		if l0 == l1 {
-			_, err = fmt.Fprintf(print, "%d", l0)
+			_, err = fmt.Fprintf(print, "%d\n", l0)
 		} else {
-			_, err = fmt.Fprintf(print, "%d,%d", l0, l1)
+			_, err = fmt.Fprintf(print, "%d,%d\n", l0, l1)
 		}
 	} else {
 		if s.Size() == 0 {
-			_, err = fmt.Fprintf(print, "#%d", s[0])
+			_, err = fmt.Fprintf(print, "#%d\n", s[0])
 		} else {
-			_, err = fmt.Fprintf(print, "#%d,#%d", s[0], s[1])
+			_, err = fmt.Fprintf(print, "#%d,#%d\n", s[0], s[1])
 		}
 	}
 	if err != nil {

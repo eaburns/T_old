@@ -4,9 +4,7 @@ package edit
 
 import (
 	"bufio"
-	"fmt"
 	"io"
-	"os"
 
 	"github.com/eaburns/T/edit/runes"
 )
@@ -226,7 +224,6 @@ func (buf *Buffer) Undo() error {
 			all[0] = e.span[0]
 		}
 		all[1] = e.span[0] + e.size
-
 		if err := buf.change(e.span, e.data()); err != nil {
 			return err
 		}
@@ -265,9 +262,6 @@ func (buf *Buffer) Redo() error {
 		} else {
 			all[1] += e.size - e.span.Size()
 		}
-
-		fmt.Fprintf(os.Stderr, "	change(%v, size=%d)\n", e.span, e.size)
-
 		if err := buf.change(e.span, e.data()); err != nil {
 			return err
 		}
