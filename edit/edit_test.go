@@ -1653,6 +1653,15 @@ var undoTests = []editTest{
 		want: "a{.}.a.{.}a",
 	},
 	{
+		name:  "multi-change undo 2",
+		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
+		do: []Edit{
+			SubGlobal(All, `<[^>]*>`, "___"),
+			Undo(1),
+		},
+		want: "abc{.}<abc>abc<abcXYZabc>abcXYZabc<abc>{.}abc",
+	},
+	{
 		name:  "update marks",
 		given: "{.}{z}ZZZ{z}{a}AbA{a}{x}XXX{x}{.}",
 		do: []Edit{
@@ -1735,6 +1744,16 @@ var redoTests = []editTest{
 		want: "a{.}zaz{.}a",
 	},
 	{
+		name:  "multi-change redo 2",
+		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
+		do: []Edit{
+			SubGlobal(All, `<[^>]*>`, "___"),
+			Undo(1),
+			Redo(1),
+		},
+		want: "abc{.}___abc___abcXYZabc___{.}abc",
+	},
+	{
 		name:  "update marks",
 		given: "{.}{z}ZZZ{z}{a}AbA{a}{x}XXX{x}{.}",
 		do: []Edit{
@@ -1756,6 +1775,38 @@ var redoTests = []editTest{
 			Redo(1),
 		},
 		want: "abc{.}xyz{.}",
+	},
+	{
+		name:  "multi-change, redo undo, repeat",
+		given: "{..}aabaab",
+		do: []Edit{
+			SubGlobal(All, `a*`, "_"),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+		},
+		want: "{.}_b_b_{.}",
+	},
+	{
+		name:  "multi-change, redo undo, repeat 2",
+		given: "{..}abc<abc>abc<abcXYZabc>abcXYZabc<abc>abc",
+		do: []Edit{
+			SubGlobal(All, `<[^>]*>`, "___"),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+			Undo(1),
+			Redo(1),
+		},
+		want: "abc{.}___abc___abcXYZabc___{.}abc",
 	},
 }
 

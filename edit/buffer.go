@@ -4,7 +4,9 @@ package edit
 
 import (
 	"bufio"
+	"fmt"
 	"io"
+	"os"
 
 	"github.com/eaburns/T/edit/runes"
 )
@@ -132,14 +134,10 @@ func (buf *Buffer) Change(s Span, r io.Reader) error {
 }
 
 func (buf *Buffer) Apply() error {
-	dot, err := fixAddrs(buf.marks['.'], buf.pending)
-	if err != nil {
-		return err
+	if !inSequence(buf.pending) {
+		return ErrOutOfSequence
 	}
 
-	if err := buf.redo.clear(); err != nil {
-		return err
-	}
 	for e := logFirst(buf.pending); !e.end(); e = e.next() {
 		undoSpan := Span{e.span[0], e.span[0] + e.size}
 		undoSrc := buf.runes.Reader(e.span[0])
@@ -147,6 +145,16 @@ func (buf *Buffer) Apply() error {
 		if err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
 			return err
 		}
+	}
+
+	dot, err := fixAddrs(buf.marks['.'], buf.pending)
+	if err != nil {
+		return err
+	}
+	if err := buf.redo.clear(); err != nil {
+		return err
+	}
+	for e := logFirst(buf.pending); !e.end(); e = e.next() {
 		if err := buf.change(e.span, e.data()); err != nil {
 			return err
 		}
@@ -161,9 +169,6 @@ func (buf *Buffer) Apply() error {
 }
 
 func fixAddrs(s Span, l *log) (Span, error) {
-	if !inSequence(l) {
-		return Span{}, ErrOutOfSequence
-	}
 	for e := logFirst(l); !e.end(); e = e.next() {
 		if e.span[0] == s[0] {
 			// If they have the same from, grow at.
@@ -204,21 +209,12 @@ func (buf *Buffer) Undo() error {
 	}
 	defer func() { buf.marks = marks0 }()
 
-	e := logLast(buf.undo)
-	if e.end() {
+	all := Span{-1, 0}
+	start := logLastFrame(buf.undo)
+	if start.end() {
 		return nil
 	}
-	for {
-		prev := e.prev()
-		if prev.end() || prev.seq != e.seq {
-			break
-		}
-		e = prev
-	}
-
-	all := Span{buf.Size() + 1, -1}
-	start := e
-	for !e.end() {
+	for e := start; !e.end(); e = e.next() {
 		redoSpan := Span{e.span[0], e.span[0] + e.size}
 		redoSrc := buf.runes.Reader(e.span[0])
 		redoSrc = runes.LimitReader(redoSrc, e.span.Size())
@@ -226,20 +222,14 @@ func (buf *Buffer) Undo() error {
 			return err
 		}
 
-		// There is no need to call all.update,
-		// because changes always apply
-		// in sequence of increasing addresses.
-		if e.span[0] < all[0] {
+		if all[0] < 0 {
 			all[0] = e.span[0]
 		}
-		if to := e.span[0] + e.size; to > all[1] {
-			all[1] = to
-		}
+		all[1] = e.span[0] + e.size
 
 		if err := buf.change(e.span, e.data()); err != nil {
 			return err
 		}
-		e = e.next()
 	}
 	buf.marks['.'] = all
 	marks0 = buf.marks
@@ -254,43 +244,39 @@ func (buf *Buffer) Redo() error {
 	}
 	defer func() { buf.marks = marks0 }()
 
-	e := logLast(buf.redo)
-	if e.end() {
+	start := logLastFrame(buf.redo)
+	if start.end() {
 		return nil
 	}
-
-	all := Span{buf.Size() + 1, -1}
-	for {
+	for e := start; !e.end(); e = e.next() {
 		undoSpan := Span{e.span[0], e.span[0] + e.size}
 		undoSrc := buf.runes.Reader(e.span[0])
 		undoSrc = runes.LimitReader(undoSrc, e.span.Size())
 		if err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
 			return err
 		}
+	}
 
-		// There is no need to call all.update,
-		// because changes always apply
-		// in sequence of increasing addresses.
-		if e.span[0] < all[0] {
-			all[0] = e.span[0]
+	all := Span{0, -1}
+	for e := logLast(buf.redo); e != start.prev(); e = e.prev() {
+		all[0] = e.span[0]
+		if all[1] < 0 {
+			all[1] = e.span[0] + e.size
+		} else {
+			all[1] += e.size - e.span.Size()
 		}
-		if to := e.span[0] + e.size; to > all[1] {
-			all[1] = to
-		}
+
+		fmt.Fprintf(os.Stderr, "	change(%v, size=%d)\n", e.span, e.size)
 
 		if err := buf.change(e.span, e.data()); err != nil {
 			return err
 		}
-		if p := e.prev(); p.end() || p.seq != e.seq {
-			break
-		} else {
-			e = p
-		}
 	}
+
 	buf.marks['.'] = all
 	marks0 = buf.marks
 	buf.seq++
-	return e.pop()
+	return start.pop()
 }
 
 // A log holds a record of changes made to a buffer.
@@ -402,6 +388,21 @@ func logAt(l *log, offs int64) entry {
 	it := entry{l: l, offs: offs}
 	it.load()
 	return it
+}
+
+// LogLastFrame returns the start of the last frame on the log.
+// A frame is a sequence of log entries with the same seq.
+// If the log is empty, logLastFrame returns the dummy end entry.
+func logLastFrame(l *log) entry {
+	e := logLast(l)
+	for !e.end() {
+		prev := e.prev()
+		if prev.end() || prev.seq != e.seq {
+			break
+		}
+		e = prev
+	}
+	return e
 }
 
 // End returns whether the entry is the dummy end entry.
