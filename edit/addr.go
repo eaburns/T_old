@@ -3,6 +3,7 @@
 package edit
 
 import (
+	"errors"
 	"io"
 	"regexp"
 	"strconv"
@@ -20,6 +21,15 @@ var (
 	// End is the Address of the empty string at the end of the Text.
 	End SimpleAddress = end{}
 )
+
+// ErrNoMatch is returned when a regular expression fails to match.
+var ErrNoMatch = errors.New("no match")
+
+// A RangeError is returned if an Address is out of range of the buffer.
+// The value of the error is the bounding endpoint of the buffer.
+type RangeError int64
+
+func (err RangeError) Error() string { return "out of range" }
 
 // An Address identifies a Span within a Text.
 type Address interface {
@@ -156,6 +166,28 @@ type SimpleAddress interface {
 	reverse() SimpleAddress
 }
 
+type clamp struct{ SimpleAddress }
+
+// Clamp returns the SimpleAddress, a,
+// clamped to the endpoints of the Text.
+// Where a would return a RangeError,
+// Clamp(a) returns the empty Address
+// at the beginning or end of the text.
+func Clamp(a SimpleAddress) SimpleAddress             { return clamp{a} }
+func (a clamp) String() string                        { return "!" + a.SimpleAddress.String() }
+func (a clamp) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
+func (a clamp) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a clamp) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
+func (a clamp) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+
+func (a clamp) Where(text Text) (Span, error) {
+	s, err := a.SimpleAddress.Where(text)
+	if r, ok := err.(RangeError); ok {
+		return Span{int64(r), int64(r)}, nil
+	}
+	return s, err
+}
+
 type end struct{}
 
 func (a end) String() string                        { return "$" }
@@ -249,7 +281,7 @@ func lineForward(n int, from int64, text Text) (Span, error) {
 		}
 	}
 	if n > 1 || n == 1 && s[1] < text.Size() {
-		return Span{}, ErrRange
+		return Span{}, RangeError(text.Size())
 	}
 	return s, nil
 }
@@ -289,7 +321,7 @@ func lineBackward(n int, from int64, text Text) (Span, error) {
 		}
 	}
 	if n > 1 {
-		return Span{}, ErrRange
+		return Span{}, RangeError(0)
 	}
 	for {
 		r, w, err := rr.ReadRune()
@@ -379,7 +411,7 @@ func (a regexpAddr) where(from int64, text Text) (Span, error) {
 		m = nextMatch(re, from, text, true)
 	}
 	if len(m) < 2 {
-		return Span{}, ErrNoMatch
+		return Span{}, errors.New("no match")
 	}
 	return Span{int64(m[0]), int64(m[1])}, nil
 }
@@ -468,7 +500,11 @@ func (a runeAddr) where(from int64, text Text) (Span, error) {
 	for a > 0 {
 		switch _, w, err := rr.ReadRune(); {
 		case err == io.EOF:
-			return Span{}, ErrRange
+			var err RangeError
+			if delta > 0 {
+				err = RangeError(text.Size())
+			}
+			return Span{}, err
 		case err != nil:
 			return Span{}, err
 		default:
@@ -483,14 +519,14 @@ func (a runeAddr) reverse() SimpleAddress { return runeAddr(-a) }
 
 const (
 	digits      = "0123456789"
-	simpleFirst = "#/$.'" + digits
+	simpleFirst = "!#/$.'" + digits
 )
 
 // Addr parses and returns an address.
 //
 // The address syntax for address a is:
 // 	a: {a} , {aa} | {a} ; {aa} | {aa}
-// 	aa: {aa} + {sa} | {aa} - {sa} | {aa} {sa} | {sa}
+// 	aa: {aa} + {sa} | {aa} - {sa} | {aa} {sa} | {!} {sa}
 // 	sa: $ | . | 'r | #{n} | n | / regexp {/}
 // 	n: [0-9]+
 // 	r: any non-space rune
@@ -507,6 +543,14 @@ const (
 // 		The regexp uses the syntax of the standard library regexp package,
 // 		except that \, raw newlines, and / must be escaped with \.
 // 		The regexp is wrapped in (?m:<regexp>), making it multi-line by default.
+//
+// Simple addresses may be prefixed with !.
+// Such an address is clamped
+// to the beginning or end of the text
+// whenever it would return an out of range error.
+// For example,
+// 	.+25 is the 25th line after dot, or an error if there are fewer than 25 lines after dot.
+// 	.+!25 is the 25th line after dot, or $ if there are fewer than 25 lines after dot.
 //
 // Production aa describes an additive address:
 //	{aa} '+' {sa} is the second address evaluated from the end of the first.
@@ -674,6 +718,15 @@ func parseSimpleAddress(rs io.RuneScanner) (SimpleAddress, error) {
 		return End, nil
 	case r == '.':
 		return Dot, nil
+	case r == '!':
+		a, err := parseSimpleAddress(rs)
+		if err != nil {
+			return nil, err
+		}
+		if a == nil {
+			a = Dot
+		}
+		return Clamp(a), nil
 	default:
 		return nil, rs.UnreadRune()
 	}
