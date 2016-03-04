@@ -104,6 +104,12 @@ import (
 	"unicode/utf8"
 )
 
+func setDot(ed Editor, span Span) {
+	if err := ed.SetMark('.', span); err != nil {
+		panic(err)
+	}
+}
+
 // An Edit is an operation that can be made on a Buffer by an Editor.
 type Edit interface {
 	// String returns the string representation of the edit.
@@ -161,12 +167,8 @@ func (e change) Do(ed Editor, _ io.Writer) error {
 	case 'i':
 		s[1] = s[0]
 	}
-	if err := ed.Change(s, strings.NewReader(e.str)); err != nil {
-		return err
-	}
-	if err := ed.SetMark('.', s); err != nil {
-		return err
-	}
+	setDot(ed, s)
+	ed.Change(s, strings.NewReader(e.str))
 	return ed.Apply()
 }
 
@@ -192,28 +194,19 @@ func (e move) Do(ed Editor, _ io.Writer) error {
 		return err
 	}
 	dst[0] = dst[1]
-
 	if dst[0] > src[0] && dst[0] < src[1] {
 		return errors.New("move addresses overlap")
 	}
+	setDot(ed, dst)
 
 	if dst[0] >= src[1] {
 		// Moving to after the source. Delete the source first.
-		if err := ed.Change(src, strings.NewReader("")); err != nil {
-			return err
-		}
+		ed.Change(src, strings.NewReader(""))
 	}
-	if err := ed.Change(dst, ed.Reader(src)); err != nil {
-		return err
-	}
+	ed.Change(dst, ed.Reader(src))
 	if dst[0] <= src[0] {
 		// Moving to before the source. Delete the source second.
-		if err := ed.Change(src, strings.NewReader("")); err != nil {
-			return err
-		}
-	}
-	if err := ed.SetMark('.', dst); err != nil {
-		return err
+		ed.Change(src, strings.NewReader(""))
 	}
 	return ed.Apply()
 
@@ -240,12 +233,8 @@ func (e copyEdit) Do(ed Editor, _ io.Writer) error {
 		return err
 	}
 	dst[0] = dst[1]
-	if err := ed.Change(dst, ed.Reader(src)); err != nil {
-		return err
-	}
-	if err := ed.SetMark('.', dst); err != nil {
-		return err
-	}
+	setDot(ed, dst)
+	ed.Change(dst, ed.Reader(src))
 	return ed.Apply()
 }
 
@@ -289,10 +278,9 @@ func (e print) Do(ed Editor, print io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(print, ed.Reader(s)); err != nil {
-		return err
-	}
-	return ed.SetMark('.', s)
+	setDot(ed, s)
+	_, err = io.Copy(print, ed.Reader(s))
+	return err
 }
 
 type where struct {
@@ -324,6 +312,7 @@ func (e where) Do(ed Editor, print io.Writer) error {
 	if err != nil {
 		return err
 	}
+	setDot(ed, s)
 	if e.line {
 		l0, l1, err := lines(ed, s)
 		if err != nil {
@@ -341,10 +330,7 @@ func (e where) Do(ed Editor, print io.Writer) error {
 			_, err = fmt.Fprintf(print, "#%d,#%d\n", s[0], s[1])
 		}
 	}
-	if err != nil {
-		return err
-	}
-	return ed.SetMark('.', s)
+	return err
 }
 
 func lines(ed Editor, s Span) (l0, l1 int64, err error) {
@@ -446,6 +432,8 @@ func (e Substitute) Do(ed Editor, _ io.Writer) error {
 	if err != nil {
 		return err
 	}
+	setDot(ed, s)
+
 	re, err := regexpCompile(e.Regexp)
 	if err != nil {
 		return err
@@ -479,9 +467,6 @@ func (e Substitute) Do(ed Editor, _ io.Writer) error {
 			}
 		}
 	}
-	if err := ed.SetMark('.', s); err != nil {
-		return err
-	}
 	return ed.Apply()
 }
 
@@ -509,7 +494,8 @@ func regexpSub(re *regexp.Regexp, match []int, with string, ed Editor) error {
 	}
 
 	repl := re.Expand(nil, []byte(with), src, matchSrc)
-	return ed.Change(dst, bytes.NewReader(repl))
+	ed.Change(dst, bytes.NewReader(repl))
+	return nil
 }
 
 type loop struct {
@@ -571,16 +557,12 @@ func (e loop) Do(ed Editor, print io.Writer) error {
 		prev = m
 
 		dot = Span{int64(m[0]), int64(m[1])}
-		if err := ed.SetMark('.', dot); err != nil {
-			return err
-		}
+		setDot(ed, dot)
 		if err := e.body.Do(ignoreApply{ed}, print); err != nil {
 			return err
 		}
 	}
-	if err := ed.SetMark('.', dot); err != nil {
-		return err
-	}
+	setDot(ed, dot)
 	return ed.Apply()
 }
 
@@ -663,6 +645,7 @@ func (e pipe) Do(ed Editor, print io.Writer) error {
 	if err != nil {
 		return err
 	}
+	setDot(ed, s)
 
 	cmd := exec.Command(shell(), "-c", e.cmd)
 	cmd.Stderr = print
@@ -676,7 +659,7 @@ func (e pipe) Do(ed Editor, print io.Writer) error {
 		if err := cmd.Run(); err != nil {
 			return err
 		}
-		return ed.SetMark('.', s)
+		return nil
 	}
 
 	r, err := cmd.StdoutPipe()
@@ -686,14 +669,8 @@ func (e pipe) Do(ed Editor, print io.Writer) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	changeErr := ed.Change(s, r)
+	ed.Change(s, r)
 	if err = cmd.Wait(); err != nil {
-		return err
-	}
-	if changeErr != nil {
-		return changeErr
-	}
-	if err := ed.SetMark('.', s); err != nil {
 		return err
 	}
 	return ed.Apply()
@@ -784,16 +761,12 @@ func (e block) Do(ed Editor, print io.Writer) error {
 		return err
 	}
 	for _, b := range e.body {
-		if err := ed.SetMark('.', s); err != nil {
-			return err
-		}
+		setDot(ed, s)
 		if err := b.Do(ignoreApply{ed}, print); err != nil {
 			return err
 		}
 	}
-	if err := ed.SetMark('.', s); err != nil {
-		return err
-	}
+	setDot(ed, s)
 	return ed.Apply()
 }
 

@@ -281,9 +281,7 @@ func TestIOErrors(t *testing.T) {
 		buf := newBuffer(r)
 		defer buf.Close()
 
-		if err := buf.Change(Span{}, strings.NewReader(helloWorld)); err != nil {
-			t.Fatalf("buf.Change(Span{}, %q)=%q, want nil", helloWorld, err)
-		}
+		buf.Change(Span{}, strings.NewReader(helloWorld))
 		if err := buf.Apply(); err != nil {
 			t.Fatalf("buf.Apply()=%q, want nil", err)
 		}

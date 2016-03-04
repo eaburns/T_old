@@ -29,9 +29,7 @@ func makeEditor(n int) (buf *Buffer, lines int, runes int64) {
 		}
 	}
 	buf = NewBuffer()
-	if err := buf.Change(Span{}, bytes.NewReader(data)); err != nil {
-		panic(err)
-	}
+	buf.Change(Span{}, bytes.NewReader(data))
 	if err := buf.Apply(); err != nil {
 		panic(err)
 	}
