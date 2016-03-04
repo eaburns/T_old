@@ -211,6 +211,7 @@ func TestEd(t *testing.T) {
 		{str: "s/*", error: "missing"},
 
 		{str: "x/*", error: "missing"},
+		{str: ",x\n", left: "\n", edit: Loop(All, ".*\n", Set(Dot, '.'))},
 		{str: ",x/abc/.d", edit: Loop(All, "abc", Delete(Dot))},
 		{str: ",x//.d", edit: Loop(All, ".*\n", Delete(Dot))},
 		{str: ",x/abc/s/b/B", edit: Loop(All, "abc", Sub(Dot, "b", "B"))},
