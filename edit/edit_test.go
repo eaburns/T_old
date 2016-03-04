@@ -211,6 +211,7 @@ func TestEd(t *testing.T) {
 		{str: "s/*", error: "missing"},
 
 		{str: "x/*", error: "missing"},
+		{str: ",x\n", left: "\n", edit: Loop(All, ".*\n", Set(Dot, '.'))},
 		{str: ",x/abc/.d", edit: Loop(All, "abc", Delete(Dot))},
 		{str: ",x//.d", edit: Loop(All, ".*\n", Delete(Dot))},
 		{str: ",x/abc/s/b/B", edit: Loop(All, "abc", Sub(Dot, "b", "B"))},
@@ -281,6 +282,57 @@ func TestEd(t *testing.T) {
 		{str: "r100", edit: Redo(100)},
 		{str: " r100", edit: Redo(100)},
 		{str: "r" + strconv.FormatInt(math.MaxInt64, 10) + "0", error: "value out of range"},
+
+		{str: "{bad edit}", error: "unknown"},
+		{str: "{}", edit: Block(Dot)},
+		{str: "{", edit: Block(Dot)},
+		{str: "{\n}", edit: Block(Dot)},
+		{str: "0,${}", edit: Block(All)},
+		{str: "0,${\n}", edit: Block(All)},
+		{str: "0,${.+1d}", edit: Block(All, Delete(Dot.Plus(Line(1))))},
+		{str: "0,${.+1d", edit: Block(All, Delete(Dot.Plus(Line(1))))},
+		{str: "0,${.d}abcxyz", left: "abcxyz", edit: Block(All, Delete(Dot))},
+		{
+			str: `0,${
+					.+1d
+					.+2d
+				}`,
+			edit: Block(All, Delete(Dot.Plus(Line(1))), Delete(Dot.Plus(Line(2)))),
+		},
+		{
+			str:  "0,${.+1d.+2d}",
+			edit: Block(All, Delete(Dot.Plus(Line(1))), Delete(Dot.Plus(Line(2)))),
+		},
+		{
+			str: `0,${
+				.+1c/xyz
+				.+2c/abc
+			}`,
+			edit: Block(All,
+				Change(Dot.Plus(Line(1)), "xyz"),
+				Change(Dot.Plus(Line(2)), "abc")),
+		},
+		{
+			str: "0,${.+1c/xyz/.+2c/abc/}",
+			edit: Block(All,
+				Change(Dot.Plus(Line(1)), "xyz"),
+				Change(Dot.Plus(Line(2)), "abc")),
+		},
+		{
+			str: `10,20{
+				.-0+1,.+0-1{
+					s/abc/xyz
+					.-1d
+				}
+			}`,
+			edit: Block(
+				Line(10).To(Line(20)),
+				Block(
+					Dot.Minus(Line(0)).Plus(Line(1)).To(
+						Dot.Plus(Line(0)).Minus(Line(1))),
+					Sub(Dot, "abc", "xyz"),
+					Delete(Dot.Minus(Line(1))))),
+		},
 	}
 	for _, test := range tests {
 		rs := strings.NewReader(test.str)
@@ -1950,6 +2002,61 @@ func TestEditRedo(t *testing.T) {
 
 func TestEditRedoFromString(t *testing.T) {
 	for _, test := range redoTests {
+		test.runFromString(t)
+	}
+}
+
+var blockTests = []editTest{
+	{
+		name:  "empty block",
+		given: "{.}abc{.}",
+		do:    []Edit{Block(Regexp("b"))},
+		want:  "a{.}b{.}c",
+	},
+	{
+		name:  "simple",
+		given: "{.}abc{.}",
+		do: []Edit{
+			Block(All,
+				Change(Regexp("a"), "b"),
+				Change(Regexp("b"), "c"),
+				Change(Regexp("c"), "d")),
+		},
+		want: "{.}bcd{.}",
+	},
+	{
+		name:  "out of sequence",
+		given: "{.}abc{.}",
+		do: []Edit{
+			Block(All,
+				Change(Regexp("c"), "d"),
+				Change(Regexp("b"), "c"),
+				Change(Regexp("a"), "b")),
+		},
+		error: "sequence",
+		want:  "{.}abc{.}",
+	},
+	{
+		name:  "nested",
+		given: "{.}AabcABCXYZxyzZ{.}",
+		do: []Edit{
+			Block(Regexp("c").To(Regexp("x")),
+				Block(Dot.Minus(Rune(0)).Plus(Regexp("A")),
+					Change(Dot, "αβξ"),
+					Change(Regexp("Z"), "χηζ"))),
+		},
+		want: "Aab{.}cαβξBCXYχηζx{.}yzZ",
+	},
+}
+
+func TestEditBlock(t *testing.T) {
+	for _, test := range blockTests {
+		test.run(t)
+	}
+}
+
+func TestEditBlockFromString(t *testing.T) {
+	for _, test := range blockTests {
 		test.runFromString(t)
 	}
 }

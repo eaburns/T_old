@@ -374,7 +374,7 @@ func lines(ed Editor, s Span) (l0, l1 int64, err error) {
 // Substitute is an Edit that substitutes regular expression matches.
 type Substitute struct {
 	// Address is the address in which to search for matches.
-	// After performing the edit, Dot is set the modified address A.
+	// After performing the edit, Dot is set the modified Address A.
 	Address Address
 
 	// Regexp is the regular expression to match.
@@ -416,7 +416,7 @@ type Substitute struct {
 // Sub returns a Substitute Edit
 // that substitutes the first occurrence
 // of the regular expression within a
-// and sets dot to the modified address a.
+// and sets dot to the modified Address a.
 func Sub(a Address, re, with string) Edit {
 	return Substitute{Address: a, Regexp: re, With: with, From: 1}
 }
@@ -424,7 +424,7 @@ func Sub(a Address, re, with string) Edit {
 // SubGlobal returns a Substitute Edit
 // that substitutes the all occurrences
 // of the regular expression within a
-// and sets dot to the modified address a.
+// and sets dot to the modified Address a.
 func SubGlobal(a Address, re, with string) Edit {
 	return Substitute{Address: a, Regexp: re, With: with, Global: true, From: 1}
 }
@@ -757,6 +757,46 @@ func (e redo) Do(ed Editor, _ io.Writer) error {
 	return nil
 }
 
+type block struct {
+	Address
+	body []Edit
+}
+
+// Block returns an Edit that performs a group of Edits insequence.
+// Dot is set to the Address a before performing each Edit in the group.
+// After the sequence, dot is set to the modified Address a.
+func Block(a Address, e ...Edit) Edit { return block{Address: a, body: e} }
+
+func (e block) String() string {
+	buf := bytes.NewBufferString(e.Address.String())
+	buf.WriteString("{\n")
+	for _, b := range e.body {
+		buf.WriteString(b.String())
+		buf.WriteRune('\n')
+	}
+	buf.WriteRune('}')
+	return buf.String()
+}
+
+func (e block) Do(ed Editor, print io.Writer) error {
+	s, err := e.Where(ed)
+	if err != nil {
+		return err
+	}
+	for _, b := range e.body {
+		if err := ed.SetMark('.', s); err != nil {
+			return err
+		}
+		if err := b.Do(ignoreApply{ed}, print); err != nil {
+			return err
+		}
+	}
+	if err := ed.SetMark('.', s); err != nil {
+		return err
+	}
+	return ed.Apply()
+}
+
 // Ed parses and returns an Edit.
 //
 // Edits are terminated by a newline, end of input, or the end of the edit.
@@ -777,34 +817,34 @@ func (e redo) Do(ed Editor, _ io.Writer) error {
 // Trailing delimiters may be elided, but the opening delimiter must be present.
 // In delimited text, \ is an escape; the following character is interpreted literally,
 // except \n which represents a literal newline.
-// Items in {} are optional.
+// Items in brackets, [], are optional.
 //
 // The edit language is:
 //	addr
 //		Sets the address of Dot.
-// 	{addr} a/text/
+// 	[addr] a/text/
 //	or
-//	{addr} a
+//	[addr] a
 //	lines of text
 //	.
 //		Appends text after the address.
 // 		In the text, all \, raw newlines, and / must be escaped with \.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-//	{addr} c
-//	{addr} i
+//	[addr] c
+//	[addr] i
 //		Just like a, but c changes the addressed text
 //		and i inserts before the addressed text.
 //		Dot is set to the address.
-//	{addr} d
+//	[addr] d
 //		Deletes the addressed text.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-//	{addr} t {addr}
-//	{addr} m {addr}
+//	[addr] t [addr]
+//	[addr] m [addr]
 //		Copies or moves runes from the first address to after the second.
 //		Dot is set to the newly inserted or moved runes.
-//	{addr} s{n}/regexp/text/{g}
+//	[addr] s[n]/regexp/text/[g]
 //		Substitute substitutes matches of regexp within the address.
 //
 // 		The regexp uses the syntax of the standard library regexp package.
@@ -825,7 +865,7 @@ func (e redo) Do(ed Editor, _ io.Writer) error {
 //		If an address is not supplied, dot is used.
 //		Dot is set to the modified address.
 //
-// 	{addr} x/regexp/edit
+// 	[addr] x/regexp/edit
 // 		Executes an edit for each match of regexp within the Address.
 // 		The edit is executed with dot set to the match.
 //
@@ -836,25 +876,25 @@ func (e redo) Do(ed Editor, _ io.Writer) error {
 // 		After all matches, dot is set to the last match;
 // 		if there were no matches then it is set to the Address.
 //
-//	{addr} k {name}
+//	[addr] k [name]
 //		Sets the named mark to the address.
 //		If an address is not supplied, dot is used.
 //		The name is any non-whitespace rune.
 // 		If name is not supplied or is the rune . then dot is set.
 //		Regardless of which mark is set,
 // 		dot is also set to the address.
-//	{addr} p
+//	[addr] p
 //		Returns the runes identified by the address.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-//	{addr} ={#}
+//	[addr] =[#]
 //		Without '#' returns the line offset(s) of the address.
 //		With '#' returns the rune offsets of the address.
 //		If an address is not supplied, dot is used.
 //		Dot is set to the address.
-//	{addr} | cmd
-//	{addr} < cmd
-//	{addr} > cmd
+//	[addr] | cmd
+//	[addr] < cmd
+//	[addr] > cmd
 //		| pipes the addressed string to standard input
 //		of a shell command and overwrites the address
 //		by the standard output of the command.
@@ -871,18 +911,34 @@ func (e redo) Do(ed Editor, _ io.Writer) error {
 //		Parsing of cmd is termiated by
 //		either a newline or the end of input.
 //		Within cmd, \n is interpreted as a newline literal.
-//	u{n}
+//	u[n]
 //		Undoes the n most recent changes
 // 		made to the buffer by any Editor.
 //		If n is not specified, it defaults to 1.
 //		Dot is set to the address covering
 // 		the last undone change.
-//	r{n}
+//	r[n]
 //		Redoes the n most recent changes
 //		undone by any Editor.
 //		If n is not specified, it defaults to 1.
 //		Dot is set to the address covering
 // 		the last redone change.
+//
+// 	[addr] {
+// 		edit
+// 		…
+// 	}
+// 		Performs a sequence of sub-edits.
+// 		Dot is set to the given address before each sub-edit.
+// 		It is an error if the sub-edits make changes that are not in ascending order.
+// 		The sub-edits do not see the modifications made by previous sub-edits.
+// 		Each sees the text in the original state, before any changes are made.
+//
+// 		If an address is not supplied, dot is used.
+// 		After the sequence of edits, dot is set to the given address.
+//
+// 		If EOF is encountered before }, the block is closed at EOF.
+// 		An empty group performs no edits and simply sets dot.
 func Ed(rs io.RuneScanner) (Edit, error) {
 	a, err := Addr(rs)
 	switch {
@@ -1048,6 +1104,27 @@ func Ed(rs io.RuneScanner) (Edit, error) {
 			return PipeTo(a, c), nil
 		default: // case '<'
 			return PipeFrom(a, c), nil
+		}
+	case r == '{':
+		var block []Edit
+		for {
+			switch r, _, err := rs.ReadRune(); {
+			case err != io.EOF && err != nil:
+				return nil, err
+			case err == io.EOF || r == '}':
+				return Block(a, block...), nil
+			case unicode.IsSpace(r):
+				continue
+			default:
+				if err := rs.UnreadRune(); err != nil {
+					return nil, err
+				}
+				b, err := Ed(rs)
+				if err != nil {
+					return nil, err
+				}
+				block = append(block, b)
+			}
 		}
 	default:
 		return nil, errors.New("unknown command: " + string(r))
