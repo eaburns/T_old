@@ -1,3 +1,5 @@
+// Copyright © 2016, The T Authors.
+
 // Ted is a text editor similar to sam in it's non-downloaded mode.
 //
 // The Ted editor is mostly intended as an experiment.
