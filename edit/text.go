@@ -15,6 +15,9 @@ var (
 	ErrOutOfSequence = errors.New("out of sequence")
 )
 
+// ChangeError is returned by Editor.Apply if an error occurred staging a Change.
+type ChangeError struct{ error }
+
 // A Text provides a read-only view of a sequence of text.
 //
 // Strings of the text are identified by Spans.
@@ -68,30 +71,39 @@ type Editor interface {
 
 	// SetMark sets the Span of a mark.
 	//
-	// ErrInvalidArgument is returned if either endpoint of the Span is negative
+	// ErrInvalidArgument is returned
+	// if either endpoint of the Span is negative
 	// or greater than the Size of the Text.
 	SetMark(rune, Span) error
 
 	// Change stages a change to be applied by the next call to Apply.
 	// It does not modify the Text.
+	// The change is defined by the Span to change
+	// and a Reader that returns the new string for the Span.
 	//
-	// The change is defined by the Span of the Text to change
-	// and a Reader from which the new string of the Span will be read.
-	//
-	// If an error is returned, previously staged changes are canceled.
-	// They will not be performed on the next call to Apply.
-	Change(Span, io.Reader) error
+	// Any errors that occur while staging a change,
+	// it is returned by the next call to Apply.
+	// In this case, all subsequent calls to Change are no-ops
+	// until Apply returns the error.
+	Change(Span, io.Reader)
 
 	// Apply applies all changes since the last call to Apply.
 	// It updates all marks to reflect the changes,
 	// logs the applied changes to the Undo stack,
 	// and clears the Redo stack.
+	// Changes are applied in the order that they are staged.
 	//
-	// Changes are applied in the order that the Change method was called.
-	// An ErrOutOfSequence error is returned if the changes are not in sequence;
-	// each change must not modify Text before its preceding change.
-	// In the case of such an error, all staged changes are canceled
-	// and the Text is left unchanged.
+	// If an error occurred during a preceding call to Change,
+	// while staging a change for this Apply,
+	// it is reported as a ChangeError,
+	// no changes are made to the text,
+	// and all staged changes are cleared.
+	//
+	// Changes must be in sequence.
+	// If a change modifies the text before its preceding change,
+	// an ErrOutOfSequence error is returned,
+	// no changes are made to the text,
+	// and all staged changes are cleared.
 	Apply() error
 
 	// Undo undoes the changes at the top of the Undo stack.
