@@ -122,15 +122,15 @@ func (buf *Buffer) Reader(s Span) io.Reader {
 	return runes.UTF8Reader(rr)
 }
 
-func (buf *Buffer) Change(s Span, r io.Reader) (int64, error) {
+func (buf *Buffer) Change(s Span, r io.Reader) (n int64, err error) {
 	if prev := logLast(buf.pending); !prev.end() && s[0] < prev.span[1] {
-		buf.pending.clear()
-		return 0, ErrOutOfSequence
+		err = ErrOutOfSequence
+	} else {
+		rr := runes.RunesReader(bufio.NewReader(r))
+		n, err = buf.pending.append(buf.seq, s, rr)
 	}
-	rr := runes.RunesReader(bufio.NewReader(r))
-	n, err := buf.pending.append(buf.seq, s, rr)
 	if err != nil {
-		buf.pending.clear()
+		buf.pending.reset()
 	}
 	return n, err
 }
@@ -144,48 +144,32 @@ func (buf *Buffer) Apply() error {
 			return err
 		}
 	}
-
-	dot, err := fixAddrs(buf.marks['.'], buf.pending)
-	if err != nil {
-		return err
-	}
-	if err := buf.redo.clear(); err != nil {
-		return err
-	}
+	dot := buf.marks['.']
 	for e := logFirst(buf.pending); !e.end(); e = e.next() {
-		if err := buf.change(e.span, e.data()); err != nil {
-			return err
-		}
-	}
-	if err := buf.pending.clear(); err != nil {
-		return err
-	}
-
-	buf.marks['.'] = dot
-	buf.seq++
-	return nil
-}
-
-func fixAddrs(s Span, l *log) (Span, error) {
-	for e := logFirst(l); !e.end(); e = e.next() {
-		if e.span[0] == s[0] {
-			// If they have the same from, grow at.
-			// This grows at, even if it's a point address,
-			// to include the change made by e.
+		if e.span[0] == dot[0] {
+			// If they have the same start, grow dot.
 			// Otherwise, update would simply leave it
 			// as a point address and move it.
-			s[1] = s.Update(e.span, e.size)[1]
+			dot[1] = dot.Update(e.span, e.size)[1]
 		} else {
-			s = s.Update(e.span, e.size)
+			dot = dot.Update(e.span, e.size)
 		}
 		for f := e.next(); !f.end(); f = f.next() {
 			f.span = f.span.Update(e.span, e.size)
 			if err := f.store(); err != nil {
-				return Span{}, err
+				return err
 			}
 		}
+
+		if err := buf.change(e.span, e.data()); err != nil {
+			return err
+		}
 	}
-	return s, nil
+	buf.pending.reset()
+	buf.redo.reset()
+	buf.marks['.'] = dot
+	buf.seq++
+	return nil
 }
 
 func (buf *Buffer) Undo() error {
@@ -281,9 +265,9 @@ func newLog() *log { return &log{buf: runes.NewBuffer(1 << 12)} }
 
 func (l *log) close() error { return l.buf.Close() }
 
-func (l *log) clear() error {
+func (l *log) reset() {
 	l.last = 0
-	return l.buf.Delete(l.buf.Size(), 0)
+	l.buf.Reset()
 }
 
 type header struct {
