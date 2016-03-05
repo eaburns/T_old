@@ -104,12 +104,6 @@ import (
 	"unicode/utf8"
 )
 
-func setDot(ed Editor, span Span) {
-	if err := ed.SetMark('.', span); err != nil {
-		panic(err)
-	}
-}
-
 // An Edit is an operation that can be made on a Buffer by an Editor.
 type Edit interface {
 	// String returns the string representation of the edit.
@@ -120,6 +114,12 @@ type Edit interface {
 	// Do performs the Edit on an Editor.
 	// Anything printed by the Edit is written to the Writer.
 	Do(Editor, io.Writer) error
+}
+
+func setDot(ed Editor, span Span) {
+	if err := ed.SetMark('.', span); err != nil {
+		panic(err)
+	}
 }
 
 type change struct {
@@ -168,7 +168,9 @@ func (e change) Do(ed Editor, _ io.Writer) error {
 		s[1] = s[0]
 	}
 	setDot(ed, s)
-	ed.Change(s, strings.NewReader(e.str))
+	if err := ed.Change(s, strings.NewReader(e.str)); err != nil {
+		return err
+	}
 	return ed.Apply()
 }
 
@@ -201,12 +203,18 @@ func (e move) Do(ed Editor, _ io.Writer) error {
 
 	if dst[0] >= src[1] {
 		// Moving to after the source. Delete the source first.
-		ed.Change(src, strings.NewReader(""))
+		if err := ed.Change(src, strings.NewReader("")); err != nil {
+			return err
+		}
 	}
-	ed.Change(dst, ed.Reader(src))
+	if err := ed.Change(dst, ed.Reader(src)); err != nil {
+		return err
+	}
 	if dst[0] <= src[0] {
 		// Moving to before the source. Delete the source second.
-		ed.Change(src, strings.NewReader(""))
+		if err := ed.Change(src, strings.NewReader("")); err != nil {
+			return err
+		}
 	}
 	return ed.Apply()
 
@@ -234,7 +242,9 @@ func (e copyEdit) Do(ed Editor, _ io.Writer) error {
 	}
 	dst[0] = dst[1]
 	setDot(ed, dst)
-	ed.Change(dst, ed.Reader(src))
+	if err := ed.Change(dst, ed.Reader(src)); err != nil {
+		return err
+	}
 	return ed.Apply()
 }
 
@@ -428,16 +438,15 @@ func (e Substitute) String() string {
 }
 
 func (e Substitute) Do(ed Editor, _ io.Writer) error {
+	re, err := regexpCompile(e.Regexp)
+	if err != nil {
+		return err
+	}
 	s, err := e.Address.Where(ed)
 	if err != nil {
 		return err
 	}
 	setDot(ed, s)
-
-	re, err := regexpCompile(e.Regexp)
-	if err != nil {
-		return err
-	}
 
 	var prev []int
 	from := s[0]
@@ -494,8 +503,7 @@ func regexpSub(re *regexp.Regexp, match []int, with string, ed Editor) error {
 	}
 
 	repl := re.Expand(nil, []byte(with), src, matchSrc)
-	ed.Change(dst, bytes.NewReader(repl))
-	return nil
+	return ed.Change(dst, bytes.NewReader(repl))
 }
 
 type loop struct {
@@ -669,9 +677,12 @@ func (e pipe) Do(ed Editor, print io.Writer) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	ed.Change(s, r)
+	changeErr := ed.Change(s, r)
 	if err = cmd.Wait(); err != nil {
 		return err
+	}
+	if changeErr != nil {
+		return changeErr
 	}
 	return ed.Apply()
 }

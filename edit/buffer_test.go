@@ -64,48 +64,23 @@ func TestBufferBadReader(t *testing.T) {
 	}
 }
 
-type errorReader struct{ err error }
-
-func (r errorReader) Read([]byte) (int, error) { return 0, r.err }
-
-func TestBufferChangeError(t *testing.T) {
-	testErr := errors.New("test error")
-
-	buf := NewBuffer()
-	defer buf.Close()
-
-	buf.Change(Span{}, strings.NewReader("Hello,"))
-	buf.Change(Span{}, errorReader{testErr})
-	buf.Change(Span{buf.Size(), buf.Size()}, strings.NewReader(" World!"))
-	if err := buf.Apply(); err.Error() != testErr.Error() {
-		t.Fatalf("buf.Apply()=%v, want %v", err, testErr)
-	}
-
-	// Make sure we can still use the buffer.
-	const str = "Goodbye"
-	buf.Change(Span{}, strings.NewReader(str))
-	if err := buf.Apply(); err != nil {
-		t.Fatalf("buf.Apply()=%v, want nil", err)
-	}
-
-	// Make sure that "Hello, World!" was never written to the bufer.
-	all, err := ioutil.ReadAll(buf.Reader(Span{0, buf.Size()}))
-	if string(all) != str || err != nil {
-		t.Fatalf("ioutil.ReadAll(buf)=%q,%v, want %q,nil", string(all), err, str)
-	}
-}
-
 func TestBufferChangeOutOfSequence(t *testing.T) {
 	buf := NewBuffer()
 	defer buf.Close()
 	const init = "Hello, 世界"
-	buf.Change(Span{}, strings.NewReader(init))
+	if err := buf.Change(Span{}, strings.NewReader(init)); err != nil {
+		panic(err)
+	}
 	if err := buf.Apply(); err != nil {
 		panic(err)
 	}
 
-	buf.Change(Span{10, 20}, strings.NewReader(""))
-	buf.Change(Span{0, 10}, strings.NewReader(""))
+	if err := buf.Change(Span{10, 20}, strings.NewReader("")); err != nil {
+		panic(err)
+	}
+	if err := buf.Change(Span{0, 10}, strings.NewReader("")); err != nil {
+		panic(err)
+	}
 	if err := buf.Apply(); err != ErrOutOfSequence {
 		t.Errorf("buf.Apply()=%v, want %v", err, ErrOutOfSequence)
 	}

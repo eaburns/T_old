@@ -2286,7 +2286,10 @@ func (test editTest) runFromString(t *testing.T) {
 func newTestBuffer(str string) *Buffer {
 	contents, marks := parseState(str)
 	buf := NewBuffer()
-	buf.Change(Span{}, strings.NewReader(contents))
+	if err := buf.Change(Span{}, strings.NewReader(contents)); err != nil {
+		buf.Close()
+		panic(err)
+	}
 	if err := buf.Apply(); err != nil {
 		buf.Close()
 		panic(err)

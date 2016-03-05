@@ -16,7 +16,6 @@ type Buffer struct {
 	pending, undo, redo *log
 	seq                 int32
 	marks               map[rune]Span
-	error               error
 }
 
 // NewBuffer returns a new, empty Buffer.
@@ -123,22 +122,16 @@ func (buf *Buffer) Reader(s Span) io.Reader {
 	return runes.UTF8Reader(rr)
 }
 
-func (buf *Buffer) Change(s Span, r io.Reader) {
-	if buf.error != nil {
-		return
-	}
+func (buf *Buffer) Change(s Span, r io.Reader) error {
 	rr := runes.RunesReader(bufio.NewReader(r))
-	buf.error = buf.pending.append(buf.seq, s, rr)
+	err := buf.pending.append(buf.seq, s, rr)
+	if err != nil {
+		buf.pending.clear()
+	}
+	return err
 }
 
 func (buf *Buffer) Apply() error {
-	if buf.error != nil {
-		err := ChangeError{buf.error}
-		buf.error = nil
-		buf.pending.clear()
-		return err
-	}
-
 	if !inSequence(buf.pending) {
 		return ErrOutOfSequence
 	}
