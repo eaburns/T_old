@@ -2034,7 +2034,7 @@ var blockTests = []editTest{
 				Change(Regexp("a"), "b")),
 		},
 		error: "sequence",
-		want:  "{.}abc{.}",
+		want:  "a{.}b{.}c",
 	},
 	{
 		name:  "nested",

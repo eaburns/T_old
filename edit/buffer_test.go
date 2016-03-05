@@ -75,14 +75,23 @@ func TestBufferChangeOutOfSequence(t *testing.T) {
 		panic(err)
 	}
 
-	if err := buf.Change(Span{10, 20}, strings.NewReader("")); err != nil {
+	if err := buf.Change(Span{10, 20}, strings.NewReader("Hello")); err != nil {
 		panic(err)
 	}
-	if err := buf.Change(Span{0, 10}, strings.NewReader("")); err != nil {
-		panic(err)
+	if err := buf.Change(Span{0, 10}, strings.NewReader("World")); err != ErrOutOfSequence {
+		t.Errorf("buf.Change(Span{0, 10}, _)=%v, want %v", err, ErrOutOfSequence)
 	}
-	if err := buf.Apply(); err != ErrOutOfSequence {
-		t.Errorf("buf.Apply()=%v, want %v", err, ErrOutOfSequence)
+
+	// Make sure previously staged changes were cleared.
+	const str = "Goodbye"
+	buf.Change(Span{0, buf.Size()}, strings.NewReader(str))
+	if err := buf.Apply(); err != nil {
+		t.Fatalf("buf.Apply()=%v, want nil", err)
+	}
+	// Make sure that "Hello, World!" was never written to the bufer.
+	all, err := ioutil.ReadAll(buf.Reader(Span{0, buf.Size()}))
+	if string(all) != str || err != nil {
+		t.Fatalf("ioutil.ReadAll(buf)=%q,%v, want %q,nil", string(all), err, str)
 	}
 }
 

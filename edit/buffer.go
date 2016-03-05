@@ -123,6 +123,10 @@ func (buf *Buffer) Reader(s Span) io.Reader {
 }
 
 func (buf *Buffer) Change(s Span, r io.Reader) error {
+	if prev := logLast(buf.pending); !prev.end() && s[0] < prev.span[1] {
+		buf.pending.clear()
+		return ErrOutOfSequence
+	}
 	rr := runes.RunesReader(bufio.NewReader(r))
 	err := buf.pending.append(buf.seq, s, rr)
 	if err != nil {
@@ -132,10 +136,6 @@ func (buf *Buffer) Change(s Span, r io.Reader) error {
 }
 
 func (buf *Buffer) Apply() error {
-	if !inSequence(buf.pending) {
-		return ErrOutOfSequence
-	}
-
 	for e := logFirst(buf.pending); !e.end(); e = e.next() {
 		undoSpan := Span{e.span[0], e.span[0] + e.size}
 		undoSrc := buf.runes.Reader(e.span[0])
@@ -186,18 +186,6 @@ func fixAddrs(s Span, l *log) (Span, error) {
 		}
 	}
 	return s, nil
-}
-
-func inSequence(l *log) bool {
-	e := logFirst(l)
-	for !e.end() {
-		f := e.next()
-		if f.span != e.span && f.span[0] < e.span[1] {
-			return false
-		}
-		e = f
-	}
-	return true
 }
 
 func (buf *Buffer) Undo() error {
