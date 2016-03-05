@@ -122,17 +122,17 @@ func (buf *Buffer) Reader(s Span) io.Reader {
 	return runes.UTF8Reader(rr)
 }
 
-func (buf *Buffer) Change(s Span, r io.Reader) error {
+func (buf *Buffer) Change(s Span, r io.Reader) (int64, error) {
 	if prev := logLast(buf.pending); !prev.end() && s[0] < prev.span[1] {
 		buf.pending.clear()
-		return ErrOutOfSequence
+		return 0, ErrOutOfSequence
 	}
 	rr := runes.RunesReader(bufio.NewReader(r))
-	err := buf.pending.append(buf.seq, s, rr)
+	n, err := buf.pending.append(buf.seq, s, rr)
 	if err != nil {
 		buf.pending.clear()
 	}
-	return err
+	return n, err
 }
 
 func (buf *Buffer) Apply() error {
@@ -140,7 +140,7 @@ func (buf *Buffer) Apply() error {
 		undoSpan := Span{e.span[0], e.span[0] + e.size}
 		undoSrc := buf.runes.Reader(e.span[0])
 		undoSrc = runes.LimitReader(undoSrc, e.span.Size())
-		if err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
+		if _, err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
 			return err
 		}
 	}
@@ -204,7 +204,7 @@ func (buf *Buffer) Undo() error {
 		redoSpan := Span{e.span[0], e.span[0] + e.size}
 		redoSrc := buf.runes.Reader(e.span[0])
 		redoSrc = runes.LimitReader(redoSrc, e.span.Size())
-		if err := buf.redo.append(buf.seq, redoSpan, redoSrc); err != nil {
+		if _, err := buf.redo.append(buf.seq, redoSpan, redoSrc); err != nil {
 			return err
 		}
 
@@ -237,7 +237,7 @@ func (buf *Buffer) Redo() error {
 		undoSpan := Span{e.span[0], e.span[0] + e.size}
 		undoSrc := buf.runes.Reader(e.span[0])
 		undoSrc = runes.LimitReader(undoSrc, e.span.Size())
-		if err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
+		if _, err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
 			return err
 		}
 	}
@@ -329,12 +329,12 @@ func (h *header) unmarshal(data []rune) {
 	h.seq = data[8]
 }
 
-func (l *log) append(seq int32, s Span, src runes.Reader) error {
+func (l *log) append(seq int32, s Span, src runes.Reader) (int64, error) {
 	prev := l.last
 	l.last = l.buf.Size()
 	n, err := runes.Copy(l.buf.Writer(l.last), src)
 	if err != nil {
-		return err
+		return n, err
 	}
 	// Insert the header before the data.
 	h := header{
@@ -343,7 +343,7 @@ func (l *log) append(seq int32, s Span, src runes.Reader) error {
 		size: n,
 		seq:  seq,
 	}
-	return l.buf.Insert(h.marshal(), l.last)
+	return n, l.buf.Insert(h.marshal(), l.last)
 }
 
 type entry struct {

@@ -74,18 +74,19 @@ type Editor interface {
 	// or greater than the Size of the Text.
 	SetMark(rune, Span) error
 
-	// Change stages a change for the next call to Apply.
-	// It does not modify the Text.
-	// The change is specified by the Span to change
-	// and a Reader of data to which it changes.
+	// Change stages a change that modifies a Span of text
+	// to contain the data from a Reader,
+	// to be applied on the next call to Apply,
+	// and returns the size of text read from the Reader.
+	// This method does not modify the Text.
 	//
 	// It is an error if a change modifies text
-	// overlapping or preceding the previously staged change.
+	// overlapping or preceding a previously staged, unapplied change.
 	// In such a case, ErrOutOfSequence is returned.
 	//
 	// If an error is returned, previously staged changes are canceled.
 	// They will not be performed on the next call to Apply.
-	Change(Span, io.Reader) error
+	Change(Span, io.Reader) (int64, error)
 
 	// Apply applies all changes since the previous call to Apply,
 	// updates all marks to reflect the changes,

@@ -168,7 +168,7 @@ func (e change) Do(ed Editor, _ io.Writer) error {
 		s[1] = s[0]
 	}
 	setDot(ed, s)
-	if err := ed.Change(s, strings.NewReader(e.str)); err != nil {
+	if _, err := ed.Change(s, strings.NewReader(e.str)); err != nil {
 		return err
 	}
 	return ed.Apply()
@@ -203,16 +203,16 @@ func (e move) Do(ed Editor, _ io.Writer) error {
 
 	if dst[0] >= src[1] {
 		// Moving to after the source. Delete the source first.
-		if err := ed.Change(src, strings.NewReader("")); err != nil {
+		if _, err := ed.Change(src, strings.NewReader("")); err != nil {
 			return err
 		}
 	}
-	if err := ed.Change(dst, ed.Reader(src)); err != nil {
+	if _, err := ed.Change(dst, ed.Reader(src)); err != nil {
 		return err
 	}
 	if dst[0] <= src[0] {
 		// Moving to before the source. Delete the source second.
-		if err := ed.Change(src, strings.NewReader("")); err != nil {
+		if _, err := ed.Change(src, strings.NewReader("")); err != nil {
 			return err
 		}
 	}
@@ -242,7 +242,7 @@ func (e copyEdit) Do(ed Editor, _ io.Writer) error {
 	}
 	dst[0] = dst[1]
 	setDot(ed, dst)
-	if err := ed.Change(dst, ed.Reader(src)); err != nil {
+	if _, err := ed.Change(dst, ed.Reader(src)); err != nil {
 		return err
 	}
 	return ed.Apply()
@@ -503,7 +503,8 @@ func regexpSub(re *regexp.Regexp, match []int, with string, ed Editor) error {
 	}
 
 	repl := re.Expand(nil, []byte(with), src, matchSrc)
-	return ed.Change(dst, bytes.NewReader(repl))
+	_, err = ed.Change(dst, bytes.NewReader(repl))
+	return err
 }
 
 type loop struct {
@@ -677,7 +678,7 @@ func (e pipe) Do(ed Editor, print io.Writer) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	changeErr := ed.Change(s, r)
+	_, changeErr := ed.Change(s, r)
 	if err = cmd.Wait(); err != nil {
 		return err
 	}

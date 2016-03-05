@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/eaburns/T/edit/runes"
 )
@@ -68,17 +69,17 @@ func TestBufferChangeOutOfSequence(t *testing.T) {
 	buf := NewBuffer()
 	defer buf.Close()
 	const init = "Hello, 世界"
-	if err := buf.Change(Span{}, strings.NewReader(init)); err != nil {
+	if _, err := buf.Change(Span{}, strings.NewReader(init)); err != nil {
 		panic(err)
 	}
 	if err := buf.Apply(); err != nil {
 		panic(err)
 	}
 
-	if err := buf.Change(Span{10, 20}, strings.NewReader("Hello")); err != nil {
+	if _, err := buf.Change(Span{10, 20}, strings.NewReader("Hello")); err != nil {
 		panic(err)
 	}
-	if err := buf.Change(Span{0, 10}, strings.NewReader("World")); err != ErrOutOfSequence {
+	if _, err := buf.Change(Span{0, 10}, strings.NewReader("World")); err != ErrOutOfSequence {
 		t.Errorf("buf.Change(Span{0, 10}, _)=%v, want %v", err, ErrOutOfSequence)
 	}
 
@@ -92,6 +93,18 @@ func TestBufferChangeOutOfSequence(t *testing.T) {
 	all, err := ioutil.ReadAll(buf.Reader(Span{0, buf.Size()}))
 	if string(all) != str || err != nil {
 		t.Fatalf("ioutil.ReadAll(buf)=%q,%v, want %q,nil", string(all), err, str)
+	}
+}
+
+func TestBufferChangeSize(t *testing.T) {
+	buf := NewBuffer()
+	defer buf.Close()
+
+	const str = "Hello, 世界"
+	want := int64(utf8.RuneCountInString(str))
+	got, err := buf.Change(Span{}, strings.NewReader(str))
+	if got != want || err != nil {
+		t.Errorf("buf.Change(Span{}, %q)=%v,%v, want %v,nil", str, got, err, want)
 	}
 }
 
@@ -304,7 +317,7 @@ func initTestLog(t *testing.T, entries []testEntry) *log {
 	l := newLog()
 	for _, e := range entries {
 		r := runes.StringReader(e.str)
-		if err := l.append(e.seq, e.span, r); err != nil {
+		if _, err := l.append(e.seq, e.span, r); err != nil {
 			t.Fatalf("l.append(%v, %v, %q)=%v", e.seq, e.span, e.str, err)
 		}
 	}
