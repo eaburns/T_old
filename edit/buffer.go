@@ -16,7 +16,6 @@ type Buffer struct {
 	pending, undo, redo *log
 	seq                 int32
 	marks               map[rune]Span
-	error               error
 }
 
 // NewBuffer returns a new, empty Buffer.
@@ -123,88 +122,54 @@ func (buf *Buffer) Reader(s Span) io.Reader {
 	return runes.UTF8Reader(rr)
 }
 
-func (buf *Buffer) Change(s Span, r io.Reader) {
-	if buf.error != nil {
-		return
+func (buf *Buffer) Change(s Span, r io.Reader) (n int64, err error) {
+	if prev := logLast(buf.pending); !prev.end() && s[0] < prev.span[1] {
+		err = ErrOutOfSequence
+	} else {
+		rr := runes.RunesReader(bufio.NewReader(r))
+		n, err = buf.pending.append(buf.seq, s, rr)
 	}
-	rr := runes.RunesReader(bufio.NewReader(r))
-	buf.error = buf.pending.append(buf.seq, s, rr)
+	if err != nil {
+		buf.pending.reset()
+	}
+	return n, err
 }
 
 func (buf *Buffer) Apply() error {
-	if buf.error != nil {
-		err := ChangeError{buf.error}
-		buf.error = nil
-		buf.pending.clear()
-		return err
-	}
-
-	if !inSequence(buf.pending) {
-		return ErrOutOfSequence
-	}
-
 	for e := logFirst(buf.pending); !e.end(); e = e.next() {
 		undoSpan := Span{e.span[0], e.span[0] + e.size}
 		undoSrc := buf.runes.Reader(e.span[0])
 		undoSrc = runes.LimitReader(undoSrc, e.span.Size())
-		if err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
+		if _, err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
 			return err
 		}
 	}
-
-	dot, err := fixAddrs(buf.marks['.'], buf.pending)
-	if err != nil {
-		return err
-	}
-	if err := buf.redo.clear(); err != nil {
-		return err
-	}
+	dot := buf.marks['.']
 	for e := logFirst(buf.pending); !e.end(); e = e.next() {
-		if err := buf.change(e.span, e.data()); err != nil {
-			return err
-		}
-	}
-	if err := buf.pending.clear(); err != nil {
-		return err
-	}
-
-	buf.marks['.'] = dot
-	buf.seq++
-	return nil
-}
-
-func fixAddrs(s Span, l *log) (Span, error) {
-	for e := logFirst(l); !e.end(); e = e.next() {
-		if e.span[0] == s[0] {
-			// If they have the same from, grow at.
-			// This grows at, even if it's a point address,
-			// to include the change made by e.
+		if e.span[0] == dot[0] {
+			// If they have the same start, grow dot.
 			// Otherwise, update would simply leave it
 			// as a point address and move it.
-			s[1] = s.Update(e.span, e.size)[1]
+			dot[1] = dot.Update(e.span, e.size)[1]
 		} else {
-			s = s.Update(e.span, e.size)
+			dot = dot.Update(e.span, e.size)
 		}
 		for f := e.next(); !f.end(); f = f.next() {
 			f.span = f.span.Update(e.span, e.size)
 			if err := f.store(); err != nil {
-				return Span{}, err
+				return err
 			}
 		}
-	}
-	return s, nil
-}
 
-func inSequence(l *log) bool {
-	e := logFirst(l)
-	for !e.end() {
-		f := e.next()
-		if f.span != e.span && f.span[0] < e.span[1] {
-			return false
+		if err := buf.change(e.span, e.data()); err != nil {
+			return err
 		}
-		e = f
 	}
-	return true
+	buf.pending.reset()
+	buf.redo.reset()
+	buf.marks['.'] = dot
+	buf.seq++
+	return nil
 }
 
 func (buf *Buffer) Undo() error {
@@ -223,7 +188,7 @@ func (buf *Buffer) Undo() error {
 		redoSpan := Span{e.span[0], e.span[0] + e.size}
 		redoSrc := buf.runes.Reader(e.span[0])
 		redoSrc = runes.LimitReader(redoSrc, e.span.Size())
-		if err := buf.redo.append(buf.seq, redoSpan, redoSrc); err != nil {
+		if _, err := buf.redo.append(buf.seq, redoSpan, redoSrc); err != nil {
 			return err
 		}
 
@@ -256,7 +221,7 @@ func (buf *Buffer) Redo() error {
 		undoSpan := Span{e.span[0], e.span[0] + e.size}
 		undoSrc := buf.runes.Reader(e.span[0])
 		undoSrc = runes.LimitReader(undoSrc, e.span.Size())
-		if err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
+		if _, err := buf.undo.append(buf.seq, undoSpan, undoSrc); err != nil {
 			return err
 		}
 	}
@@ -300,9 +265,9 @@ func newLog() *log { return &log{buf: runes.NewBuffer(1 << 12)} }
 
 func (l *log) close() error { return l.buf.Close() }
 
-func (l *log) clear() error {
+func (l *log) reset() {
 	l.last = 0
-	return l.buf.Delete(l.buf.Size(), 0)
+	l.buf.Reset()
 }
 
 type header struct {
@@ -348,12 +313,12 @@ func (h *header) unmarshal(data []rune) {
 	h.seq = data[8]
 }
 
-func (l *log) append(seq int32, s Span, src runes.Reader) error {
+func (l *log) append(seq int32, s Span, src runes.Reader) (int64, error) {
 	prev := l.last
 	l.last = l.buf.Size()
 	n, err := runes.Copy(l.buf.Writer(l.last), src)
 	if err != nil {
-		return err
+		return n, err
 	}
 	// Insert the header before the data.
 	h := header{
@@ -362,7 +327,7 @@ func (l *log) append(seq int32, s Span, src runes.Reader) error {
 		size: n,
 		seq:  seq,
 	}
-	return l.buf.Insert(h.marshal(), l.last)
+	return n, l.buf.Insert(h.marshal(), l.last)
 }
 
 type entry struct {

@@ -326,6 +326,16 @@ func (b *Buffer) Delete(n, offs int64) error {
 	return nil
 }
 
+// Reset resets the buffer to empty.
+func (b *Buffer) Reset() {
+	for _, blk := range b.blocks {
+		b.freeBlock(blk)
+	}
+	b.blocks = b.blocks[:0]
+	b.cached = -1
+	b.size = 0
+}
+
 func (b *Buffer) allocBlock() block {
 	if l := len(b.free); l > 0 {
 		blk := b.free[l-1]

@@ -2034,7 +2034,7 @@ var blockTests = []editTest{
 				Change(Regexp("a"), "b")),
 		},
 		error: "sequence",
-		want:  "{.}abc{.}",
+		want:  "a{.}b{.}c",
 	},
 	{
 		name:  "nested",
@@ -2286,7 +2286,10 @@ func (test editTest) runFromString(t *testing.T) {
 func newTestBuffer(str string) *Buffer {
 	contents, marks := parseState(str)
 	buf := NewBuffer()
-	buf.Change(Span{}, strings.NewReader(contents))
+	if _, err := buf.Change(Span{}, strings.NewReader(contents)); err != nil {
+		buf.Close()
+		panic(err)
+	}
 	if err := buf.Apply(); err != nil {
 		buf.Close()
 		panic(err)

@@ -293,6 +293,43 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+func TestReset(t *testing.T) {
+	const greek = "αβξδφγθιζ"
+	const latin = "abcdefg"
+
+	b := NewBuffer(testBlockSize)
+	defer b.Close()
+
+	if err := b.Insert([]rune(greek), 0); err != nil {
+		t.Fatalf("b.Insert(%q, 0)=%v want nil", greek, err)
+	}
+	if str := b.String(); str != greek {
+		t.Fatalf("b.String()=%q want %q", str, greek)
+	}
+
+	b.Reset()
+	if str := b.String(); str != "" {
+		t.Errorf("b.String()=%q want \"\"", str)
+	}
+	if err := b.Insert([]rune(latin), 0); err != nil {
+		t.Fatalf("b.Insert(%q, 0)=%v, want nil", latin, err)
+	}
+	if str := b.String(); str != latin {
+		t.Errorf("b.String()=%q want %q", str, latin)
+	}
+
+	b.Reset()
+	if str := b.String(); str != "" {
+		t.Errorf("b.String()=%q want \"\"", str)
+	}
+	if err := b.Insert([]rune(greek), 0); err != nil {
+		t.Fatalf("b.Insert(%q, 0)=%v, want nil", greek, err)
+	}
+	if str := b.String(); str != greek {
+		t.Errorf("b.String()=%q want %q", str, greek)
+	}
+}
+
 func TestBlockAlloc(t *testing.T) {
 	rs := []rune("αβξδφγθιζ")
 	l := len(rs)

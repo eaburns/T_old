@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/eaburns/T/edit/runes"
 )
@@ -64,30 +65,30 @@ func TestBufferBadReader(t *testing.T) {
 	}
 }
 
-type errorReader struct{ err error }
-
-func (r errorReader) Read([]byte) (int, error) { return 0, r.err }
-
-func TestBufferChangeError(t *testing.T) {
-	testErr := errors.New("test error")
-
+func TestBufferChangeOutOfSequence(t *testing.T) {
 	buf := NewBuffer()
 	defer buf.Close()
-
-	buf.Change(Span{}, strings.NewReader("Hello,"))
-	buf.Change(Span{}, errorReader{testErr})
-	buf.Change(Span{buf.Size(), buf.Size()}, strings.NewReader(" World!"))
-	if err := buf.Apply(); err.Error() != testErr.Error() {
-		t.Fatalf("buf.Apply()=%v, want %v", err, testErr)
+	const init = "Hello, 世界"
+	if _, err := buf.Change(Span{}, strings.NewReader(init)); err != nil {
+		panic(err)
+	}
+	if err := buf.Apply(); err != nil {
+		panic(err)
 	}
 
-	// Make sure we can still use the buffer.
+	if _, err := buf.Change(Span{10, 20}, strings.NewReader("Hello")); err != nil {
+		panic(err)
+	}
+	if _, err := buf.Change(Span{0, 10}, strings.NewReader("World")); err != ErrOutOfSequence {
+		t.Errorf("buf.Change(Span{0, 10}, _)=%v, want %v", err, ErrOutOfSequence)
+	}
+
+	// Make sure previously staged changes were cleared.
 	const str = "Goodbye"
-	buf.Change(Span{}, strings.NewReader(str))
+	buf.Change(Span{0, buf.Size()}, strings.NewReader(str))
 	if err := buf.Apply(); err != nil {
 		t.Fatalf("buf.Apply()=%v, want nil", err)
 	}
-
 	// Make sure that "Hello, World!" was never written to the bufer.
 	all, err := ioutil.ReadAll(buf.Reader(Span{0, buf.Size()}))
 	if string(all) != str || err != nil {
@@ -95,19 +96,15 @@ func TestBufferChangeError(t *testing.T) {
 	}
 }
 
-func TestBufferChangeOutOfSequence(t *testing.T) {
+func TestBufferChangeSize(t *testing.T) {
 	buf := NewBuffer()
 	defer buf.Close()
-	const init = "Hello, 世界"
-	buf.Change(Span{}, strings.NewReader(init))
-	if err := buf.Apply(); err != nil {
-		panic(err)
-	}
 
-	buf.Change(Span{10, 20}, strings.NewReader(""))
-	buf.Change(Span{0, 10}, strings.NewReader(""))
-	if err := buf.Apply(); err != ErrOutOfSequence {
-		t.Errorf("buf.Apply()=%v, want %v", err, ErrOutOfSequence)
+	const str = "Hello, 世界"
+	want := int64(utf8.RuneCountInString(str))
+	got, err := buf.Change(Span{}, strings.NewReader(str))
+	if got != want || err != nil {
+		t.Errorf("buf.Change(Span{}, %q)=%v,%v, want %v,nil", str, got, err, want)
 	}
 }
 
@@ -320,7 +317,7 @@ func initTestLog(t *testing.T, entries []testEntry) *log {
 	l := newLog()
 	for _, e := range entries {
 		r := runes.StringReader(e.str)
-		if err := l.append(e.seq, e.span, r); err != nil {
+		if _, err := l.append(e.seq, e.span, r); err != nil {
 			t.Fatalf("l.append(%v, %v, %q)=%v", e.seq, e.span, e.str, err)
 		}
 	}
