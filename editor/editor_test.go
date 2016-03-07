@@ -75,11 +75,11 @@ func responseBody(resp *http.Response) string {
 
 // testBadBufferIDs tests a bunch of invalid buffer IDs, and expects NotFound.
 // pathSuffix is joined after after /buffer/<N>.
-func testBadBufferIDs(t *testing.T, c *Client, method, pathSuffix string) {
+func testBadBufferIDs(t *testing.T, c *Client, method, pathSuffix, body string) {
 	for _, id := range badIDs {
 		bufferPath := path.Join("/", "buffer", id)
 		u := url(c, path.Join(bufferPath, pathSuffix))
-		req, err := http.NewRequest(method, u, nil)
+		req, err := http.NewRequest(method, u, strings.NewReader(body))
 		if err != nil {
 			t.Fatalf("http.NewRequest(%v, %q, nil)=_,%v, want _,nil", method, u, err)
 		}
@@ -96,12 +96,12 @@ func testBadBufferIDs(t *testing.T, c *Client, method, pathSuffix string) {
 
 // testBadBufferIDs tests a bunch of invalid editor IDs, and expects NotFound.
 // pathSuffix is joined after after /buffer/<N>/editor/<M>.
-func testBadEditorIDs(t *testing.T, buf *Buffer, method, pathSuffix string) {
+func testBadEditorIDs(t *testing.T, buf *Buffer, method, pathSuffix, body string) {
 	bufID := strconv.Itoa(buf.id)
 	for _, id := range badIDs {
 		editorPath := path.Join("/", "buffer", bufID, "editor", id)
 		u := url(buf.client, path.Join(editorPath, pathSuffix))
-		req, err := http.NewRequest(method, u, nil)
+		req, err := http.NewRequest(method, u, strings.NewReader(body))
 		if err != nil {
 			t.Fatalf("http.NewRequest(%v, %q, nil)=_,%v, want _,nil", method, u, err)
 		}
@@ -182,7 +182,7 @@ func TestBufferInfo_NotFound(t *testing.T) {
 	if want := NotFoundError("/buffer/100"); err != want {
 		t.Errorf("c.Buffer(100).Info()=%v,%v, want BufferInfo{},%v", info, err, want)
 	}
-	testBadBufferIDs(t, c, http.MethodGet, "")
+	testBadBufferIDs(t, c, http.MethodGet, "", "")
 }
 
 func TestBufferClose(t *testing.T) {
@@ -219,7 +219,7 @@ func TestBufferClose_NotFound(t *testing.T) {
 		t.Errorf("c.Buffer(100).Close()=%v, want %v", got, want)
 	}
 
-	testBadBufferIDs(t, c, http.MethodDelete, "")
+	testBadBufferIDs(t, c, http.MethodDelete, "", "")
 }
 
 func TestEditors(t *testing.T) {
@@ -264,7 +264,7 @@ func TestEditors_NotFound(t *testing.T) {
 		t.Errorf("c.Buffer(100).Editors()=%v,%v, want BufferInfo{},%v", info, err, want)
 	}
 
-	testBadBufferIDs(t, c, http.MethodGet, "editor")
+	testBadBufferIDs(t, c, http.MethodGet, "editor", "")
 }
 
 func TestNewEditor(t *testing.T) {
@@ -293,7 +293,7 @@ func TestNewEditor_Notfound(t *testing.T) {
 		t.Errorf("c.Buffer(100).NewEditor()=%v,%v, want BufferInfo{},%v", info, err, want)
 	}
 
-	testBadBufferIDs(t, c, http.MethodPut, "editor")
+	testBadBufferIDs(t, c, http.MethodPut, "editor", "")
 }
 
 func TestEditorInfo(t *testing.T) {
@@ -335,8 +335,8 @@ func TestEditorInfo_NotFound(t *testing.T) {
 		t.Errorf("buf.Editor(100).Info()=%v,%v, want _,%v", info, err, want)
 	}
 
-	testBadBufferIDs(t, c, http.MethodGet, "editor/100")
-	testBadEditorIDs(t, buf, http.MethodGet, "")
+	testBadBufferIDs(t, c, http.MethodGet, "editor/100", "")
+	testBadEditorIDs(t, buf, http.MethodGet, "", "")
 }
 
 func TestEditorClose(t *testing.T) {
@@ -385,8 +385,8 @@ func TestEditorClose_NotFound(t *testing.T) {
 		t.Errorf("buf.Editor(100).Close()=%v, want _,%v", err, want)
 	}
 
-	testBadBufferIDs(t, c, http.MethodDelete, "editor/100")
-	testBadEditorIDs(t, buf, http.MethodDelete, "")
+	testBadBufferIDs(t, c, http.MethodDelete, "editor/100", "")
+	testBadEditorIDs(t, buf, http.MethodDelete, "", "")
 }
 
 func TestEditorEdit_NotFound(t *testing.T) {
@@ -407,8 +407,8 @@ func TestEditorEdit_NotFound(t *testing.T) {
 		t.Errorf("buf.Editor(100).Edit()=%v,%v, want _,%v", resp, err, want)
 	}
 
-	testBadBufferIDs(t, c, http.MethodPost, "editor/100")
-	testBadEditorIDs(t, buf, http.MethodPost, "")
+	testBadBufferIDs(t, c, http.MethodPost, "editor/100", "[]")
+	testBadEditorIDs(t, buf, http.MethodPost, "", "[]")
 }
 
 func TestEditorEdit(t *testing.T) {
