@@ -34,6 +34,9 @@ golint .\
 	| grep -v 'Buffer.Reader should have comment'\
 	| grep -v 'Buffer.Redo should have comment'\
 	| grep -v 'Substitute.Do should have comment'\
+	| grep -v 'MarshalText should have comment'\
+	| grep -v 'UnmarshalText should have comment'\
+	| egrep -v "don't use underscores.*Test.*"\
 	> $o 2>&1
 # Silly: diff the grepped golint output with empty.
 # If it's non-empty, error, otherwise succeed.
