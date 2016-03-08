@@ -47,24 +47,6 @@ func (s *testServer) close() {
 	s.httpServer.Close()
 }
 
-func putRequest(c *Client, elems ...interface{}) *http.Request {
-	url := url(c, elems...)
-	req, err := http.NewRequest(http.MethodPut, url, nil)
-	if err != nil {
-		panic(err)
-	}
-	return req
-}
-
-func deleteRequest(c *Client, elems ...interface{}) *http.Request {
-	url := url(c, elems...)
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		panic(err)
-	}
-	return req
-}
-
 func responseBody(resp *http.Response) string {
 	b, err := ioutil.ReadAll(resp.Body)
 	if err != nil {

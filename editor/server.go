@@ -183,15 +183,40 @@ func getBufferUnsafe(s *Server, req *http.Request) (*buffer, error) {
 	return buf, nil
 }
 
-// GetEditor returns the editor with the bid and eid from the URL
+// getEditorRLocked returns the editor with the eid from the URL
+// for the open, read-locked buffer with bid from the URL
 // or an error if the editor is not found.
-func getEditor(s *Server, req *http.Request) (*editor, error) {
-	buf, err := getBufferRLocked(s, req)
+func getEditorRLocked(s *Server, req *http.Request) (*editor, error) {
+	s.RLock()
+	defer s.RUnlock()
+	ed, err := getEditorUnsafe(s, req)
+	if err == nil {
+		ed.buffer.RLock()
+	}
+	return ed, err
+}
+
+// getEditorLocked returns the editor with the eid from the URL
+// for the open, write-locked buffer with bid from the URL
+// or an error if the editor is not found.
+func getEditorLocked(s *Server, req *http.Request) (*editor, error) {
+	s.RLock()
+	defer s.RUnlock()
+	ed, err := getEditorUnsafe(s, req)
+	if err == nil {
+		ed.buffer.Lock()
+	}
+	return ed, err
+}
+
+// getEditorUnsafe returns the editor with bid and eid from the URL
+// or an error if the editor is not found.
+// The caller must hold the buffer's Lock or RLock.
+func getEditorUnsafe(s *Server, req *http.Request) (*editor, error) {
+	buf, err := getBufferUnsafe(s, req)
 	if err != nil {
 		return nil, err
 	}
-	defer buf.RUnlock()
-
 	eid := mux.Vars(req)["eid"]
 	id, err := strconv.Atoi(eid)
 	if err != nil {
@@ -303,12 +328,11 @@ func (s *Server) newEditor(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Server) editorInfo(w http.ResponseWriter, req *http.Request) {
-	ed, err := getEditor(s, req)
+	ed, err := getEditorRLocked(s, req)
 	if err != nil {
 		notFound(w, err)
 		return
 	}
-	ed.buffer.RLock()
 	info := ed.EditorInfo
 	ed.buffer.RUnlock()
 
@@ -318,12 +342,11 @@ func (s *Server) editorInfo(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Server) closeEditor(w http.ResponseWriter, req *http.Request) {
-	ed, err := getEditor(s, req)
+	ed, err := getEditorLocked(s, req)
 	if err != nil {
 		notFound(w, err)
 		return
 	}
-	ed.buffer.Lock()
 	delete(ed.buffer.editors, ed.ID)
 	ed.buffer.Unlock()
 }
@@ -335,12 +358,11 @@ func (s *Server) edit(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ed, err := getEditor(s, req)
+	ed, err := getEditorLocked(s, req)
 	if err != nil {
 		notFound(w, err)
 		return
 	}
-	ed.buffer.Lock()
 	var resps []EditResponse
 	print := bytes.NewBuffer(nil)
 	for _, e := range edits {
