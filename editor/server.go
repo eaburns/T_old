@@ -5,9 +5,9 @@ package editor
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
+	"path"
 	"strconv"
 	"sync"
 
@@ -33,18 +33,24 @@ import (
 // each editor maintains its own local state.
 type Server struct {
 	sync.RWMutex
-	buffers      map[int]*buffer
-	nextBufferID int
+	buffers map[string]*buffer
+	editors map[string]*editor
+	nextID  int
 }
 
 // NewServer returns a new Server.
-func NewServer() *Server { return &Server{buffers: make(map[int]*buffer)} }
+func NewServer() *Server {
+	return &Server{
+		buffers: make(map[string]*buffer),
+		editors: make(map[string]*editor),
+	}
+}
 
 // Close closes the server and all of its buffers.
 func (s *Server) Close() error {
 	var errs []error
 	for _, b := range s.buffers {
-		errs = append(errs, b.Buffer.Close())
+		errs = append(errs, b.buffer.Close())
 	}
 	for _, err := range errs {
 		if err != nil {
@@ -55,21 +61,21 @@ func (s *Server) Close() error {
 }
 
 // RegisterHandlers registeres handlers for the following paths and methods:
-//  /buffer is the list of opened buffers
+//  /buffers is the list of opened buffers
 //
-// 	GET returns a BufferInfo list of the opened buffers.
+// 	GET returns a Buffer list of the opened buffers.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 //
-// 	PUT creates a new, empty buffer and returns its BufferInfo.
+// 	PUT creates a new, empty buffer and returns its Buffer.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 //
-//  /buffer/<N> is the buffer with ID N
+//  /buffer/<ID> is the buffer with the given ID.
 //
-// 	GET returns the buffer's BufferInfo
+// 	GET returns the buffer's Buffer
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
@@ -83,25 +89,25 @@ func (s *Server) Close() error {
 // 	• Not Found if the buffer is not found.
 // 	  The body is the path to the buffer.
 //
-//  /buffer/<N>/editor is the list of the buffer's editors.
+//  /buffer/<ID>/editors is the list of the buffer's editors.
 //
-// 	GET returns an EditorInfo list of the buffer's opened editors.
+// 	GET returns an Editor list of the buffer's opened editors.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 // 	• Not Found if the buffer is not found.
 // 	  The body is the path to the buffer.
 //
-// 	PUT creates a new editor for the buffer and returns its EditorInfo.
+// 	PUT creates a new editor for the buffer and returns its Editor.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 // 	• Not Found if the buffer is not found.
 // 	  The body is the path to the buffer.
 //
-//  /buffer/<N>/editor/<M> is the editor M of buffer N.
+//  /editor/<ID> is the editor with the given ID.
 //
-// 	GET returns the editor's EditorInfo.
+// 	GET returns the editor's Editor.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
@@ -116,286 +122,234 @@ func (s *Server) Close() error {
 // 	  The body is the path to the buffer or editor.
 //
 // 	POST performs an atomic sequence of edits on the buffer.
-// 	The body must be an ordered list of EditRequests.
-// 	The response is an ordered list of EditResponses.
+// 	The body must be an ordered list of Edits.
+// 	The response is an ordered list of EditResult.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 // 	• Not Found if either the buffer or editor is not found.
 // 	  The body is the path to the buffer or editor.
-// 	• Bad Request if the EditRequest list is malformed.
+// 	• Bad Request if the Edit list is malformed.
 //
 // Unless otherwise stated, the body of all error responses is the error message.
 func (s *Server) RegisterHandlers(r *mux.Router) {
-	r.HandleFunc("/buffer", s.listBuffers).Methods(http.MethodGet)
-	r.HandleFunc("/buffer", s.newBuffer).Methods(http.MethodPut)
-	r.HandleFunc(`/buffer/{bid}`, s.bufferInfo).Methods(http.MethodGet)
-	r.HandleFunc(`/buffer/{bid}`, s.closeBuffer).Methods(http.MethodDelete)
-	r.HandleFunc(`/buffer/{bid}/editor`, s.listEditors).Methods(http.MethodGet)
-	r.HandleFunc(`/buffer/{bid}/editor`, s.newEditor).Methods(http.MethodPut)
-	r.HandleFunc(`/buffer/{bid}/editor/{eid}`, s.editorInfo).Methods(http.MethodGet)
-	r.HandleFunc(`/buffer/{bid}/editor/{eid}`, s.closeEditor).Methods(http.MethodDelete)
-	r.HandleFunc(`/buffer/{bid}/editor/{eid}`, s.edit).Methods(http.MethodPost)
+	r.HandleFunc("/buffers", s.listBuffers).Methods(http.MethodGet)
+	r.HandleFunc("/buffers", s.newBuffer).Methods(http.MethodPut)
+	r.HandleFunc("/buffer/{id}", s.bufferInfo).Methods(http.MethodGet)
+	r.HandleFunc("/buffer/{id}", s.closeBuffer).Methods(http.MethodDelete)
+	r.HandleFunc("/buffer/{id}/editors", s.listEditors).Methods(http.MethodGet)
+	r.HandleFunc("/buffer/{id}/editors", s.newEditor).Methods(http.MethodPut)
+	r.HandleFunc("/editor/{id}", s.editorInfo).Methods(http.MethodGet)
+	r.HandleFunc("/editor/{id}", s.closeEditor).Methods(http.MethodDelete)
+	r.HandleFunc("/editor/{id}", s.edit).Methods(http.MethodPost)
 }
 
-func notFound(w http.ResponseWriter, err error) { http.Error(w, err.Error(), http.StatusNotFound) }
-
-// getBufferRLocked returns the opened, read-locked buffer
-// with the ID from the URL's bid variable,
-// or an error if the buffer is not found.
-// The buffer is opened and will not be closed until the lock is released.
-func getBufferRLocked(s *Server, req *http.Request) (*buffer, error) {
-	s.RLock()
-	defer s.RUnlock()
-	buf, err := getBufferUnsafe(s, req)
-	if err == nil {
-		buf.RLock()
+// respond JSON encodes resp to w, and sends an Internal Server Error on failure.
+func respond(w http.ResponseWriter, resp interface{}) {
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-	return buf, err
-}
-
-// getBufferLocked returns the opened, write-locked buffer
-// with the ID from the URL's bid variable,
-// or an error if the buffer is not found.
-// The buffer is opened and will not be closed until the lock is released.
-func getBufferLocked(s *Server, req *http.Request) (*buffer, error) {
-	s.RLock()
-	defer s.RUnlock()
-	buf, err := getBufferUnsafe(s, req)
-	if err == nil {
-		buf.Lock()
-	}
-	return buf, err
-}
-
-// GetBufferUnsafe is like GetBuffer,
-// but requires the caller to take the server lock.
-func getBufferUnsafe(s *Server, req *http.Request) (*buffer, error) {
-	bid := mux.Vars(req)["bid"]
-	id, err := strconv.Atoi(bid)
-	if err != nil {
-		return nil, errors.New("/buffer/" + bid)
-	}
-	buf, ok := s.buffers[id]
-	if !ok {
-		return nil, errors.New("/buffer/" + bid)
-	}
-	return buf, nil
-}
-
-// getEditorRLocked returns the editor with the eid from the URL
-// for the open, read-locked buffer with bid from the URL
-// or an error if the editor is not found.
-func getEditorRLocked(s *Server, req *http.Request) (*editor, error) {
-	s.RLock()
-	defer s.RUnlock()
-	ed, err := getEditorUnsafe(s, req)
-	if err == nil {
-		ed.buffer.RLock()
-	}
-	return ed, err
-}
-
-// getEditorLocked returns the editor with the eid from the URL
-// for the open, write-locked buffer with bid from the URL
-// or an error if the editor is not found.
-func getEditorLocked(s *Server, req *http.Request) (*editor, error) {
-	s.RLock()
-	defer s.RUnlock()
-	ed, err := getEditorUnsafe(s, req)
-	if err == nil {
-		ed.buffer.Lock()
-	}
-	return ed, err
-}
-
-// getEditorUnsafe returns the editor with bid and eid from the URL
-// or an error if the editor is not found.
-// The caller must hold the buffer's Lock or RLock.
-func getEditorUnsafe(s *Server, req *http.Request) (*editor, error) {
-	buf, err := getBufferUnsafe(s, req)
-	if err != nil {
-		return nil, err
-	}
-	eid := mux.Vars(req)["eid"]
-	id, err := strconv.Atoi(eid)
-	if err != nil {
-		return nil, errors.New("/buffer/" + strconv.Itoa(buf.ID) + "/editor/" + eid)
-	}
-	ed, ok := buf.editors[id]
-	if !ok {
-		return nil, errors.New("/buffer/" + strconv.Itoa(buf.ID) + "/editor/" + eid)
-	}
-	return ed, nil
 }
 
 func (s *Server) listBuffers(w http.ResponseWriter, req *http.Request) {
 	s.RLock()
-	var bufs []BufferInfo
+	var bufs []Buffer
 	for _, b := range s.buffers {
-		bufs = append(bufs, b.BufferInfo)
+		bufs = append(bufs, b.Buffer)
 	}
 	s.RUnlock()
 
-	if err := json.NewEncoder(w).Encode(bufs); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	respond(w, bufs)
 }
 
 func (s *Server) newBuffer(w http.ResponseWriter, req *http.Request) {
 	s.Lock()
+	id := strconv.Itoa(s.nextID)
+	s.nextID++
 	buf := &buffer{
-		BufferInfo: BufferInfo{ID: s.nextBufferID},
-		Buffer:     edit.NewBuffer(),
-		editors:    make(map[int]*editor),
+		Buffer: Buffer{
+			ID:   id,
+			Path: path.Join("/", "buffer", id),
+		},
+		buffer:  edit.NewBuffer(),
+		editors: make(map[string]*editor),
 	}
 	s.buffers[buf.ID] = buf
-	s.nextBufferID++
 	s.Unlock()
 
-	if err := json.NewEncoder(w).Encode(buf.BufferInfo); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	respond(w, buf.Buffer)
 }
 
 func (s *Server) bufferInfo(w http.ResponseWriter, req *http.Request) {
-	buf, err := getBufferRLocked(s, req)
-	if err != nil {
-		notFound(w, err)
+	s.RLock()
+	buf, ok := s.buffers[mux.Vars(req)["id"]]
+	if !ok {
+		s.RUnlock()
+		http.NotFound(w, req)
 		return
 	}
-	info := buf.BufferInfo
+	buf.RLock()
+	info := buf.Buffer
 	buf.RUnlock()
+	s.RUnlock()
 
-	if err := json.NewEncoder(w).Encode(info); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	respond(w, info)
 }
 
 func (s *Server) closeBuffer(w http.ResponseWriter, req *http.Request) {
 	s.Lock()
-	buf, err := getBufferUnsafe(s, req)
-	if err != nil {
+	buf, ok := s.buffers[mux.Vars(req)["id"]]
+	if !ok {
 		s.Unlock()
-		notFound(w, err)
+		http.NotFound(w, req)
 		return
 	}
-	delete(s.buffers, buf.ID)
-	s.Unlock()
-
 	buf.Lock()
 	defer buf.Unlock()
-	if err := buf.Close(); err != nil {
+	delete(s.buffers, buf.ID)
+	for edID := range buf.editors {
+		delete(s.editors, edID)
+	}
+	s.Unlock()
+
+	if err := buf.buffer.Close(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
 func (s *Server) listEditors(w http.ResponseWriter, req *http.Request) {
-	buf, err := getBufferRLocked(s, req)
-	if err != nil {
-		notFound(w, err)
+	s.RLock()
+	buf, ok := s.buffers[mux.Vars(req)["id"]]
+	if !ok {
+		s.RUnlock()
+		http.NotFound(w, req)
 		return
 	}
-	var eds []EditorInfo
+	buf.RLock()
+	var eds []Editor
 	for _, ed := range buf.editors {
-		eds = append(eds, ed.EditorInfo)
+		eds = append(eds, ed.Editor)
 	}
 	buf.RUnlock()
+	s.RUnlock()
 
-	if err := json.NewEncoder(w).Encode(eds); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	respond(w, eds)
 }
 
 func (s *Server) newEditor(w http.ResponseWriter, req *http.Request) {
-	buf, err := getBufferLocked(s, req)
-	if err != nil {
-		notFound(w, err)
+	s.Lock()
+	buf, ok := s.buffers[mux.Vars(req)["id"]]
+	if !ok {
+		s.Unlock()
+		http.NotFound(w, req)
 		return
 	}
-	ed := &editor{
-		EditorInfo: EditorInfo{ID: buf.nextEditorID, BufferID: buf.ID},
-		buffer:     buf,
-		marks:      make(map[rune]edit.Span),
-	}
-	buf.editors[ed.ID] = ed
-	buf.nextEditorID++
-	defer buf.Unlock()
+	buf.Lock()
 
-	if err := json.NewEncoder(w).Encode(ed.EditorInfo); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	id := strconv.Itoa(s.nextID)
+	s.nextID++
+	ed := &editor{
+		Editor: Editor{
+			ID:         id,
+			Path:       path.Join("/", "editor", id),
+			BufferPath: buf.Path,
+		},
+		buffer: buf,
+		Buffer: buf.buffer,
+		marks:  make(map[rune]edit.Span),
 	}
+	s.editors[ed.ID] = ed
+	buf.editors[ed.ID] = ed
+
+	buf.Unlock()
+	s.Unlock()
+
+	respond(w, ed.Editor)
 }
 
 func (s *Server) editorInfo(w http.ResponseWriter, req *http.Request) {
-	ed, err := getEditorRLocked(s, req)
-	if err != nil {
-		notFound(w, err)
+	s.RLock()
+	ed, ok := s.editors[mux.Vars(req)["id"]]
+	if !ok {
+		s.RUnlock()
+		http.NotFound(w, req)
 		return
 	}
-	info := ed.EditorInfo
+	ed.buffer.RLock()
+	info := ed.Editor
 	ed.buffer.RUnlock()
+	s.RUnlock()
 
-	if err := json.NewEncoder(w).Encode(info); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	respond(w, info)
 }
 
 func (s *Server) closeEditor(w http.ResponseWriter, req *http.Request) {
-	ed, err := getEditorLocked(s, req)
-	if err != nil {
-		notFound(w, err)
+	s.Lock()
+	ed, ok := s.editors[mux.Vars(req)["id"]]
+	if !ok {
+		s.Unlock()
+		http.NotFound(w, req)
 		return
 	}
+	ed.buffer.Lock()
+
+	delete(s.editors, ed.ID)
 	delete(ed.buffer.editors, ed.ID)
+
 	ed.buffer.Unlock()
+	s.Unlock()
 }
 
 func (s *Server) edit(w http.ResponseWriter, req *http.Request) {
-	var edits []EditRequest
+	var edits []editRequest
 	if err := json.NewDecoder(req.Body).Decode(&edits); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	ed, err := getEditorLocked(s, req)
-	if err != nil {
-		notFound(w, err)
+	s.Lock()
+	ed, ok := s.editors[mux.Vars(req)["id"]]
+	if !ok {
+		s.Unlock()
+		http.NotFound(w, req)
 		return
 	}
-	var resps []EditResponse
+	ed.buffer.Lock()
+	s.Unlock()
+
+	var results []EditResult
 	print := bytes.NewBuffer(nil)
 	for _, e := range edits {
 		print.Reset()
 		err := e.Do(ed, print)
 		ed.buffer.Sequence++
-		resp := EditResponse{
+		result := EditResult{
 			Sequence: ed.buffer.Sequence,
 			Print:    print.String(),
 		}
 		if err != nil {
-			resp.Error = err.Error()
+			result.Error = err.Error()
 		}
-		resps = append(resps, resp)
+		results = append(results, result)
 	}
+
 	ed.buffer.Unlock()
 
-	if err := json.NewEncoder(w).Encode(resps); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	respond(w, results)
 }
 
 type buffer struct {
 	sync.RWMutex
-	BufferInfo
-	*edit.Buffer
-	editors      map[int]*editor
+	Buffer
+	buffer       *edit.Buffer
+	editors      map[string]*editor
 	nextEditorID int
 }
 
 type editor struct {
-	EditorInfo
-	*buffer
+	Editor
+	*edit.Buffer
+	buffer  *buffer
 	marks   map[rune]edit.Span
 	pending []change
 }

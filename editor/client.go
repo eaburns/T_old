@@ -6,270 +6,123 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/ioutil"
 	"net/http"
-	"path"
-	"sort"
-	"strconv"
+	"net/url"
 
 	"github.com/eaburns/T/edit"
 )
 
-// A NotFoundError indicates
-// that a Buffer or Editor with the given ID
-// is not found on the server.
-type NotFoundError string
+// ErrNotFound indicates that a resource is not found.
+var ErrNotFound = errors.New("not found")
 
-func (err NotFoundError) Error() string { return "not found: " + string(err) }
-
-// A Client represents a client of an editor Server.
-type Client struct {
-	host string
-	http http.Client
-}
-
-// A Buffer is a client-handle to a buffer.
-type Buffer struct {
-	id     int
-	client *Client
-}
-
-// An Editor is a client-handle to an editor.
-type Editor struct {
-	id     int
-	buffer *Buffer
-}
-
-// NewClient returns a new client for a Server at the given host.
-func NewClient(host string) *Client { return &Client{host: host} }
-
-func url(c *Client, elems ...interface{}) string {
-	var strs []string
-	for _, p := range elems {
-		switch p := p.(type) {
-		case string:
-			strs = append(strs, p)
-		case int:
-			strs = append(strs, strconv.Itoa(p))
-		default:
-			panic("bad type")
-		}
-	}
-	return "http://" + c.host + path.Join(strs...)
-}
-
-type bufferInfoSlice []BufferInfo
-
-func (s bufferInfoSlice) Len() int           { return len(s) }
-func (s bufferInfoSlice) Less(i, j int) bool { return s[i].ID < s[j].ID }
-func (s bufferInfoSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-
-// Buffers returns information about all buffers on the server.
-// The returned list is sorted in ascending order of buffer ID.
-func (c *Client) Buffers() ([]BufferInfo, error) {
-	url := url(c, "/", "buffer")
-	resp, err := c.http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, respError(resp)
-	}
-	var bufs []BufferInfo
-	if err := json.NewDecoder(resp.Body).Decode(&bufs); err != nil {
-		return nil, err
-	}
-	sort.Sort(bufferInfoSlice(bufs))
-	return bufs, nil
-}
-
-// NewBuffer returns a handle to a new buffer.
-func (c *Client) NewBuffer() (*Buffer, error) {
-	url := url(c, "/", "buffer")
-	req, err := http.NewRequest(http.MethodPut, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, respError(resp)
-	}
-	var buf BufferInfo
-	if err := json.NewDecoder(resp.Body).Decode(&buf); err != nil {
-		return nil, err
-	}
-	return c.Buffer(buf.ID), nil
-}
-
-// Buffer returns a handle to the buffer with the given ID.
-func (c *Client) Buffer(bufferID int) *Buffer { return &Buffer{id: bufferID, client: c} }
-
-// Info returns information about the buffer.
-func (buf *Buffer) Info() (BufferInfo, error) {
-	url := url(buf.client, "/", "buffer", buf.id)
-	resp, err := buf.client.http.Get(url)
-	if err != nil {
-		return BufferInfo{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return BufferInfo{}, respError(resp)
-	}
-	var info BufferInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return BufferInfo{}, err
-	}
-	return info, nil
-}
-
-// Close closes the buffer.
-func (buf *Buffer) Close() error {
-	url := url(buf.client, "/", "buffer", buf.id)
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
+func request(url *url.URL, method string, body io.Reader, resp interface{}) error {
+	httpReq, err := http.NewRequest(method, url.String(), body)
 	if err != nil {
 		return err
 	}
-	resp, err := buf.client.http.Do(req)
+	httpResp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return respError(resp)
+	defer httpResp.Body.Close()
+	if httpResp.StatusCode != http.StatusOK {
+		return responseError(httpResp)
 	}
-	return nil
+	if resp == nil {
+		return nil
+	}
+	return json.NewDecoder(httpResp.Body).Decode(resp)
 }
 
-type editorInfoSlice []EditorInfo
+// Close does a DELETE.
+// The URL is expected to point at either a buffer path or an editor path.
+func Close(url *url.URL) error { return request(url, http.MethodDelete, nil, nil) }
 
-func (s editorInfoSlice) Len() int           { return len(s) }
-func (s editorInfoSlice) Less(i, j int) bool { return s[i].ID < s[j].ID }
-func (s editorInfoSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-
-// Editors returns information about all of the editors on the buffer.
-// The returned list is sorted in ascending order of editor ID.
-func (buf *Buffer) Editors() ([]EditorInfo, error) {
-	url := url(buf.client, "/", "buffer", buf.id, "editor")
-	resp, err := buf.client.http.Get(url)
-	if err != nil {
+// BufferList does a GET and returns a list of Buffers from the response body.
+// The URL is expected to point at an editor server's buffers list.
+func BufferList(url *url.URL) ([]Buffer, error) {
+	var list []Buffer
+	if err := request(url, http.MethodGet, nil, &list); err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, respError(resp)
-	}
-	var eds []EditorInfo
-	if err := json.NewDecoder(resp.Body).Decode(&eds); err != nil {
-		return nil, err
-	}
-	sort.Sort(editorInfoSlice(eds))
-	return eds, nil
+	return list, nil
 }
 
-// NewEditor returns a handle to a new editor.
-func (buf *Buffer) NewEditor() (*Editor, error) {
-	url := url(buf.client, "/", "buffer", buf.id, "editor")
-	req, err := http.NewRequest(http.MethodPut, url, nil)
-	if err != nil {
-		return nil, err
+// NewBuffer does a PUT and returns a Buffer from the response body.
+// The URL is expected to point at an editor server's buffers list.
+func NewBuffer(url *url.URL) (Buffer, error) {
+	var buf Buffer
+	if err := request(url, http.MethodPut, nil, &buf); err != nil {
+		return Buffer{}, err
 	}
-	resp, err := buf.client.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, respError(resp)
-	}
-	var ed EditorInfo
-	if err := json.NewDecoder(resp.Body).Decode(&ed); err != nil {
-		return nil, err
-	}
-	return buf.Editor(ed.ID), nil
+	return buf, nil
 }
 
-// Editor returns a handle to the editor with the given ID.
-func (buf *Buffer) Editor(editorID int) *Editor { return &Editor{id: editorID, buffer: buf} }
-
-// Info returns information about the editor.
-func (ed *Editor) Info() (EditorInfo, error) {
-	url := url(ed.buffer.client, "/", "buffer", ed.buffer.id, "editor", ed.id)
-	resp, err := ed.buffer.client.http.Get(url)
-	if err != nil {
-		return EditorInfo{}, err
+// BufferInfo does a GET and returns a Buffer from the response body.
+// The URL is expected to point at a buffer path.
+func BufferInfo(url *url.URL) (Buffer, error) {
+	var buf Buffer
+	if err := request(url, http.MethodGet, nil, &buf); err != nil {
+		return Buffer{}, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return EditorInfo{}, respError(resp)
-	}
-	var info EditorInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return EditorInfo{}, err
-	}
-	return info, nil
+	return buf, nil
 }
 
-// Close closes the editor.
-func (ed *Editor) Close() error {
-	url := url(ed.buffer.client, "/", "buffer", ed.buffer.id, "editor", ed.id)
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		return err
+// EditorList does a GET and returns a list of Editors from the response body.
+// The URL is expected to point at the "editor" file of a buffer path.
+func EditorList(url *url.URL) ([]Editor, error) {
+	var list []Editor
+	if err := request(url, http.MethodGet, nil, &list); err != nil {
+		return nil, err
 	}
-	resp, err := ed.buffer.client.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return respError(resp)
-	}
-	return nil
+	return list, nil
 }
 
-// Edit performs an atomic sequence of edits to the editor's buffer.
-func (ed *Editor) Edit(edits ...edit.Edit) ([]EditResponse, error) {
-	buf := bytes.NewBuffer(nil)
-	var eds []EditRequest
-	for _, e := range edits {
-		eds = append(eds, EditRequest{e})
+// NewEditor does a PUT and returns an Editor from the response body.
+// The URL is expected to point at the "editor" file of a buffer path.
+func NewEditor(url *url.URL) (Editor, error) {
+	var ed Editor
+	if err := request(url, http.MethodPut, nil, &ed); err != nil {
+		return Editor{}, err
 	}
-	if err := json.NewEncoder(buf).Encode(eds); err != nil {
-		return nil, err
-	}
-	const mime = "application/json"
-	url := url(ed.buffer.client, "/", "buffer", ed.buffer.id, "editor", ed.id)
-	resp, err := ed.buffer.client.http.Post(url, mime, buf)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, respError(resp)
-	}
-	var edResp []EditResponse
-	if err := json.NewDecoder(resp.Body).Decode(&edResp); err != nil {
-		return nil, err
-	}
-	return edResp, nil
+	return ed, nil
 }
 
-func respError(resp *http.Response) error {
-	var msg string
-	if bs, err := ioutil.ReadAll(resp.Body); err != nil {
-		msg = "failed to read response body: " + err.Error()
-	} else {
-		msg = string(bytes.TrimSpace(bs))
+// EditorInfo does a GET and returns an Editor from the response body.
+// The URL is expected to point at an editor path.
+func EditorInfo(url *url.URL) (Editor, error) {
+	var ed Editor
+	if err := request(url, http.MethodGet, nil, &ed); err != nil {
+		return Editor{}, err
 	}
-	switch resp.StatusCode {
-	case http.StatusNotFound:
-		return NotFoundError(msg)
-	default:
-		return errors.New(msg)
+	return ed, nil
+}
+
+// Do POSTs a sequence of edits and returns a list of the EditResults
+// from the response body.
+// The URL is expected to point at an editor path.
+func Do(url *url.URL, edits ...edit.Edit) ([]EditResult, error) {
+	var eds []editRequest
+	for _, ed := range edits {
+		eds = append(eds, editRequest{ed})
 	}
+	body := bytes.NewBuffer(nil)
+	if err := json.NewEncoder(body).Encode(eds); err != nil {
+		return nil, err
+	}
+	var results []EditResult
+	if err := request(url, http.MethodPost, body, &results); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func responseError(resp *http.Response) error {
+	if resp.StatusCode == http.StatusNotFound {
+		return ErrNotFound
+	}
+	data, _ := ioutil.ReadAll(resp.Body)
+	return errors.New(resp.Status + ": " + string(data))
 }
