@@ -348,7 +348,7 @@ func TestDo(t *testing.T) {
 		edit.Print(edit.All),       // 3
 	}
 	want := []EditResult{
-		{Sequence: 1, Error: edit.RangeError(0).Error()},
+		{Sequence: 1, Error: edit.ErrRange.Error()},
 		{Sequence: 2},
 		{Sequence: 3, Print: hi},
 	}
