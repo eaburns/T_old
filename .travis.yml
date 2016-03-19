@@ -17,4 +17,4 @@ install:
 
 script:
     - ./gok.sh
-    - if [[ $TRAVIS_SECURE_ENV_VARS = "true" ]]; then bash ./updatecov.bash; fi
+    - if [[ $TRAVIS_SECURE_ENV_VARS = "true" ]]; then bash ./updatecov.sh; fi
