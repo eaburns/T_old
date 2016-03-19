@@ -420,7 +420,7 @@ func match(re *regexp.Regexp, s Span, text Text) []int {
 
 func nextMatch(re *regexp.Regexp, from int64, text Text, wrap bool) []int {
 	m := match(re, Span{from, text.Size()}, text)
-	if len(m) >= 2 && m[0] < m[1] {
+	if len(m) >= 2 && m[0] <= m[1] {
 		return m
 	}
 	if from > 0 && wrap {
@@ -434,10 +434,17 @@ func prevMatch(re *regexp.Regexp, from int64, text Text, wrap bool) []int {
 	for {
 		span := Span{0, from}
 		if len(prev) >= 2 {
-			span[0] = int64(prev[1])
+			if prev[0] == prev[1] {
+				span[0] = int64(prev[1]) + 1
+			} else {
+				span[0] = int64(prev[1])
+			}
+		}
+		if span[0] > span[1] {
+			break
 		}
 		cur := match(re, span, text)
-		if len(cur) < 2 || cur[0] >= cur[1] {
+		if len(cur) < 2 || len(prev) >= 2 && prev[1] == cur[1] {
 			break
 		}
 		prev = cur

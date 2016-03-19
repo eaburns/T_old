@@ -659,11 +659,46 @@ var regexpTests = []editTest{
 		error: "no match",
 	},
 	{
-		name:  "empty",
+		name:  "empty regexp",
 		given: "{..}Hello 世界",
 		do:    address(Regexp("")),
-		error: "no match",
-		want:  "{..}Hello 世界",
+		want:  "{..aa}Hello 世界",
+	},
+	{
+		name:  "empty match from beginning",
+		given: "{..}aaaaa",
+		do:    address(Regexp("b*")),
+		want:  "{..aa}aaaaa",
+	},
+	{
+		name:  "empty match",
+		given: "aaaa{..}a",
+		do:    address(Regexp("b*")),
+		want:  "aaaa{..aa}a",
+	},
+	{
+		name:  "empty match from end",
+		given: "aaaaa{..}",
+		do:    address(Regexp("b*")),
+		want:  "aaaaa{..aa}",
+	},
+	{
+		name:  "reverse empty match from beginning",
+		given: "{..}aaaaa",
+		do:    address(Dot.Minus(Regexp("b*"))),
+		want:  "{..aa}aaaaa",
+	},
+	{
+		name:  "reverse empty match",
+		given: "aaa{..}aa",
+		do:    address(Dot.Minus(Regexp("b*"))),
+		want:  "aaa{..aa}aa",
+	},
+	{
+		name:  "reverse empty match from end",
+		given: "aaaaa{..}",
+		do:    address(Dot.Minus(Regexp("b*"))),
+		want:  "aaaaa{..aa}",
 	},
 	{
 		name:  "simple",
@@ -678,11 +713,10 @@ var regexpTests = []editTest{
 		want:  "{..a}Hello{a} 世界",
 	},
 	{
-		name:  "a star empty no match",
+		name:  "a star empty match #0",
 		given: "{..}",
 		do:    address(Regexp("a*")),
-		error: "no match",
-		want:  "{..}",
+		want:  "{..aa}",
 	},
 	{
 		name:  "a star match 1",
