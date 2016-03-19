@@ -9,7 +9,7 @@ env:
     - PATH=$HOME/gopath/bin:$PATH
 
 install:
-    - go get github.com/axw/gocov/gocov
+    - go get golang.org/x/tools/cmd/cover
     - go get github.com/mattn/goveralls
     - go get golang.org/x/tools/cmd/vet
     - go get github.com/golang/lint/golint
@@ -17,4 +17,4 @@ install:
 
 script:
     - ./gok.sh
-    - if [[ $TRAVIS_SECURE_ENV_VARS = "true" ]]; then sh ./updatecov.sh; fi
+    - if [[ $TRAVIS_SECURE_ENV_VARS = "true" ]]; then bash ./updatecov.bash; fi
