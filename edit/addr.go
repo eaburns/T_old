@@ -11,13 +11,8 @@ import (
 	"unicode"
 )
 
-var (
-	// ErrRange is returned when an Address is out of range of the Text.
-	ErrRange = errors.New("out of range")
-
-	// ErrNoMatch is returned when a regular expression fails to match.
-	ErrNoMatch = errors.New("no match")
-)
+// ErrNoMatch is returned when a regular expression fails to match.
+var ErrNoMatch = errors.New("no match")
 
 var (
 	// All is the Address of the entire Text: 0,$.
@@ -256,7 +251,7 @@ func lineForward(n int, from int64, text Text) (Span, error) {
 		}
 	}
 	if n > 1 || n == 1 && s[1] < text.Size() {
-		return Span{}, ErrRange
+		s = Span{text.Size(), text.Size()}
 	}
 	return s, nil
 }
@@ -296,7 +291,7 @@ func lineBackward(n int, from int64, text Text) (Span, error) {
 		}
 	}
 	if n > 1 {
-		return Span{}, ErrRange
+		return Span{}, nil
 	}
 	for {
 		r, w, err := rr.ReadRune()
@@ -477,7 +472,10 @@ func (a runeAddr) where(from int64, text Text) (Span, error) {
 	for a > 0 {
 		switch _, w, err := rr.ReadRune(); {
 		case err == io.EOF:
-			return Span{}, ErrRange
+			if delta < 0 {
+				return Span{}, nil
+			}
+			return Span{text.Size(), text.Size()}, nil
 		case err != nil:
 			return Span{}, err
 		default:

@@ -449,16 +449,28 @@ func TestAddressEndFromString(t *testing.T) {
 
 var runeTests = []editTest{
 	{
-		name:  "out of range",
+		name:  "empty beyond end",
 		given: "{..}",
 		do:    address(Rune(1)),
-		error: "out of range",
+		want:  "{..aa}",
 	},
 	{
-		name:  "out of range negative",
+		name:  "empty beyond beginning",
 		given: "{..}",
 		do:    address(Dot.Minus(Rune(1))),
-		error: "out of range",
+		want:  "{..aa}",
+	},
+	{
+		name:  "beyond end",
+		given: "{..}abcxyz",
+		do:    address(Rune(1000)),
+		want:  "{..}abcxyz{aa}",
+	},
+	{
+		name:  "beyond beginning",
+		given: "{..}abcxyz",
+		do:    address(Dot.Minus(Rune(1000))),
+		want:  "{..aa}abcxyz",
 	},
 	{
 		name:  "empty buffer",
@@ -518,16 +530,28 @@ func TestAddressRuneFromString(t *testing.T) {
 
 var lineTests = []editTest{
 	{
-		name:  "out of range",
+		name:  "empty beyond end",
 		given: "{..}",
 		do:    address(Line(2)),
-		error: "out of range",
+		want:  "{..aa}",
 	},
 	{
-		name:  "negative out of range",
+		name:  "empty beyond beginning",
 		given: "{..}",
 		do:    address(Dot.Minus(Line(2))),
-		error: "out of range",
+		want:  "{..aa}",
+	},
+	{
+		name:  "beyond end",
+		given: "{..}abcxyz",
+		do:    address(Line(1000)),
+		want:  "{..}abcxyz{aa}",
+	},
+	{
+		name:  "beyond beginning",
+		given: "{..}abcxyz",
+		do:    address(Dot.Minus(Line(1000))),
+		want:  "{..aa}abcxyz",
 	},
 	{
 		name:  "empy buffer line 0",
@@ -606,14 +630,6 @@ var lineTests = []editTest{
 		given: "{..}abc\ndef\nghi",
 		do:    address(Line(2).Plus(Line(-2))), // 2+0
 		want:  "{..}abc\ndef\n{aa}ghi",
-	},
-	// BUG(eaburns): This should be an out of range error.
-	{
-		name:  "plus to out of range",
-		given: "abc{..}",
-		do:    address(Rune(3).Plus(Line(1))),
-		//error: "out of range",
-		want: "abc{..aa}",
 	},
 }
 
@@ -903,10 +919,28 @@ func TestRegexpString(t *testing.T) {
 
 var plusTests = []editTest{
 	{
-		name:  "out of range",
+		name:  "empty rune beyond end",
 		given: "{..}",
-		do:    address(Dot.Plus(Rune(1))),
-		error: "out of range",
+		do:    address(Dot.Plus(Rune(1000))),
+		want:  "{..aa}",
+	},
+	{
+		name:  "beyond rune end",
+		given: "{..}abcxyz",
+		do:    address(Dot.Plus(Rune(1000))),
+		want:  "{..}abcxyz{aa}",
+	},
+	{
+		name:  "empty line beyond end",
+		given: "{..}",
+		do:    address(Dot.Plus(Line(1000))),
+		want:  "{..aa}",
+	},
+	{
+		name:  "beyond line end",
+		given: "{..}abcxyz",
+		do:    address(Dot.Plus(Line(1000))),
+		want:  "{..}abcxyz{aa}",
 	},
 	{
 		name:  "plus dot address",
@@ -972,16 +1006,28 @@ func TestAddressPlusFromString(t *testing.T) {
 
 var minusTests = []editTest{
 	{
-		name:  "rune out of range",
+		name:  "empty rune beyond beginning",
 		given: "{..}",
-		do:    address(Dot.Minus(Rune(1))),
-		error: "out of range",
+		do:    address(Dot.Minus(Rune(1000))),
+		want:  "{..aa}",
 	},
 	{
-		name:  "line out of range",
+		name:  "rune beyond beginning",
+		given: "{..}abcxyz",
+		do:    address(Dot.Minus(Rune(1000))),
+		want:  "{..aa}abcxyz",
+	},
+	{
+		name:  "empty line beyond beginning",
 		given: "{..}",
-		do:    address(Dot.Minus(Line(2))),
-		error: "out of range",
+		do:    address(Dot.Minus(Line(1000))),
+		want:  "{..aa}",
+	},
+	{
+		name:  "line beyond beginning",
+		given: "{..}abcxyz",
+		do:    address(Dot.Minus(Line(1000))),
+		want:  "{..aa}abcxyz",
 	},
 	{
 		name:  "minus dot address",
@@ -1077,10 +1123,10 @@ func TestAddressMinusFromString(t *testing.T) {
 
 var toTests = []editTest{
 	{
-		name:  "out of range",
-		given: "{..}",
-		do:    address(Dot.To(Rune(1))),
-		error: "out of range",
+		name:  "clamp at bounds",
+		given: "{..}abcxyz",
+		do:    address(Dot.Minus(Rune(1000)).To(Rune(1000))),
+		want:  "{..a}abcxyz{a}",
 	},
 	{
 		name:  "empty buffer",
@@ -1140,10 +1186,10 @@ func TestAddressToFromString(t *testing.T) {
 
 var thenTests = []editTest{
 	{
-		name:  "out of range",
-		given: "{..}",
-		do:    address(Dot.Then(Rune(1))),
-		error: "out of range",
+		name:  "clamp at bounds",
+		given: "{..}abcxyz",
+		do:    address(Dot.Minus(Rune(1000)).Then(Rune(1000))),
+		want:  "{..a}abcxyz{a}",
 	},
 	{
 		name:  "empty buffer",

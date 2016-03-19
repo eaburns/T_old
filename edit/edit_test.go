@@ -476,9 +476,9 @@ func TestEditString(t *testing.T) {
 
 var changeTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{Change(Rune(1), "")},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{Change(Regexp("no match"), "")},
+		error: "no match",
 	},
 	{
 		name:  "delete empty",
@@ -594,9 +594,9 @@ func TestEditChangeFromString(t *testing.T) {
 
 var appendTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{Append(Rune(1), "")},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{Append(Regexp("no match"), "")},
+		error: "no match",
 	},
 	{
 		name:  "append empty to beginning",
@@ -650,9 +650,9 @@ func TestEditAppendFromString(t *testing.T) {
 
 var insertTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{Insert(Rune(1), "")},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{Insert(Regexp("no match"), "")},
+		error: "no match",
 	},
 	{
 		name:  "insert empty at beginning",
@@ -706,9 +706,9 @@ func TestEditInsertFromString(t *testing.T) {
 
 var deleteTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{Delete(Rune(1))},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{Delete(Regexp("no match"))},
+		error: "no match",
 	},
 	{
 		name:  "delete empty buffer",
@@ -768,16 +768,15 @@ func TestEditDeleteFromString(t *testing.T) {
 
 var moveTests = []editTest{
 	{
-		name:  "first address out of range",
-		do:    []Edit{Move(Rune(1), Rune(2))},
-		error: "out of range",
+		name:  "first address bad",
+		do:    []Edit{Move(Regexp("no match"), Rune(2))},
+		error: "no match",
 	},
 	{
-		name:  "second address out of range",
-		given: "{..}a",
-		do:    []Edit{Move(Rune(1), Rune(2))},
-		error: "out of range",
-		want:  "{..}a",
+		name:  "second address bad",
+		given: "{..}",
+		do:    []Edit{Move(Rune(1), Regexp("no match"))},
+		error: "no match",
 	},
 	{
 		name:  "overlap beginning",
@@ -846,16 +845,15 @@ func TestEditMoveFromString(t *testing.T) {
 
 var copyTests = []editTest{
 	{
-		name:  "first address out of range",
-		do:    []Edit{Copy(Rune(1), Rune(2))},
-		error: "out of range",
+		name:  "first address bad",
+		do:    []Edit{Copy(Regexp("no match"), Rune(2))},
+		error: "no match",
 	},
 	{
-		name:  "second address out of range",
-		given: "{..}a",
-		do:    []Edit{Copy(Rune(1), Rune(2))},
-		error: "out of range",
-		want:  "{..}a",
+		name:  "second address bad",
+		given: "{..}",
+		do:    []Edit{Copy(Rune(1), Regexp("no match"))},
+		error: "no match",
 	},
 	{
 		name:  "copy to beginning",
@@ -915,9 +913,9 @@ func TestEditCopyFromString(t *testing.T) {
 
 var setTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{Set(Rune(1), '.')},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{Set(Regexp("no match"), '.')},
+		error: "no match",
 	},
 	{
 		name:  "set dot to beginning",
@@ -977,9 +975,9 @@ func TestEditSetFromString(t *testing.T) {
 
 var printTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{Print(Rune(1))},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{Print(Regexp("no match"))},
+		error: "no match",
 	},
 	{
 		name:  "print empty range",
@@ -1025,9 +1023,9 @@ func TestEditPrintFromString(t *testing.T) {
 
 var whereTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{Where(Rune(1))},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{Where(Regexp("no match"))},
+		error: "no match",
 	},
 	{
 		name:  "where empty buffer",
@@ -1094,9 +1092,9 @@ func TestEditWhereFromString(t *testing.T) {
 
 var whereLineTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{WhereLine(Rune(1))},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{WhereLine(Regexp("no match"))},
+		error: "no match",
 	},
 	{
 		name:  "where line empty buffer",
@@ -1163,9 +1161,9 @@ func TestEditWhereLineFromString(t *testing.T) {
 
 var substituteTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{Sub(Rune(1), "a", "b")},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{Sub(Regexp("no match"), "a", "b")},
+		error: "no match",
 	},
 	{
 		name:  "bad regexp",
@@ -1468,9 +1466,9 @@ func TestEditSubstituteFromString(t *testing.T) {
 
 var loopTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{Loop(Rune(1), "a", Delete(Dot))},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{Loop(Regexp("no match"), "a", Delete(Dot))},
+		error: "no match",
 	},
 	{
 		name:  "bad regexp",
@@ -1559,9 +1557,9 @@ func TestEditLoopFromString(t *testing.T) {
 
 var pipeFromTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{PipeFrom(Rune(1), "echo hi")},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{PipeFrom(Regexp("no match"), "echo hi")},
+		error: "no match",
 	},
 	{
 		name:  "command fails",
@@ -1619,9 +1617,9 @@ func TestEditPipeFromFromString(t *testing.T) {
 
 var pipeToTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{PipeTo(Rune(1), "echo hi")},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{PipeTo(Regexp("no match"), "echo hi")},
+		error: "no match",
 	},
 	{
 		name:  "command fails",
@@ -1668,9 +1666,9 @@ func TestEditPipeToFromString(t *testing.T) {
 
 var pipeTests = []editTest{
 	{
-		name:  "out of range",
-		do:    []Edit{Pipe(Rune(1), "echo hi")},
-		error: "out of range",
+		name:  "bad address",
+		do:    []Edit{Pipe(Regexp("no match"), "echo hi")},
+		error: "no match",
 	},
 	{
 		name:  "command fails",
