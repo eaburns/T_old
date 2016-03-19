@@ -1170,6 +1170,31 @@ var toTests = []editTest{
 		do:    address(Rune(0).To(Rune(1)).To(Rune(2).Plus(Rune(1)))),
 		want:  "{..a}abc{a}",
 	},
+
+	{
+		name:  "a1 start to a2 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("a+").To(Regexp("c+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
+	{
+		name:  "a2 start to a1 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("c+").To(Regexp("a+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
+	{
+		name:  "a1 start to a1 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("[abc]+").To(Regexp("b+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
+	{
+		name:  "a2 start to a2 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("b+").To(Regexp("[abc]+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
 }
 
 func TestAddressTo(t *testing.T) {
@@ -1244,6 +1269,31 @@ var thenTests = []editTest{
 		given: "{..}1234567{mm}89",
 		do:    address(Line(0).Then(Mark('m'))),
 		want:  "{..a}1234567{amm}89",
+	},
+
+	{
+		name:  "a1 start to a2 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("a+").Then(Regexp("c+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
+	{
+		name:  "a2 start to a1 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("c+").Then(Regexp("a+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
+	{
+		name:  "a1 start to a1 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("[abc]+").Then(Regexp("b+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
+	{
+		name:  "a2 start to a2 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("b+").Then(Regexp("a[abc]+"))),
+		want:  "{..a}aaabbbccc{a}",
 	},
 }
 
