@@ -11,9 +11,6 @@ import (
 	"unicode"
 )
 
-// ErrNoMatch is returned when a regular expression fails to match.
-var ErrNoMatch = errors.New("no match")
-
 var (
 	// All is the Address of the entire Text: 0,$.
 	All = Line(0).To(End)
@@ -25,6 +22,15 @@ var (
 	End SimpleAddress = end{}
 )
 
+// ErrNoMatch is returned when a regular expression fails to match.
+var ErrNoMatch = errors.New("no match")
+
+// A RangeError is returned if an Address is out of range of the buffer.
+// The value of the error is the bounding endpoint of the buffer.
+type RangeError int64
+
+func (err RangeError) Error() string { return "out of range" }
+
 // An Address identifies a Span within a Text.
 type Address interface {
 	// String returns the string representation of the Address.
@@ -33,17 +39,21 @@ type Address interface {
 	String() string
 
 	// To returns an Address identifying the string
-	// between the receiver Address and the argument Address.
-	// The start of the string is the minimum
-	// of the start of the receiver and the start of the argument.
-	// The end of the string is the maximum
-	// of the end of the receiver and the end of the argument.
+	// from the start of the receiver to the end of the argument.
 	To(AdditiveAddress) Address
 
 	// Then returns an Address like To,
 	// but with dot set to the receiver Address
 	// during evaluation of the argument.
 	Then(AdditiveAddress) Address
+
+	// To returns an Address identifying the string
+	// between the receiver Address and the argument Address.
+	// The start of the string is the minimum
+	// of the start of the receiver and the start of the argument.
+	// The end of the string is the maximum
+	// of the end of the receiver and the end of the argument.
+	Between(AdditiveAddress) Address
 
 	// Where returns the Span of the Address evaluated on a Text.
 	Where(Text) (Span, error)
@@ -54,23 +64,10 @@ type to struct {
 	right AdditiveAddress
 }
 
-func (a to) String() string                 { return a.left.String() + "," + a.right.String() }
-func (a to) To(b AdditiveAddress) Address   { return to{left: a, right: b} }
-func (a to) Then(b AdditiveAddress) Address { return then{left: a, right: b} }
-
-func min(a, b int64) int64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
-}
+func (a to) String() string                    { return a.left.String() + "," + a.right.String() }
+func (a to) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a to) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a to) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
 
 func (a to) Where(text Text) (Span, error) {
 	left, err := a.left.Where(text)
@@ -81,7 +78,7 @@ func (a to) Where(text Text) (Span, error) {
 	if err != nil {
 		return Span{}, err
 	}
-	return Span{min(left[0], right[0]), max(left[1], right[1])}, nil
+	return Span{left[0], right[1]}, nil
 }
 
 type then struct {
@@ -89,9 +86,10 @@ type then struct {
 	right AdditiveAddress
 }
 
-func (a then) String() string                 { return a.left.String() + ";" + a.right.String() }
-func (a then) To(b AdditiveAddress) Address   { return to{left: a, right: b} }
-func (a then) Then(b AdditiveAddress) Address { return then{left: a, right: b} }
+func (a then) String() string                    { return a.left.String() + ";" + a.right.String() }
+func (a then) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a then) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a then) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
 
 type withDot struct {
 	Text
@@ -114,7 +112,37 @@ func (a then) Where(text Text) (Span, error) {
 	if err != nil {
 		return Span{}, err
 	}
-	return Span{min(left[0], right[0]), max(left[1], right[1])}, nil
+	return Span{left[0], right[1]}, nil
+}
+
+type between struct {
+	left  Address
+	right AdditiveAddress
+}
+
+func (a between) String() string                    { return a.left.String() + ":" + a.right.String() }
+func (a between) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a between) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a between) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
+
+func (a between) Where(text Text) (Span, error) {
+	left, err := a.left.Where(text)
+	if err != nil {
+		return Span{}, err
+	}
+	right, err := a.right.Where(text)
+	if err != nil {
+		return Span{}, err
+	}
+	l := left[0]
+	if right[0] < l {
+		l = right[0]
+	}
+	r := right[1]
+	if left[1] > r {
+		r = left[1]
+	}
+	return Span{l, r}, nil
 }
 
 // A AdditiveAddress identifies a Span within a Text.
@@ -134,9 +162,11 @@ type plus struct {
 	right SimpleAddress
 }
 
-func (a plus) String() string                        { return a.left.String() + "+" + a.right.String() }
-func (a plus) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
-func (a plus) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a plus) String() string                    { return a.left.String() + "+" + a.right.String() }
+func (a plus) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a plus) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a plus) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
+
 func (a plus) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a plus) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
 func (a plus) Where(text Text) (Span, error)         { return a.where(0, text) }
@@ -154,9 +184,11 @@ type minus struct {
 	right SimpleAddress
 }
 
-func (a minus) String() string                        { return a.left.String() + "-" + a.right.String() }
-func (a minus) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
-func (a minus) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a minus) String() string                    { return a.left.String() + "-" + a.right.String() }
+func (a minus) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a minus) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a minus) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
+
 func (a minus) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a minus) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
 func (a minus) Where(text Text) (Span, error)         { return a.where(0, text) }
@@ -178,11 +210,39 @@ type SimpleAddress interface {
 	reverse() SimpleAddress
 }
 
+type clamp struct{ addr SimpleAddress }
+
+// Clamp returns the SimpleAddress, a,
+// clamped to the endpoints of the Text.
+// Where a would return a RangeError,
+// Clamp(a) returns the empty Address
+// at the beginning or end of the text.
+func Clamp(a SimpleAddress) SimpleAddress         { return clamp{a} }
+func (a clamp) String() string                    { return "!" + a.addr.String() }
+func (a clamp) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a clamp) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a clamp) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
+
+func (a clamp) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
+func (a clamp) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
+func (a clamp) reverse() SimpleAddress                { return Clamp(a.addr.reverse()) }
+func (a clamp) Where(text Text) (Span, error)         { return a.where(0, text) }
+
+func (a clamp) where(from int64, text Text) (Span, error) {
+	s, err := a.addr.where(from, text)
+	if r, ok := err.(RangeError); ok {
+		return Span{int64(r), int64(r)}, nil
+	}
+	return s, err
+}
+
 type end struct{}
 
-func (a end) String() string                        { return "$" }
-func (a end) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
-func (a end) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a end) String() string                    { return "$" }
+func (a end) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a end) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a end) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
+
 func (a end) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a end) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
 func (a end) reverse() SimpleAddress                { return a }
@@ -204,9 +264,11 @@ func Line(n int) SimpleAddress {
 	return line(n)
 }
 
-func (a line) String() string                        { return strconv.Itoa(int(a)) }
-func (a line) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
-func (a line) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a line) String() string                    { return strconv.Itoa(int(a)) }
+func (a line) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a line) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a line) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
+
 func (a line) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a line) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
 func (a line) reverse() SimpleAddress                { return line(int(-a)) }
@@ -269,7 +331,7 @@ func lineForward(n int, from int64, text Text) (Span, error) {
 		}
 	}
 	if n > 1 || n == 1 && s[1] < text.Size() {
-		s = Span{text.Size(), text.Size()}
+		return Span{}, RangeError(text.Size())
 	}
 	return s, nil
 }
@@ -309,7 +371,7 @@ func lineBackward(n int, from int64, text Text) (Span, error) {
 		}
 	}
 	if n > 1 {
-		return Span{}, nil
+		return Span{}, RangeError(0)
 	}
 	for {
 		r, w, err := rr.ReadRune()
@@ -344,8 +406,10 @@ func (a mark) String() string {
 	return "'" + string(rune(a))
 }
 
-func (a mark) To(b AdditiveAddress) Address           { return to{left: a, right: b} }
-func (a mark) Then(b AdditiveAddress) Address         { return then{left: a, right: b} }
+func (a mark) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a mark) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a mark) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
+
 func (a mark) Plus(b SimpleAddress) AdditiveAddress   { return plus{left: a, right: b} }
 func (a mark) Minus(b SimpleAddress) AdditiveAddress  { return minus{left: a, right: b} }
 func (a mark) reverse() SimpleAddress                 { return a }
@@ -379,10 +443,12 @@ type regexpAddr struct {
 // the second "abc" in the first line.
 // Likewise, in a reverse search, the relative start location
 // is considered to be the end of text.
-func Regexp(regexp string) SimpleAddress                   { return regexpAddr{regexp: regexp} }
-func (a regexpAddr) String() string                        { return "/" + Escape(a.regexp, '/') + "/" }
-func (a regexpAddr) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
-func (a regexpAddr) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func Regexp(regexp string) SimpleAddress               { return regexpAddr{regexp: regexp} }
+func (a regexpAddr) String() string                    { return "/" + Escape(a.regexp, '/') + "/" }
+func (a regexpAddr) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a regexpAddr) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a regexpAddr) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
+
 func (a regexpAddr) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a regexpAddr) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
 
@@ -477,9 +543,11 @@ func Rune(n int64) SimpleAddress {
 	return runeAddr(n)
 }
 
-func (a runeAddr) String() string                        { return "#" + strconv.FormatInt(int64(a), 10) }
-func (a runeAddr) To(b AdditiveAddress) Address          { return to{left: a, right: b} }
-func (a runeAddr) Then(b AdditiveAddress) Address        { return then{left: a, right: b} }
+func (a runeAddr) String() string                    { return "#" + strconv.FormatInt(int64(a), 10) }
+func (a runeAddr) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
+func (a runeAddr) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
+func (a runeAddr) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
+
 func (a runeAddr) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a runeAddr) reverse() SimpleAddress                { return runeAddr(-a) }
 func (a runeAddr) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
@@ -497,10 +565,11 @@ func (a runeAddr) where(from int64, text Text) (Span, error) {
 	for a > 0 {
 		switch _, w, err := rr.ReadRune(); {
 		case err == io.EOF:
-			if delta < 0 {
-				return Span{}, nil
+			var err RangeError
+			if delta > 0 {
+				err = RangeError(text.Size())
 			}
-			return Span{text.Size(), text.Size()}, nil
+			return Span{}, err
 		case err != nil:
 			return Span{}, err
 		default:
@@ -513,14 +582,14 @@ func (a runeAddr) where(from int64, text Text) (Span, error) {
 
 const (
 	digits      = "0123456789"
-	simpleFirst = "#/$.'" + digits
+	simpleFirst = "!#/$.'" + digits
 )
 
 // Addr parses and returns an address.
 //
 // The address syntax for address a is:
 // 	a: {a} , {aa} | {a} ; {aa} | {aa}
-// 	aa: {aa} + {sa} | {aa} - {sa} | {aa} {sa} | {sa}
+// 	aa: {aa} + {sa} | {aa} - {sa} | {aa} {sa} | {!} {sa}
 // 	sa: $ | . | 'r | #{n} | n | / regexp {/}
 // 	n: [0-9]+
 // 	r: any non-space rune
@@ -538,6 +607,14 @@ const (
 // 		except that \, raw newlines, and / must be escaped with \.
 // 		The regexp is wrapped in (?m:<regexp>), making it multi-line by default.
 //
+// Simple addresses may be prefixed with !.
+// Such an address is clamped
+// to the beginning or end of the text
+// whenever it would return an out of range error.
+// For example,
+// 	.+25 is the 25th line after dot, or an error if there are fewer than 25 lines after dot.
+// 	.+!25 is the 25th line after dot, or $ if there are fewer than 25 lines after dot.
+//
 // Production aa describes an additive address:
 //	{aa} '+' {sa} is the second address evaluated from the end of the first.
 //		If the first address is missing, . is used.
@@ -549,16 +626,19 @@ const (
 // 	then a '+' is inserted, as in aa + as.
 //
 // Production a describes a range address:
-//	{a} ',' {aa} is the string between the first address and the second.
+//	{a} ',' {aa} is the string from the start of the first address to the end of the second.
+//		If the first address is missing, 0 is used.
+//		If the second address is missing, $ is used.
+//	{a} ';' {aa} is like the previous,
+// 		but with dot set to the receiver Address
+// 		during evaluation of the argument.
+//		If the first address is missing, 0 is used.
+//		If the second address is missing, $ is used.
+//	{a} ':' {aa} is the string between the first address and the second.
 // 		The start of the string is the minimum
 // 		of the start of the first and the start of the second.
 // 		The end of the string is the maximum
 // 		of the end of the first and the end of the second.
-//		If the first address is missing, 0 is used.
-//		If the second address is missing, $ is used.
-//	{a} ';' {aa} is like the previous,
-// 		but with dot set to the first Address
-// 		during evaluation of the second.
 //		If the first address is missing, 0 is used.
 //		If the second address is missing, $ is used.
 //
@@ -596,7 +676,7 @@ func parseAddressTail(left Address, rs io.RuneScanner) (Address, error) {
 		break
 	case err != nil:
 		return nil, err
-	case r == ',' || r == ';':
+	case r == ',' || r == ';' || r == ':':
 		if left == nil {
 			left = Line(0)
 		}
@@ -608,10 +688,13 @@ func parseAddressTail(left Address, rs io.RuneScanner) (Address, error) {
 			right = End
 		}
 		var a Address
-		if r == ',' {
+		switch r {
+		case ',':
 			a = left.To(right)
-		} else {
+		case ';':
 			a = left.Then(right)
+		default:
+			a = left.Between(right)
 		}
 		return parseAddressTail(a, rs)
 	default:
@@ -708,6 +791,15 @@ func parseSimpleAddress(rs io.RuneScanner) (SimpleAddress, error) {
 		return End, nil
 	case r == '.':
 		return Dot, nil
+	case r == '!':
+		a, err := parseSimpleAddress(rs)
+		if err != nil {
+			return nil, err
+		}
+		if a == nil {
+			a = Dot
+		}
+		return Clamp(a), nil
 	default:
 		return nil, rs.UnreadRune()
 	}

@@ -109,6 +109,7 @@ func TestAddr(t *testing.T) {
 		{a: " 1 , 2 ", want: Line(1).To(Line(2))},
 		{a: ",-#5", want: Line(0).To(Dot.Minus(Rune(5)))},
 		{a: " , - #5", want: Line(0).To(Dot.Minus(Rune(5)))},
+
 		{a: ";", want: Line(0).Then(End)},
 		{a: ";xyz", left: "xyz", want: Line(0).Then(End)},
 		{a: " ; ", want: Line(0).Then(End)},
@@ -121,6 +122,19 @@ func TestAddr(t *testing.T) {
 		{a: " 1 ; 2 ", want: Line(1).Then(Line(2))},
 		{a: ";-#5", want: Line(0).Then(Dot.Minus(Rune(5)))},
 		{a: " ; - #5 ", want: Line(0).Then(Dot.Minus(Rune(5)))},
+
+		{a: ":", want: Line(0).Between(End)},
+		{a: ":xyz", left: "xyz", want: Line(0).Between(End)},
+		{a: " : ", want: Line(0).Between(End)},
+		{a: ":\n1", left: "\n1", want: Line(0).Between(End)},
+		{a: ":1", want: Line(0).Between(Line(1))},
+		{a: "1:", want: Line(1).Between(End)},
+		{a: "0:$", want: Line(0).Between(End)},
+		{a: ".:$", want: Dot.Between(End)},
+		{a: "1:2", want: Line(1).Between(Line(2))},
+		{a: " 1 : 2 ", want: Line(1).Between(Line(2))},
+		{a: ":-#5", want: Line(0).Between(Dot.Minus(Rune(5)))},
+		{a: " : - #5", want: Line(0).Between(Dot.Minus(Rune(5)))},
 
 		// Right associative.
 		{a: "#0+#1+#2", want: Rune(0).Plus(Rune(1)).Plus(Rune(2))},
@@ -148,6 +162,24 @@ func TestAddr(t *testing.T) {
 		{a: "1/abc", want: Line(1).Plus(Regexp("abc"))},
 		{a: "/abc/1", want: Regexp("abc").Plus(Line(1))},
 		{a: "1+2 3 - 4", want: Line(1).Plus(Line(2)).Plus(Line(3)).Minus(Line(4))},
+
+		// Clamp
+		{a: "!", want: Clamp(Dot)},
+		{a: "!25", want: Clamp(Line(25))},
+		{a: " !   25", want: Clamp(Line(25))},
+		{a: "!#25", want: Clamp(Rune(25))},
+		{a: "!$", want: Clamp(End)},
+		{a: "!.", want: Clamp(Dot)},
+		{a: "!'m", want: Clamp(Mark('m'))},
+		{a: "!/hello/", want: Clamp(Regexp("hello"))},
+		{a: ".+!25", want: Dot.Plus(Clamp(Line(25)))},
+		{a: ".-!25", want: Dot.Minus(Clamp(Line(25)))},
+		{a: ".-5,.+!5", want: Dot.Minus(Line(5)).To(Dot.Plus(Clamp(Line(5))))},
+		{a: ".-!5,.+5", want: Dot.Minus(Clamp(Line(5))).To(Dot.Plus(Line(5)))},
+		{a: ".-!5,.+!5", want: Dot.Minus(Clamp(Line(5))).To(Dot.Plus(Clamp(Line(5))))},
+		{a: ".-#5,.+!#5", want: Dot.Minus(Rune(5)).To(Dot.Plus(Clamp(Rune(5))))},
+		{a: ".-!#5,.+#5", want: Dot.Minus(Clamp(Rune(5))).To(Dot.Plus(Rune(5)))},
+		{a: ".-!#5,.+!#5", want: Dot.Minus(Clamp(Rune(5))).To(Dot.Plus(Clamp(Rune(5))))},
 	}
 	for _, test := range tests {
 		rs := strings.NewReader(test.a)
@@ -433,6 +465,12 @@ var endTests = []editTest{
 		do:    address(End.Then(End)),
 		want:  "{..}abc{aa}",
 	},
+	{
+		name:  "between",
+		given: "{..}abc",
+		do:    address(End.Between(End)),
+		want:  "{..}abc{aa}",
+	},
 }
 
 func TestAddressEnd(t *testing.T) {
@@ -449,28 +487,16 @@ func TestAddressEndFromString(t *testing.T) {
 
 var runeTests = []editTest{
 	{
-		name:  "empty beyond end",
+		name:  "out of range",
 		given: "{..}",
 		do:    address(Rune(1)),
-		want:  "{..aa}",
+		error: "out of range",
 	},
 	{
-		name:  "empty beyond beginning",
+		name:  "out of range negative",
 		given: "{..}",
 		do:    address(Dot.Minus(Rune(1))),
-		want:  "{..aa}",
-	},
-	{
-		name:  "beyond end",
-		given: "{..}abcxyz",
-		do:    address(Rune(1000)),
-		want:  "{..}abcxyz{aa}",
-	},
-	{
-		name:  "beyond beginning",
-		given: "{..}abcxyz",
-		do:    address(Dot.Minus(Rune(1000))),
-		want:  "{..aa}abcxyz",
+		error: "out of range",
 	},
 	{
 		name:  "empty buffer",
@@ -514,6 +540,12 @@ var runeTests = []editTest{
 		do:    address(Rune(3).Plus(Rune(-2))), // #3+#0
 		want:  "{..}abc{aa}defg",
 	},
+	{
+		name:  "between",
+		given: "{..}abcdef",
+		do:    address(Rune(2).Between(Rune(1))),
+		want:  "{..}a{a}b{a}cdef",
+	},
 }
 
 func TestAddressRune(t *testing.T) {
@@ -530,28 +562,16 @@ func TestAddressRuneFromString(t *testing.T) {
 
 var lineTests = []editTest{
 	{
-		name:  "empty beyond end",
+		name:  "out of range",
 		given: "{..}",
 		do:    address(Line(2)),
-		want:  "{..aa}",
+		error: "out of range",
 	},
 	{
-		name:  "empty beyond beginning",
+		name:  "negative out of range",
 		given: "{..}",
 		do:    address(Dot.Minus(Line(2))),
-		want:  "{..aa}",
-	},
-	{
-		name:  "beyond end",
-		given: "{..}abcxyz",
-		do:    address(Line(1000)),
-		want:  "{..}abcxyz{aa}",
-	},
-	{
-		name:  "beyond beginning",
-		given: "{..}abcxyz",
-		do:    address(Dot.Minus(Line(1000))),
-		want:  "{..aa}abcxyz",
+		error: "out of range",
 	},
 	{
 		name:  "empy buffer line 0",
@@ -630,6 +650,20 @@ var lineTests = []editTest{
 		given: "{..}abc\ndef\nghi",
 		do:    address(Line(2).Plus(Line(-2))), // 2+0
 		want:  "{..}abc\ndef\n{aa}ghi",
+	},
+	{
+		name:  "between",
+		given: "{..}abc\ndef\nghi",
+		do:    address(Line(2).Between(Line(1))),
+		want:  "{..}{a}abc\ndef\n{a}ghi",
+	},
+	// BUG(eaburns): This should be an out of range error.
+	{
+		name:  "plus to out of range",
+		given: "abc{..}",
+		do:    address(Rune(3).Plus(Line(1))),
+		//error: "out of range",
+		want: "abc{..aa}",
 	},
 }
 
@@ -953,28 +987,10 @@ func TestRegexpString(t *testing.T) {
 
 var plusTests = []editTest{
 	{
-		name:  "empty rune beyond end",
+		name:  "out of range",
 		given: "{..}",
-		do:    address(Dot.Plus(Rune(1000))),
-		want:  "{..aa}",
-	},
-	{
-		name:  "beyond rune end",
-		given: "{..}abcxyz",
-		do:    address(Dot.Plus(Rune(1000))),
-		want:  "{..}abcxyz{aa}",
-	},
-	{
-		name:  "empty line beyond end",
-		given: "{..}",
-		do:    address(Dot.Plus(Line(1000))),
-		want:  "{..aa}",
-	},
-	{
-		name:  "beyond line end",
-		given: "{..}abcxyz",
-		do:    address(Dot.Plus(Line(1000))),
-		want:  "{..}abcxyz{aa}",
+		do:    address(Dot.Plus(Rune(1))),
+		error: "out of range",
 	},
 	{
 		name:  "plus dot address",
@@ -1024,6 +1040,12 @@ var plusTests = []editTest{
 		do:    address(Regexp("ab").Plus(Rune(1))),
 		want:  "{..}abc{aa}",
 	},
+	{
+		name:  "between",
+		given: "{..}abcde",
+		do:    address(Rune(0).Plus(Rune(1)).Between(Rune(0))),
+		want:  "{..a}a{a}bcde",
+	},
 }
 
 func TestAddressPlus(t *testing.T) {
@@ -1040,28 +1062,16 @@ func TestAddressPlusFromString(t *testing.T) {
 
 var minusTests = []editTest{
 	{
-		name:  "empty rune beyond beginning",
+		name:  "rune out of range",
 		given: "{..}",
-		do:    address(Dot.Minus(Rune(1000))),
-		want:  "{..aa}",
+		do:    address(Dot.Minus(Rune(1))),
+		error: "out of range",
 	},
 	{
-		name:  "rune beyond beginning",
-		given: "{..}abcxyz",
-		do:    address(Dot.Minus(Rune(1000))),
-		want:  "{..aa}abcxyz",
-	},
-	{
-		name:  "empty line beyond beginning",
+		name:  "line out of range",
 		given: "{..}",
-		do:    address(Dot.Minus(Line(1000))),
-		want:  "{..aa}",
-	},
-	{
-		name:  "line beyond beginning",
-		given: "{..}abcxyz",
-		do:    address(Dot.Minus(Line(1000))),
-		want:  "{..aa}abcxyz",
+		do:    address(Dot.Minus(Line(2))),
+		error: "out of range",
 	},
 	{
 		name:  "minus dot address",
@@ -1141,6 +1151,12 @@ var minusTests = []editTest{
 		do:    address(Regexp("bc").Minus(Rune(1))),
 		want:  "{aa}abc{..}",
 	},
+	{
+		name:  "between",
+		given: "{..}abcde",
+		do:    address(Rune(2).Minus(Rune(1)).Between(Rune(0))),
+		want:  "{..a}a{a}bcde",
+	},
 }
 
 func TestAddressMinus(t *testing.T) {
@@ -1157,10 +1173,10 @@ func TestAddressMinusFromString(t *testing.T) {
 
 var toTests = []editTest{
 	{
-		name:  "clamp at bounds",
-		given: "{..}abcxyz",
-		do:    address(Dot.Minus(Rune(1000)).To(Rune(1000))),
-		want:  "{..a}abcxyz{a}",
+		name:  "out of range",
+		given: "{..}",
+		do:    address(Dot.To(Rune(1))),
+		error: "out of range",
 	},
 	{
 		name:  "empty buffer",
@@ -1204,30 +1220,11 @@ var toTests = []editTest{
 		do:    address(Rune(0).To(Rune(1)).To(Rune(2).Plus(Rune(1)))),
 		want:  "{..a}abc{a}",
 	},
-
 	{
-		name:  "a1 start to a2 end",
-		given: "{..}aaabbbccc",
-		do:    address(Regexp("a+").To(Regexp("c+"))),
-		want:  "{..a}aaabbbccc{a}",
-	},
-	{
-		name:  "a2 start to a1 end",
-		given: "{..}aaabbbccc",
-		do:    address(Regexp("c+").To(Regexp("a+"))),
-		want:  "{..a}aaabbbccc{a}",
-	},
-	{
-		name:  "a1 start to a1 end",
-		given: "{..}aaabbbccc",
-		do:    address(Regexp("[abc]+").To(Regexp("b+"))),
-		want:  "{..a}aaabbbccc{a}",
-	},
-	{
-		name:  "a2 start to a2 end",
-		given: "{..}aaabbbccc",
-		do:    address(Regexp("b+").To(Regexp("[abc]+"))),
-		want:  "{..a}aaabbbccc{a}",
+		name:  "between",
+		given: "{..}abcde",
+		do:    address(Rune(0).To(Rune(1)).Between(Rune(0))),
+		want:  "{..a}a{a}bcde",
 	},
 }
 
@@ -1245,10 +1242,10 @@ func TestAddressToFromString(t *testing.T) {
 
 var thenTests = []editTest{
 	{
-		name:  "clamp at bounds",
-		given: "{..}abcxyz",
-		do:    address(Dot.Minus(Rune(1000)).Then(Rune(1000))),
-		want:  "{..a}abcxyz{a}",
+		name:  "out of range",
+		given: "{..}",
+		do:    address(Dot.Then(Rune(1))),
+		error: "out of range",
 	},
 	{
 		name:  "empty buffer",
@@ -1293,6 +1290,12 @@ var thenTests = []editTest{
 		want:  "{..a}abc{a}de",
 	},
 	{
+		name:  "between",
+		given: "{..}abcde",
+		do:    address(Rune(0).Then(Rune(1)).Between(Rune(0))),
+		want:  "{..a}a{a}bcde",
+	},
+	{
 		name:  "a2 evaluated from end of a1",
 		given: "{..}abcxyzabc",
 		do:    address(Regexp("xyz").Then(Regexp("abc"))),
@@ -1304,31 +1307,6 @@ var thenTests = []editTest{
 		do:    address(Line(0).Then(Mark('m'))),
 		want:  "{..a}1234567{amm}89",
 	},
-
-	{
-		name:  "a1 start to a2 end",
-		given: "{..}aaabbbccc",
-		do:    address(Regexp("a+").Then(Regexp("c+"))),
-		want:  "{..a}aaabbbccc{a}",
-	},
-	{
-		name:  "a2 start to a1 end",
-		given: "{..}aaabbbccc",
-		do:    address(Regexp("c+").Then(Regexp("a+"))),
-		want:  "{..a}aaabbbccc{a}",
-	},
-	{
-		name:  "a1 start to a1 end",
-		given: "{..}aaabbbccc",
-		do:    address(Regexp("[abc]+").Then(Regexp("b+"))),
-		want:  "{..a}aaabbbccc{a}",
-	},
-	{
-		name:  "a2 start to a2 end",
-		given: "{..}aaabbbccc",
-		do:    address(Regexp("b+").Then(Regexp("a[abc]+"))),
-		want:  "{..a}aaabbbccc{a}",
-	},
 }
 
 func TestAddressThen(t *testing.T) {
@@ -1339,6 +1317,238 @@ func TestAddressThen(t *testing.T) {
 
 func TestAddressThenFromString(t *testing.T) {
 	for _, test := range thenTests {
+		test.runFromString(t)
+	}
+}
+
+var betweenTests = []editTest{
+	{
+		name:  "out of range",
+		given: "{..}",
+		do:    address(Dot.Between(Rune(1))),
+		error: "out of range",
+	},
+	{
+		name:  "empty buffer",
+		given: "{..}",
+		do:    address(Rune(0).Between(End)),
+		want:  "{..aa}",
+	},
+	{
+		name:  "simple address between simple address",
+		given: "{..}abc",
+		do:    address(Rune(0).Between(Rune(3))),
+		want:  "{..a}abc{a}",
+	},
+	{
+		name:  "simple address between compound address",
+		given: "{..}abc",
+		do:    address(Rune(0).Between(Rune(2).Plus(Rune(1)))),
+		want:  "{..a}abc{a}",
+	},
+	{
+		name:  "compound address between simple address",
+		given: "{..}abc",
+		do:    address(Rune(0).Plus(Rune(1)).Between(Rune(3))),
+		want:  "{..}a{a}bc{a}",
+	},
+	{
+		name:  "compound address between compound address",
+		given: "{..}abc",
+		do:    address(Rune(0).Plus(Rune(1)).Between(Rune(2).Plus(Rune(1)))),
+		want:  "{..}a{a}bc{a}",
+	},
+	{
+		name:  "range address between simple address",
+		given: "{..}abc",
+		do:    address(Rune(0).To(Rune(1)).Between(Rune(2))),
+		want:  "{..a}ab{a}c",
+	},
+	{
+		name:  "range address between compound address",
+		given: "{..}abc",
+		do:    address(Rune(0).To(Rune(1)).Between(Rune(2).Plus(Rune(1)))),
+		want:  "{..a}abc{a}",
+	},
+	{
+		name:  "to",
+		given: "{..}abcde",
+		do:    address(Rune(0).Between(Rune(1)).To(Rune(2))),
+		want:  "{..a}ab{a}cde",
+	},
+	{
+		name:  "then",
+		given: "{..}abcde",
+		do:    address(Rune(0).Between(Rune(1)).Then(Rune(2))),
+		want:  "{..a}ab{a}cde",
+	},
+	{
+		name:  "between",
+		given: "{..}abcde",
+		do:    address(Rune(0).Between(Rune(1)).Between(Rune(0))),
+		want:  "{..a}a{a}bcde",
+	},
+
+	{
+		name:  "a1 start between a2 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("a+").Between(Regexp("c+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
+	{
+		name:  "a2 start between a1 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("c+").Between(Regexp("a+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
+	{
+		name:  "a1 start between a1 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("[abc]+").Between(Regexp("b+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
+	{
+		name:  "a2 start between a2 end",
+		given: "{..}aaabbbccc",
+		do:    address(Regexp("b+").Between(Regexp("[abc]+"))),
+		want:  "{..a}aaabbbccc{a}",
+	},
+}
+
+func TestAddressBetween(t *testing.T) {
+	for _, test := range betweenTests {
+		test.run(t)
+	}
+}
+
+func TestAddressBetweenFromString(t *testing.T) {
+	for _, test := range betweenTests {
+		test.runFromString(t)
+	}
+}
+
+var clampTests = []editTest{
+	{
+		name:  "clamp line",
+		given: "{..}abc\nxyz",
+		do:    address(Clamp(Line(25))),
+		want:  "{..}abc\nxyz{aa}",
+	},
+	{
+		name:  "clamp rune",
+		given: "{..}abc\nxyz",
+		do:    address(Clamp(Rune(1000))),
+		want:  "{..}abc\nxyz{aa}",
+	},
+	{
+		name:  "no need to clamp",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(1))),
+		want:  "1{aa}2{..}34",
+	},
+	{
+		name:  "clamp dot",
+		given: "12{..}34",
+		do:    address(Clamp(Dot)),
+		want:  "12{..aa}34",
+	},
+	{
+		name:  "clamp end",
+		given: "12{..}34",
+		do:    address(Clamp(End)),
+		want:  "12{..}34{aa}",
+	},
+	{
+		name:  "clamp mark",
+		given: "12{..}3{mm}4",
+		do:    address(Clamp(Mark('m'))),
+		want:  "12{..}3{aamm}4",
+	},
+	{
+		name:  "clamp regexp",
+		given: "12{..}34",
+		do:    address(Clamp(Regexp("4"))),
+		want:  "12{..}3{a}4{a}",
+	},
+	{
+		name:  "clamp regexp not found",
+		given: "12{..}34",
+		do:    address(Clamp(Regexp("5"))),
+		error: "no match",
+		want:  "12{..}34",
+	},
+	{
+		name:  "plus clamp",
+		given: "{..}abc\nxyz",
+		do:    address(Dot.Plus(Clamp(Line(25)))),
+		want:  "{..}abc\nxyz{aa}",
+	},
+	{
+		name:  "minus clamp",
+		given: "abc\nxyz{..}",
+		do:    address(Dot.Minus(Clamp(Rune(1000)))),
+		want:  "{aa}abc\nxyz{..}",
+	},
+	{
+		name:  "clamp end but not beginning",
+		given: "12{..}34",
+		do:    address(Dot.Minus(Rune(5)).To(Dot.Plus(Clamp(Rune(5))))),
+		error: "out of range",
+		want:  "12{..}34",
+	},
+	{
+		name:  "clamp beginning but not end",
+		given: "12{..}34",
+		do:    address(Dot.Minus(Clamp(Rune(5))).To(Dot.Plus(Rune(5)))),
+		error: "out of range",
+		want:  "12{..}34",
+	},
+	{
+		name:  "clamp end and beginning",
+		given: "12{..}34",
+		do:    address(Dot.Minus(Clamp(Rune(5))).To(Dot.Plus(Clamp(Rune(5))))),
+		want:  "{a}12{..}34{a}",
+	},
+	{
+		name:  "clamp plus",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(5)).Plus(Rune(0))),
+		want:  "12{..}34{aa}",
+	},
+	{
+		name:  "clamp minus",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(5)).Minus(Rune(1))),
+		want:  "12{..}3{aa}4",
+	},
+	{
+		name:  "clamp to",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(5)).To(Rune(4))),
+		want:  "12{..}34{aa}",
+	},
+	{
+		name:  "clamp then",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(5)).Then(Rune(4))),
+		want:  "12{..}34{aa}",
+	},
+	{
+		name:  "clamp between",
+		given: "12{..}34",
+		do:    address(Clamp(Rune(5)).Between(Rune(4))),
+		want:  "12{..}34{aa}",
+	},
+}
+
+func TestAddressClamp(t *testing.T) {
+	for _, test := range clampTests {
+		test.run(t)
+	}
+}
+
+func TestAddressClampFromString(t *testing.T) {
+	for _, test := range clampTests {
 		test.runFromString(t)
 	}
 }
