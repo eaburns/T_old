@@ -120,7 +120,7 @@ type between struct {
 	right AdditiveAddress
 }
 
-func (a between) String() string                    { return a.left.String() + ":" + a.right.String() }
+func (a between) String() string                    { return a.left.String() + "~" + a.right.String() }
 func (a between) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
 func (a between) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
 func (a between) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
@@ -634,7 +634,7 @@ const (
 // 		during evaluation of the argument.
 //		If the first address is missing, 0 is used.
 //		If the second address is missing, $ is used.
-//	{a} ':' {aa} is the string between the first address and the second.
+//	{a} '~' {aa} is the string between the first address and the second.
 // 		The start of the string is the minimum
 // 		of the start of the first and the start of the second.
 // 		The end of the string is the maximum
@@ -676,7 +676,7 @@ func parseAddressTail(left Address, rs io.RuneScanner) (Address, error) {
 		break
 	case err != nil:
 		return nil, err
-	case r == ',' || r == ';' || r == ':':
+	case r == ',' || r == ';' || r == '~':
 		if left == nil {
 			left = Line(0)
 		}
