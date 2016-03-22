@@ -33,11 +33,7 @@ type Address interface {
 	String() string
 
 	// To returns an Address identifying the string
-	// between the receiver Address and the argument Address.
-	// The start of the string is the minimum
-	// of the start of the receiver and the start of the argument.
-	// The end of the string is the maximum
-	// of the end of the receiver and the end of the argument.
+	// from the start of the receiver to the end of the argument.
 	To(AdditiveAddress) Address
 
 	// Then returns an Address like To,
@@ -58,20 +54,6 @@ func (a to) String() string                 { return a.left.String() + "," + a.r
 func (a to) To(b AdditiveAddress) Address   { return to{left: a, right: b} }
 func (a to) Then(b AdditiveAddress) Address { return then{left: a, right: b} }
 
-func min(a, b int64) int64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func (a to) Where(text Text) (Span, error) {
 	left, err := a.left.Where(text)
 	if err != nil {
@@ -81,7 +63,7 @@ func (a to) Where(text Text) (Span, error) {
 	if err != nil {
 		return Span{}, err
 	}
-	return Span{min(left[0], right[0]), max(left[1], right[1])}, nil
+	return Span{left[0], right[1]}, nil
 }
 
 type then struct {
@@ -114,7 +96,7 @@ func (a then) Where(text Text) (Span, error) {
 	if err != nil {
 		return Span{}, err
 	}
-	return Span{min(left[0], right[0]), max(left[1], right[1])}, nil
+	return Span{left[0], right[1]}, nil
 }
 
 // A AdditiveAddress identifies a Span within a Text.
@@ -549,16 +531,12 @@ const (
 // 	then a '+' is inserted, as in aa + as.
 //
 // Production a describes a range address:
-//	{a} ',' {aa} is the string between the first address and the second.
-// 		The start of the string is the minimum
-// 		of the start of the first and the start of the second.
-// 		The end of the string is the maximum
-// 		of the end of the first and the end of the second.
+//	{a} ',' {aa} is the string from the start of the first address to the end of the second.
 //		If the first address is missing, 0 is used.
 //		If the second address is missing, $ is used.
 //	{a} ';' {aa} is like the previous,
-// 		but with dot set to the first Address
-// 		during evaluation of the second.
+// 		but with dot set to the receiver Address
+// 		during evaluation of the argument.
 //		If the first address is missing, 0 is used.
 //		If the second address is missing, $ is used.
 //
