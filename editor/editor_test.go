@@ -343,12 +343,12 @@ func TestDo(t *testing.T) {
 
 	const hi = "Hello, ���界"
 	edits := []edit.Edit{
-		edit.Print(edit.Regexp("not found")), // 1
-		edit.Append(edit.All, hi),            // 2
-		edit.Print(edit.All),                 // 3
+		edit.Print(edit.Line(100)), // 1
+		edit.Append(edit.All, hi),  // 2
+		edit.Print(edit.All),       // 3
 	}
 	want := []EditResult{
-		{Sequence: 1, Error: edit.ErrNoMatch.Error()},
+		{Sequence: 1, Error: edit.ErrRange.Error()},
 		{Sequence: 2},
 		{Sequence: 3, Print: hi},
 	}
