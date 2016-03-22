@@ -417,7 +417,7 @@ func (a regexpAddr) where(from int64, text Text) (Span, error) {
 		m = nextMatch(re, from, text, true)
 	}
 	if len(m) < 2 {
-		return Span{}, errors.New("no match")
+		return Span{}, ErrNoMatch
 	}
 	return Span{int64(m[0]), int64(m[1])}, nil
 }
