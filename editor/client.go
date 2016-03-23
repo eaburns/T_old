@@ -70,16 +70,6 @@ func BufferInfo(url *url.URL) (Buffer, error) {
 	return buf, nil
 }
 
-// EditorList does a GET and returns a list of Editors from the response body.
-// The URL is expected to point at the "editor" file of a buffer path.
-func EditorList(url *url.URL) ([]Editor, error) {
-	var list []Editor
-	if err := request(url, http.MethodGet, nil, &list); err != nil {
-		return nil, err
-	}
-	return list, nil
-}
-
 // NewEditor does a PUT and returns an Editor from the response body.
 // The URL is expected to point at the "editor" file of a buffer path.
 func NewEditor(url *url.URL) (Editor, error) {

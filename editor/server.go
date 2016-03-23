@@ -89,15 +89,6 @@ func (s *Server) Close() error {
 // 	• Not Found if the buffer is not found.
 // 	  The body is the path to the buffer.
 //
-//  /buffer/<ID>/editors is the list of the buffer's editors.
-//
-// 	GET returns an Editor list of the buffer's opened editors.
-// 	Returns:
-// 	• OK on success.
-// 	• Internal Server Error on internal error.
-// 	• Not Found if the buffer is not found.
-// 	  The body is the path to the buffer.
-//
 // 	PUT creates a new editor for the buffer and returns its Editor.
 // 	Returns:
 // 	• OK on success.
@@ -137,8 +128,7 @@ func (s *Server) RegisterHandlers(r *mux.Router) {
 	r.HandleFunc("/buffers", s.newBuffer).Methods(http.MethodPut)
 	r.HandleFunc("/buffer/{id}", s.bufferInfo).Methods(http.MethodGet)
 	r.HandleFunc("/buffer/{id}", s.closeBuffer).Methods(http.MethodDelete)
-	r.HandleFunc("/buffer/{id}/editors", s.listEditors).Methods(http.MethodGet)
-	r.HandleFunc("/buffer/{id}/editors", s.newEditor).Methods(http.MethodPut)
+	r.HandleFunc("/buffer/{id}", s.newEditor).Methods(http.MethodPut)
 	r.HandleFunc("/editor/{id}", s.editorInfo).Methods(http.MethodGet)
 	r.HandleFunc("/editor/{id}", s.closeEditor).Methods(http.MethodDelete)
 	r.HandleFunc("/editor/{id}", s.edit).Methods(http.MethodPost)
@@ -217,25 +207,6 @@ func (s *Server) closeBuffer(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (s *Server) listEditors(w http.ResponseWriter, req *http.Request) {
-	s.RLock()
-	buf, ok := s.buffers[mux.Vars(req)["id"]]
-	if !ok {
-		s.RUnlock()
-		http.NotFound(w, req)
-		return
-	}
-	buf.RLock()
-	var eds []Editor
-	for _, ed := range buf.editors {
-		eds = append(eds, ed.Editor)
-	}
-	buf.RUnlock()
-	s.RUnlock()
-
-	respond(w, eds)
-}
-
 func (s *Server) newEditor(w http.ResponseWriter, req *http.Request) {
 	s.Lock()
 	buf, ok := s.buffers[mux.Vars(req)["id"]]
@@ -260,6 +231,7 @@ func (s *Server) newEditor(w http.ResponseWriter, req *http.Request) {
 	}
 	s.editors[ed.ID] = ed
 	buf.editors[ed.ID] = ed
+	buf.Editors = append(buf.Editors, ed.Editor)
 
 	buf.Unlock()
 	s.Unlock()
@@ -295,6 +267,13 @@ func (s *Server) closeEditor(w http.ResponseWriter, req *http.Request) {
 
 	delete(s.editors, ed.ID)
 	delete(ed.buffer.editors, ed.ID)
+	eds := ed.buffer.Editors
+	for i := range eds {
+		if eds[i].ID == ed.ID {
+			ed.buffer.Editors = append(eds[:i], eds[i+1:]...)
+			break
+		}
+	}
 
 	ed.buffer.Unlock()
 	s.Unlock()

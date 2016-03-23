@@ -121,7 +121,7 @@ func TestBufferInfo(t *testing.T) {
 
 		bufferURL := urlWithPath(s.url, buf.Path)
 		got, err := BufferInfo(bufferURL)
-		if err != nil || got != buf {
+		if err != nil || !reflect.DeepEqual(got, buf) {
 			t.Errorf("BufferInfo(%q)=%v,%v, want %v,nil", bufferURL, got, err, buf)
 		}
 	}
@@ -175,56 +175,18 @@ func TestCloseBuffer_ClosesEditors(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-	ed, err := NewEditor(editorsURL)
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, ed, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, ed, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
 	if err := Close(bufferURL); err != nil {
 		t.Errorf("Close(%q)=%v, want nil", bufferURL, err)
 	}
 
 	if n := len(s.editorServer.editors); n != 0 {
 		t.Errorf("len(s.editorServer.editors)=%d, want 0", n)
-	}
-}
-
-func TestEditorList(t *testing.T) {
-	s := newServer()
-	defer s.close()
-
-	buffersURL := urlWithPath(s.url, "/", "buffers")
-	buf, err := NewBuffer(buffersURL)
-	if err != nil {
-		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
-	}
-
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-
-	// Empty.
-	if eds, err := EditorList(editorsURL); err != nil || len(eds) != 0 {
-		t.Errorf("buf.Editors()=%v,%v, want [],nil", eds, err)
-	}
-
-	var eds []Editor
-	for i := 0; i < 3; i++ {
-		ed, err := NewEditor(editorsURL)
-		if err != nil {
-			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, ed, err)
-		}
-		eds = append(eds, ed)
-	}
-	got, err := EditorList(editorsURL)
-	sort.Sort(editorSlice(got))
-	if err != nil || !reflect.DeepEqual(got, eds) {
-		t.Errorf("EditorList(%q)=%v,%v, want %v,nil", editorsURL, got, err, eds)
-	}
-
-	notFoundURL := urlWithPath(s.url, "/", "buffer", "notfound", "editors")
-	if got, err := EditorList(notFoundURL); err != ErrNotFound {
-		t.Errorf("EditorList(%q)=%v,%v, want _,%v", notFoundURL, got, err, ErrNotFound)
 	}
 }
 
@@ -238,12 +200,12 @@ func TestNewEditor(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
+	bufferURL := urlWithPath(s.url, buf.Path)
 	var eds []Editor
 	for i := 0; i < 3; i++ {
-		ed, err := NewEditor(editorsURL)
+		ed, err := NewEditor(bufferURL)
 		if err != nil {
-			t.Errorf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, ed, err)
+			t.Errorf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, ed, err)
 		}
 		for j, e := range eds {
 			if e.ID == ed.ID {
@@ -253,7 +215,17 @@ func TestNewEditor(t *testing.T) {
 		eds = append(eds, ed)
 	}
 
-	notFoundURL := urlWithPath(s.url, "/", "buffer", "notfound", "editors")
+	buf, err = BufferInfo(bufferURL)
+	if err != nil {
+		t.Errorf("BufferInfo(%q)=%v,%v, want _,nil", bufferURL, buf, err)
+	}
+	sort.Sort(editorSlice(buf.Editors))
+	sort.Sort(editorSlice(eds))
+	if !reflect.DeepEqual(buf.Editors, eds) {
+		t.Errorf("buf.Editors=%v, want %v\n", buf.Editors, eds)
+	}
+
+	notFoundURL := urlWithPath(s.url, "/", "buffer", "notfound")
 	if got, err := NewEditor(notFoundURL); err != ErrNotFound {
 		t.Errorf("NewEditor(%q)=%v,%v, want _,%v", notFoundURL, got, err, ErrNotFound)
 	}
@@ -269,11 +241,11 @@ func TestEditorInfo(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
+	bufferURL := urlWithPath(s.url, buf.Path)
 	for i := 0; i < 3; i++ {
-		ed, err := NewEditor(editorsURL)
+		ed, err := NewEditor(bufferURL)
 		if err != nil {
-			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, ed, err)
+			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, ed, err)
 		}
 
 		editorURL := urlWithPath(s.url, ed.Path)
@@ -299,24 +271,30 @@ func TestCloseEditor(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
+	bufferURL := urlWithPath(s.url, buf.Path)
 	var eds []Editor
 	for i := 0; i < 3; i++ {
-		ed, err := NewEditor(editorsURL)
+		ed, err := NewEditor(bufferURL)
 		if err != nil {
-			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 		}
 		eds = append(eds, ed)
 	}
 
-	for _, ed := range eds {
+	sort.Sort(editorSlice(eds))
+	for i, ed := range eds {
 		editorURL := urlWithPath(s.url, ed.Path)
 		if err := Close(editorURL); err != nil {
 			t.Errorf("Close(%q)=%v, want nil", editorURL, err)
 		}
-	}
-	if got, err := EditorList(editorsURL); err != nil || len(got) != 0 {
-		t.Errorf("EditorList(%q)=%v,%v, want [],nil", editorsURL, got, err)
+		buf, err := BufferInfo(bufferURL)
+		if err != nil {
+			t.Errorf("BufferInfo(%q)=%v,%v, want _,nil", bufferURL, buf, err)
+		}
+		sort.Sort(editorSlice(buf.Editors))
+		if want := eds[i+1:]; !reflect.DeepEqual(buf.Editors, want) {
+			t.Errorf("buf.Editors=%v, want %v\n", buf.Editors, want)
+		}
 	}
 
 	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound")
@@ -335,10 +313,10 @@ func TestDo(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-	ed, err := NewEditor(editorsURL)
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
 	const hi = "Hello, ���界"
@@ -369,10 +347,10 @@ func TestDo_Nohthing(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-	ed, err := NewEditor(editorsURL)
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
 	editorURL := urlWithPath(s.url, ed.Path)
@@ -402,10 +380,10 @@ func TestDo_BadRequest(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-	ed, err := NewEditor(editorsURL)
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
 	editorURL := urlWithPath(s.url, ed.Path)
@@ -434,10 +412,10 @@ func TestEditorEdit_UpdateMarks(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-	ed, err := NewEditor(editorsURL)
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
 	const hi = "Hello, 世界!"
@@ -472,17 +450,17 @@ func TestEditorEdit_MultipleEditors(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
+	bufferURL := urlWithPath(s.url, buf.Path)
 
-	ed0, err := NewEditor(editorsURL)
+	ed0, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 	editor0URL := urlWithPath(s.url, ed0.Path)
 
-	ed1, err := NewEditor(editorsURL)
+	ed1, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 	editor1URL := urlWithPath(s.url, ed1.Path)
 
