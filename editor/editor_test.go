@@ -1,12 +1,15 @@
 package editor
 
 import (
+	"io/ioutil"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -121,7 +124,7 @@ func TestBufferInfo(t *testing.T) {
 
 		bufferURL := urlWithPath(s.url, buf.Path)
 		got, err := BufferInfo(bufferURL)
-		if err != nil || got != buf {
+		if err != nil || !reflect.DeepEqual(got, buf) {
 			t.Errorf("BufferInfo(%q)=%v,%v, want %v,nil", bufferURL, got, err, buf)
 		}
 	}
@@ -175,56 +178,18 @@ func TestCloseBuffer_ClosesEditors(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-	ed, err := NewEditor(editorsURL)
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, ed, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, ed, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
 	if err := Close(bufferURL); err != nil {
 		t.Errorf("Close(%q)=%v, want nil", bufferURL, err)
 	}
 
 	if n := len(s.editorServer.editors); n != 0 {
 		t.Errorf("len(s.editorServer.editors)=%d, want 0", n)
-	}
-}
-
-func TestEditorList(t *testing.T) {
-	s := newServer()
-	defer s.close()
-
-	buffersURL := urlWithPath(s.url, "/", "buffers")
-	buf, err := NewBuffer(buffersURL)
-	if err != nil {
-		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
-	}
-
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-
-	// Empty.
-	if eds, err := EditorList(editorsURL); err != nil || len(eds) != 0 {
-		t.Errorf("buf.Editors()=%v,%v, want [],nil", eds, err)
-	}
-
-	var eds []Editor
-	for i := 0; i < 3; i++ {
-		ed, err := NewEditor(editorsURL)
-		if err != nil {
-			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, ed, err)
-		}
-		eds = append(eds, ed)
-	}
-	got, err := EditorList(editorsURL)
-	sort.Sort(editorSlice(got))
-	if err != nil || !reflect.DeepEqual(got, eds) {
-		t.Errorf("EditorList(%q)=%v,%v, want %v,nil", editorsURL, got, err, eds)
-	}
-
-	notFoundURL := urlWithPath(s.url, "/", "buffer", "notfound", "editors")
-	if got, err := EditorList(notFoundURL); err != ErrNotFound {
-		t.Errorf("EditorList(%q)=%v,%v, want _,%v", notFoundURL, got, err, ErrNotFound)
 	}
 }
 
@@ -238,12 +203,12 @@ func TestNewEditor(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
+	bufferURL := urlWithPath(s.url, buf.Path)
 	var eds []Editor
 	for i := 0; i < 3; i++ {
-		ed, err := NewEditor(editorsURL)
+		ed, err := NewEditor(bufferURL)
 		if err != nil {
-			t.Errorf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, ed, err)
+			t.Errorf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, ed, err)
 		}
 		for j, e := range eds {
 			if e.ID == ed.ID {
@@ -253,7 +218,17 @@ func TestNewEditor(t *testing.T) {
 		eds = append(eds, ed)
 	}
 
-	notFoundURL := urlWithPath(s.url, "/", "buffer", "notfound", "editors")
+	buf, err = BufferInfo(bufferURL)
+	if err != nil {
+		t.Errorf("BufferInfo(%q)=%v,%v, want _,nil", bufferURL, buf, err)
+	}
+	sort.Sort(editorSlice(buf.Editors))
+	sort.Sort(editorSlice(eds))
+	if !reflect.DeepEqual(buf.Editors, eds) {
+		t.Errorf("buf.Editors=%v, want %v\n", buf.Editors, eds)
+	}
+
+	notFoundURL := urlWithPath(s.url, "/", "buffer", "notfound")
 	if got, err := NewEditor(notFoundURL); err != ErrNotFound {
 		t.Errorf("NewEditor(%q)=%v,%v, want _,%v", notFoundURL, got, err, ErrNotFound)
 	}
@@ -269,11 +244,11 @@ func TestEditorInfo(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
+	bufferURL := urlWithPath(s.url, buf.Path)
 	for i := 0; i < 3; i++ {
-		ed, err := NewEditor(editorsURL)
+		ed, err := NewEditor(bufferURL)
 		if err != nil {
-			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, ed, err)
+			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, ed, err)
 		}
 
 		editorURL := urlWithPath(s.url, ed.Path)
@@ -299,24 +274,30 @@ func TestCloseEditor(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
+	bufferURL := urlWithPath(s.url, buf.Path)
 	var eds []Editor
 	for i := 0; i < 3; i++ {
-		ed, err := NewEditor(editorsURL)
+		ed, err := NewEditor(bufferURL)
 		if err != nil {
-			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 		}
 		eds = append(eds, ed)
 	}
 
-	for _, ed := range eds {
+	sort.Sort(editorSlice(eds))
+	for i, ed := range eds {
 		editorURL := urlWithPath(s.url, ed.Path)
 		if err := Close(editorURL); err != nil {
 			t.Errorf("Close(%q)=%v, want nil", editorURL, err)
 		}
-	}
-	if got, err := EditorList(editorsURL); err != nil || len(got) != 0 {
-		t.Errorf("EditorList(%q)=%v,%v, want [],nil", editorsURL, got, err)
+		buf, err := BufferInfo(bufferURL)
+		if err != nil {
+			t.Errorf("BufferInfo(%q)=%v,%v, want _,nil", bufferURL, buf, err)
+		}
+		sort.Sort(editorSlice(buf.Editors))
+		if want := eds[i+1:]; !reflect.DeepEqual(buf.Editors, want) {
+			t.Errorf("buf.Editors=%v, want %v\n", buf.Editors, want)
+		}
 	}
 
 	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound")
@@ -335,10 +316,10 @@ func TestDo(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-	ed, err := NewEditor(editorsURL)
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
 	const hi = "Hello, ���界"
@@ -352,14 +333,14 @@ func TestDo(t *testing.T) {
 		{Sequence: 2},
 		{Sequence: 3, Print: hi},
 	}
-	editorURL := urlWithPath(s.url, ed.Path)
-	got, err := Do(editorURL, edits...)
+	textURL := urlWithPath(s.url, ed.Path, "text")
+	got, err := Do(textURL, edits...)
 	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", editorURL, edits, got, err, want)
+		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", textURL, edits, got, err, want)
 	}
 }
 
-func TestDo_Nohthing(t *testing.T) {
+func TestDo_Nothing(t *testing.T) {
 	s := newServer()
 	defer s.close()
 
@@ -369,16 +350,16 @@ func TestDo_Nohthing(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-	ed, err := NewEditor(editorsURL)
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
-	editorURL := urlWithPath(s.url, ed.Path)
-	got, err := Do(editorURL)
+	textURL := urlWithPath(s.url, ed.Path, "text")
+	got, err := Do(textURL)
 	if err != nil || len(got) != 0 {
-		t.Errorf("Do(%q)=%v,%v, want [],nil", editorURL, got, err)
+		t.Errorf("Do(%q)=%v,%v, want [],nil", textURL, got, err)
 	}
 }
 
@@ -386,7 +367,7 @@ func TestDo_NotFound(t *testing.T) {
 	s := newServer()
 	defer s.close()
 
-	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound")
+	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound", "text")
 	if _, err := Do(notFoundURL); err != ErrNotFound {
 		t.Errorf("Do(%q)=_,%v, want %v", notFoundURL, err, ErrNotFound)
 	}
@@ -402,19 +383,18 @@ func TestDo_BadRequest(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-	ed, err := NewEditor(editorsURL)
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
-	editorURL := urlWithPath(s.url, ed.Path)
-
+	textURL := urlWithPath(s.url, ed.Path, "text")
 	for _, e := range []string{`not json`, `["badEdit"]`, `["c/a/b/leftover"]`} {
 		badEdit := strings.NewReader(e)
-		req, err := http.NewRequest(http.MethodPost, editorURL.String(), badEdit)
+		req, err := http.NewRequest(http.MethodPost, textURL.String(), badEdit)
 		if err != nil {
-			t.Fatalf("http.NewRequest(%v, %q, nil)=_,%v, want _,nil", http.MethodPost, editorURL, err)
+			t.Fatalf("http.NewRequest(%v, %q, nil)=_,%v, want _,nil", http.MethodPost, textURL, err)
 		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil || resp.StatusCode != http.StatusBadRequest {
@@ -434,10 +414,10 @@ func TestEditorEdit_UpdateMarks(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
-	ed, err := NewEditor(editorsURL)
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
 	const hi = "Hello, 世界!"
@@ -455,10 +435,10 @@ func TestEditorEdit_UpdateMarks(t *testing.T) {
 		{Sequence: 4, Print: "hi"},
 		{Sequence: 5, Print: "世界"},
 	}
-	editorURL := urlWithPath(s.url, ed.Path)
-	got, err := Do(editorURL, edits...)
+	textURL := urlWithPath(s.url, ed.Path, "text")
+	got, err := Do(textURL, edits...)
 	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", editorURL, edits, got, err, want)
+		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", textURL, edits, got, err, want)
 	}
 }
 
@@ -472,34 +452,34 @@ func TestEditorEdit_MultipleEditors(t *testing.T) {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	editorsURL := urlWithPath(s.url, buf.Path, "editors")
+	bufferURL := urlWithPath(s.url, buf.Path)
 
-	ed0, err := NewEditor(editorsURL)
+	ed0, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
-	editor0URL := urlWithPath(s.url, ed0.Path)
+	text0URL := urlWithPath(s.url, ed0.Path, "text")
 
-	ed1, err := NewEditor(editorsURL)
+	ed1, err := NewEditor(bufferURL)
 	if err != nil {
-		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", editorsURL, buf, err)
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
-	editor1URL := urlWithPath(s.url, ed1.Path)
+	text1URL := urlWithPath(s.url, ed1.Path, "text")
 
 	const hi = "Hello, 世界!"
 	edits := []edit.Edit{
 		edit.Append(edit.All, hi),        // 1
 		edit.Set(edit.Regexp("世界"), 'm'), // 2
 	}
-	if _, err := Do(editor0URL, edits...); err != nil {
-		t.Errorf("Do(%q, %v...)=_,%v, want _,nil", editor0URL, edits, err)
+	if _, err := Do(text0URL, edits...); err != nil {
+		t.Errorf("Do(%q, %v...)=_,%v, want _,nil", text0URL, edits, err)
 	}
 
 	edits = []edit.Edit{
 		edit.Change(edit.Regexp("Hello"), "hi"), // 3
 	}
-	if _, err := Do(editor1URL, edits...); err != nil {
-		t.Errorf("Do(%q, %v...)=_,%v, want _,nil", editor1URL, edits, err)
+	if _, err := Do(text1URL, edits...); err != nil {
+		t.Errorf("Do(%q, %v...)=_,%v, want _,nil", text1URL, edits, err)
 	}
 
 	edits = []edit.Edit{
@@ -512,8 +492,8 @@ func TestEditorEdit_MultipleEditors(t *testing.T) {
 		{Sequence: 5, Print: "世界"},
 		{Sequence: 6},
 	}
-	if got, err := Do(editor0URL, edits...); err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", editor0URL, edits, got, err, want)
+	if got, err := Do(text0URL, edits...); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", text0URL, edits, got, err, want)
 	}
 
 	edits = []edit.Edit{
@@ -524,7 +504,132 @@ func TestEditorEdit_MultipleEditors(t *testing.T) {
 		{Sequence: 7, Print: "hi"},
 		{Sequence: 8, Print: "Oh, hi, 世界!"},
 	}
-	if got, err := Do(editor1URL, edits...); err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", editor1URL, edits, got, err, want)
+	if got, err := Do(text1URL, edits...); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", text1URL, edits, got, err, want)
+	}
+}
+
+func TestReader(t *testing.T) {
+	const line1 = "Hello, World\n"
+	const hi = line1 + "☺☹\n←→\n"
+
+	s := newServer()
+	defer s.close()
+
+	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buf, err := NewBuffer(buffersURL)
+	if err != nil {
+		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
+	}
+
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
+	if err != nil {
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
+	}
+
+	textURL := urlWithPath(s.url, ed.Path, "text")
+
+	// Empty reader.
+	r, err := Reader(textURL, nil)
+	if err != nil {
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,nil", textURL, err)
+	}
+	data, err := ioutil.ReadAll(r)
+	if err != nil || len(data) != 0 {
+		t.Errorf("ioutil.ReadAll(r)=%v,%v, want [],nil", data, err)
+	}
+
+	edits := []edit.Edit{edit.Append(edit.All, hi)}
+	if resp, err := Do(textURL, edits...); err != nil {
+		t.Fatalf("Do(%q, %v...)=%v,%v, want _,nil", textURL, edits, resp, err)
+	}
+
+	// Read everything.
+	r, err = Reader(textURL, nil)
+	if err != nil {
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,nil", textURL, err)
+	}
+	data, err = ioutil.ReadAll(r)
+	if str := string(data); err != nil || str != hi {
+		t.Errorf("ioutil.ReadAll(r)=%q,%v, want %q,nil", str, err, hi)
+	}
+	r.Close()
+
+	// Read from an address.
+	r, err = Reader(textURL, edit.Line(1))
+	if err != nil {
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,nil", textURL, err)
+	}
+	data, err = ioutil.ReadAll(r)
+	if str := string(data); err != nil || str != line1 {
+		t.Errorf("ioutil.ReadAll(r)=%q,%v, want %q,nil", str, err, line1)
+	}
+	r.Close()
+
+	// Address requires escaping
+	r, err = Reader(textURL, edit.Regexp("Hello")) // /Hello/, / must be escaped.
+	if err != nil {
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,nil", textURL, err)
+	}
+	data, err = ioutil.ReadAll(r)
+	if str := string(data); err != nil || str != "Hello" {
+		t.Errorf("ioutil.ReadAll(r)=%q,%v, want %q,nil", str, err, "Hello")
+	}
+	r.Close()
+
+	// Out of range.
+	r, err = Reader(textURL, edit.Line(100))
+	if err != ErrRange {
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,%v", textURL, err, ErrRange)
+	}
+	if err == nil {
+		r.Close()
+	}
+
+	// Not found.
+	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound", "text")
+	r, err = Reader(notFoundURL, nil)
+	if err != ErrNotFound {
+		t.Errorf("Do(%q)=_,%v, want %v", notFoundURL, err, ErrNotFound)
+	}
+	if err == nil {
+		r.Close()
+	}
+
+	// Multiple Addrs.
+	multiAddrURL := *textURL
+	multiAddrURL.RawQuery = "addr=0"
+	r, err = Reader(&multiAddrURL, edit.Line(1))
+	if err == nil {
+		r.Close()
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,<non-nil>", textURL, err)
+	}
+
+	// Bad addr.
+	badAddrURL := *textURL
+	badAddrURL.RawQuery = "addr=" + strconv.FormatInt(math.MaxInt64, 10) + "0"
+	r, err = Reader(&badAddrURL, nil)
+	if err == nil {
+		r.Close()
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,<non-nil>", textURL, err)
+	}
+
+	// Leftover after addr.
+	leftoverAddrURL := *textURL
+	leftoverAddrURL.RawQuery = "addr=1hi"
+	r, err = Reader(&leftoverAddrURL, nil)
+	if err == nil {
+		r.Close()
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,<non-nil>", textURL, err)
+	}
+
+	// Malformed parameters
+	badParamsURL := *textURL
+	badParamsURL.RawQuery = "addr=%G" // G is not valid hex.
+	r, err = Reader(&badParamsURL, nil)
+	if err == nil {
+		r.Close()
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,<non-nil>", textURL, err)
 	}
 }

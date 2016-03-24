@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/eaburns/T/edit"
@@ -80,30 +82,18 @@ func (s *Server) Close() error {
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 // 	• Not Found if the buffer is not found.
-// 	  The body is the path to the buffer.
 //
 // 	DELETE deletes the buffer and all of its editors.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 // 	• Not Found if the buffer is not found.
-// 	  The body is the path to the buffer.
-//
-//  /buffer/<ID>/editors is the list of the buffer's editors.
-//
-// 	GET returns an Editor list of the buffer's opened editors.
-// 	Returns:
-// 	• OK on success.
-// 	• Internal Server Error on internal error.
-// 	• Not Found if the buffer is not found.
-// 	  The body is the path to the buffer.
 //
 // 	PUT creates a new editor for the buffer and returns its Editor.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 // 	• Not Found if the buffer is not found.
-// 	  The body is the path to the buffer.
 //
 //  /editor/<ID> is the editor with the given ID.
 //
@@ -111,15 +101,29 @@ func (s *Server) Close() error {
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
-// 	• Not Found if either the buffer or editor is not found.
-// 	  The body is the path to the buffer or editor.
+// 	• Not Found if the editor is not found.
 //
 // 	DELETE deletes the editor.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
-// 	• Not Found if either the buffer or editor is not found.
-// 	  The body is the path to the buffer or editor.
+// 	• Not Found if the editor editor is not found.
+//
+//  /editor/<ID>/text is the text that the editor edits.
+//
+// 	GET returns the text of the editor's buffer.
+// 	Parameters:
+// 	• addr can optionally be set to an address string.
+// 	  It must not appear multiple times, there can only be one addr.
+// 	  If it is set, only the text within the address is returned.
+//  	  Otherwise, all text is returned.
+// 	Returns:
+// 	• OK on success.
+// 	• Internal Server Error on internal error.
+// 	• Not Found if the editor is not found.
+// 	• Bad Request if the URL parameters or addr value are malformed.
+// 	• Range Not Satisfiable if there is an error evaluating the address.
+// 	  The response body will contain an error message.
 //
 // 	POST performs an atomic sequence of edits on the buffer.
 // 	The body must be an ordered list of Edits.
@@ -127,8 +131,7 @@ func (s *Server) Close() error {
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
-// 	• Not Found if either the buffer or editor is not found.
-// 	  The body is the path to the buffer or editor.
+// 	• Not Found if the editor is not found.
 // 	• Bad Request if the Edit list is malformed.
 //
 // Unless otherwise stated, the body of all error responses is the error message.
@@ -137,11 +140,11 @@ func (s *Server) RegisterHandlers(r *mux.Router) {
 	r.HandleFunc("/buffers", s.newBuffer).Methods(http.MethodPut)
 	r.HandleFunc("/buffer/{id}", s.bufferInfo).Methods(http.MethodGet)
 	r.HandleFunc("/buffer/{id}", s.closeBuffer).Methods(http.MethodDelete)
-	r.HandleFunc("/buffer/{id}/editors", s.listEditors).Methods(http.MethodGet)
-	r.HandleFunc("/buffer/{id}/editors", s.newEditor).Methods(http.MethodPut)
+	r.HandleFunc("/buffer/{id}", s.newEditor).Methods(http.MethodPut)
 	r.HandleFunc("/editor/{id}", s.editorInfo).Methods(http.MethodGet)
 	r.HandleFunc("/editor/{id}", s.closeEditor).Methods(http.MethodDelete)
-	r.HandleFunc("/editor/{id}", s.edit).Methods(http.MethodPost)
+	r.HandleFunc("/editor/{id}/text", s.read).Methods(http.MethodGet)
+	r.HandleFunc("/editor/{id}/text", s.edit).Methods(http.MethodPost)
 }
 
 // respond JSON encodes resp to w, and sends an Internal Server Error on failure.
@@ -217,25 +220,6 @@ func (s *Server) closeBuffer(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (s *Server) listEditors(w http.ResponseWriter, req *http.Request) {
-	s.RLock()
-	buf, ok := s.buffers[mux.Vars(req)["id"]]
-	if !ok {
-		s.RUnlock()
-		http.NotFound(w, req)
-		return
-	}
-	buf.RLock()
-	var eds []Editor
-	for _, ed := range buf.editors {
-		eds = append(eds, ed.Editor)
-	}
-	buf.RUnlock()
-	s.RUnlock()
-
-	respond(w, eds)
-}
-
 func (s *Server) newEditor(w http.ResponseWriter, req *http.Request) {
 	s.Lock()
 	buf, ok := s.buffers[mux.Vars(req)["id"]]
@@ -260,6 +244,7 @@ func (s *Server) newEditor(w http.ResponseWriter, req *http.Request) {
 	}
 	s.editors[ed.ID] = ed
 	buf.editors[ed.ID] = ed
+	buf.Editors = append(buf.Editors, ed.Editor)
 
 	buf.Unlock()
 	s.Unlock()
@@ -295,9 +280,61 @@ func (s *Server) closeEditor(w http.ResponseWriter, req *http.Request) {
 
 	delete(s.editors, ed.ID)
 	delete(ed.buffer.editors, ed.ID)
+	eds := ed.buffer.Editors
+	for i := range eds {
+		if eds[i].ID == ed.ID {
+			ed.buffer.Editors = append(eds[:i], eds[i+1:]...)
+			break
+		}
+	}
 
 	ed.buffer.Unlock()
 	s.Unlock()
+}
+
+func (s *Server) read(w http.ResponseWriter, req *http.Request) {
+	s.Lock()
+	ed, ok := s.editors[mux.Vars(req)["id"]]
+	if !ok {
+		s.Unlock()
+		http.NotFound(w, req)
+		return
+	}
+	ed.buffer.Lock()
+	defer ed.buffer.Unlock()
+	s.Unlock()
+
+	addr := edit.All
+	vars, err := url.ParseQuery(req.URL.RawQuery)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if a, ok := vars["addr"]; ok {
+		if len(a) > 1 {
+			http.Error(w, "addr can only be given once", http.StatusBadRequest)
+			return
+		}
+		r := strings.NewReader(a[0])
+		addr, err = edit.Addr(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if r.Len() != 0 {
+			http.Error(w, "bad address: "+a[0], http.StatusBadRequest)
+			return
+		}
+	}
+	span, err := addr.Where(ed.Buffer)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusRequestedRangeNotSatisfiable)
+		return
+	}
+	if _, err = io.Copy(w, ed.Buffer.Reader(span)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Server) edit(w http.ResponseWriter, req *http.Request) {

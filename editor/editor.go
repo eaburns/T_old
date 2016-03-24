@@ -21,6 +21,9 @@ type Buffer struct {
 
 	// Sequence is the sequence number of the last edit on the buffer.
 	Sequence int `json:"sequence"`
+
+	// Editors containts the buffer's editors.
+	Editors []Editor `json:"editors"`
 }
 
 // An Editor describes an editor.
