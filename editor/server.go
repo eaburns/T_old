@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/eaburns/T/edit"
@@ -109,6 +111,20 @@ func (s *Server) Close() error {
 //
 //  /editor/<ID>/text is the text that the editor edits.
 //
+// 	GET returns the text of the editor's buffer.
+// 	Parameters:
+// 	• addr can optionally be set to an address string.
+// 	  It must not appear multiple times, there can only be one addr.
+// 	  If it is set, only the text within the address is returned.
+//  	  Otherwise, all text is returned.
+// 	Returns:
+// 	• OK on success.
+// 	• Internal Server Error on internal error.
+// 	• Not Found if the editor is not found.
+// 	• Bad Request if the URL parameters or addr value are malformed.
+// 	• Range Not Satisfiable if there is an error evaluating the address.
+// 	  The response body will contain an error message.
+//
 // 	POST performs an atomic sequence of edits on the buffer.
 // 	The body must be an ordered list of Edits.
 // 	The response is an ordered list of EditResult.
@@ -127,6 +143,7 @@ func (s *Server) RegisterHandlers(r *mux.Router) {
 	r.HandleFunc("/buffer/{id}", s.newEditor).Methods(http.MethodPut)
 	r.HandleFunc("/editor/{id}", s.editorInfo).Methods(http.MethodGet)
 	r.HandleFunc("/editor/{id}", s.closeEditor).Methods(http.MethodDelete)
+	r.HandleFunc("/editor/{id}/text", s.read).Methods(http.MethodGet)
 	r.HandleFunc("/editor/{id}/text", s.edit).Methods(http.MethodPost)
 }
 
@@ -273,6 +290,51 @@ func (s *Server) closeEditor(w http.ResponseWriter, req *http.Request) {
 
 	ed.buffer.Unlock()
 	s.Unlock()
+}
+
+func (s *Server) read(w http.ResponseWriter, req *http.Request) {
+	s.Lock()
+	ed, ok := s.editors[mux.Vars(req)["id"]]
+	if !ok {
+		s.Unlock()
+		http.NotFound(w, req)
+		return
+	}
+	ed.buffer.Lock()
+	defer ed.buffer.Unlock()
+	s.Unlock()
+
+	addr := edit.All
+	vars, err := url.ParseQuery(req.URL.RawQuery)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if a, ok := vars["addr"]; ok {
+		if len(a) > 1 {
+			http.Error(w, "addr can only be given once", http.StatusBadRequest)
+			return
+		}
+		r := strings.NewReader(a[0])
+		addr, err = edit.Addr(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if r.Len() != 0 {
+			http.Error(w, "bad address: "+a[0], http.StatusBadRequest)
+			return
+		}
+	}
+	span, err := addr.Where(ed.Buffer)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusRequestedRangeNotSatisfiable)
+		return
+	}
+	if _, err = io.Copy(w, ed.Buffer.Reader(span)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Server) edit(w http.ResponseWriter, req *http.Request) {
