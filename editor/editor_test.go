@@ -337,7 +337,7 @@ func TestDo(t *testing.T) {
 	}
 }
 
-func TestDo_Nohthing(t *testing.T) {
+func TestDo_Nothing(t *testing.T) {
 	s := newServer()
 	defer s.close()
 
