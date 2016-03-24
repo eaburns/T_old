@@ -71,7 +71,7 @@ func BufferInfo(url *url.URL) (Buffer, error) {
 }
 
 // NewEditor does a PUT and returns an Editor from the response body.
-// The URL is expected to point at the "editor" file of a buffer path.
+// The URL is expected to point at a buffer path.
 func NewEditor(url *url.URL) (Editor, error) {
 	var ed Editor
 	if err := request(url, http.MethodPut, nil, &ed); err != nil {

@@ -80,21 +80,18 @@ func (s *Server) Close() error {
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 // 	• Not Found if the buffer is not found.
-// 	  The body is the path to the buffer.
 //
 // 	DELETE deletes the buffer and all of its editors.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 // 	• Not Found if the buffer is not found.
-// 	  The body is the path to the buffer.
 //
 // 	PUT creates a new editor for the buffer and returns its Editor.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
 // 	• Not Found if the buffer is not found.
-// 	  The body is the path to the buffer.
 //
 //  /editor/<ID> is the editor with the given ID.
 //
@@ -102,15 +99,13 @@ func (s *Server) Close() error {
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
-// 	• Not Found if either the buffer or editor is not found.
-// 	  The body is the path to the buffer or editor.
+// 	• Not Found if the editor is not found.
 //
 // 	DELETE deletes the editor.
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
-// 	• Not Found if either the buffer or editor is not found.
-// 	  The body is the path to the buffer or editor.
+// 	• Not Found if the editor editor is not found.
 //
 //  /editor/<ID>/text is the text that the editor edits.
 //
@@ -120,8 +115,7 @@ func (s *Server) Close() error {
 // 	Returns:
 // 	• OK on success.
 // 	• Internal Server Error on internal error.
-// 	• Not Found if either the buffer or editor is not found.
-// 	  The body is the path to the buffer or editor.
+// 	• Not Found if the editor is not found.
 // 	• Bad Request if the Edit list is malformed.
 //
 // Unless otherwise stated, the body of all error responses is the error message.
