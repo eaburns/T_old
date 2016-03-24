@@ -1,12 +1,15 @@
 package editor
 
 import (
+	"io/ioutil"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -503,5 +506,130 @@ func TestEditorEdit_MultipleEditors(t *testing.T) {
 	}
 	if got, err := Do(text1URL, edits...); err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", text1URL, edits, got, err, want)
+	}
+}
+
+func TestReader(t *testing.T) {
+	const line1 = "Hello, World\n"
+	const hi = line1 + "☺☹\n←→\n"
+
+	s := newServer()
+	defer s.close()
+
+	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buf, err := NewBuffer(buffersURL)
+	if err != nil {
+		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
+	}
+
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
+	if err != nil {
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
+	}
+
+	textURL := urlWithPath(s.url, ed.Path, "text")
+
+	// Empty reader.
+	r, err := Reader(textURL, nil)
+	if err != nil {
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,nil", textURL, err)
+	}
+	data, err := ioutil.ReadAll(r)
+	if err != nil || len(data) != 0 {
+		t.Errorf("ioutil.ReadAll(r)=%v,%v, want [],nil", data, err)
+	}
+
+	edits := []edit.Edit{edit.Append(edit.All, hi)}
+	if resp, err := Do(textURL, edits...); err != nil {
+		t.Fatalf("Do(%q, %v...)=%v,%v, want _,nil", textURL, edits, resp, err)
+	}
+
+	// Read everything.
+	r, err = Reader(textURL, nil)
+	if err != nil {
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,nil", textURL, err)
+	}
+	data, err = ioutil.ReadAll(r)
+	if str := string(data); err != nil || str != hi {
+		t.Errorf("ioutil.ReadAll(r)=%q,%v, want %q,nil", str, err, hi)
+	}
+	r.Close()
+
+	// Read from an address.
+	r, err = Reader(textURL, edit.Line(1))
+	if err != nil {
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,nil", textURL, err)
+	}
+	data, err = ioutil.ReadAll(r)
+	if str := string(data); err != nil || str != line1 {
+		t.Errorf("ioutil.ReadAll(r)=%q,%v, want %q,nil", str, err, line1)
+	}
+	r.Close()
+
+	// Address requires escaping
+	r, err = Reader(textURL, edit.Regexp("Hello")) // /Hello/, / must be escaped.
+	if err != nil {
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,nil", textURL, err)
+	}
+	data, err = ioutil.ReadAll(r)
+	if str := string(data); err != nil || str != "Hello" {
+		t.Errorf("ioutil.ReadAll(r)=%q,%v, want %q,nil", str, err, "Hello")
+	}
+	r.Close()
+
+	// Out of range.
+	r, err = Reader(textURL, edit.Line(100))
+	if err != ErrRange {
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,%v", textURL, err, ErrRange)
+	}
+	if err == nil {
+		r.Close()
+	}
+
+	// Not found.
+	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound", "text")
+	r, err = Reader(notFoundURL, nil)
+	if err != ErrNotFound {
+		t.Errorf("Do(%q)=_,%v, want %v", notFoundURL, err, ErrNotFound)
+	}
+	if err == nil {
+		r.Close()
+	}
+
+	// Multiple Addrs.
+	multiAddrURL := *textURL
+	multiAddrURL.RawQuery = "addr=0"
+	r, err = Reader(&multiAddrURL, edit.Line(1))
+	if err == nil {
+		r.Close()
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,<non-nil>", textURL, err)
+	}
+
+	// Bad addr.
+	badAddrURL := *textURL
+	badAddrURL.RawQuery = "addr=" + strconv.FormatInt(math.MaxInt64, 10) + "0"
+	r, err = Reader(&badAddrURL, nil)
+	if err == nil {
+		r.Close()
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,<non-nil>", textURL, err)
+	}
+
+	// Leftover after addr.
+	leftoverAddrURL := *textURL
+	leftoverAddrURL.RawQuery = "addr=1hi"
+	r, err = Reader(&leftoverAddrURL, nil)
+	if err == nil {
+		r.Close()
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,<non-nil>", textURL, err)
+	}
+
+	// Malformed parameters
+	badParamsURL := *textURL
+	badParamsURL.RawQuery = "addr=%G" // G is not valid hex.
+	r, err = Reader(&badParamsURL, nil)
+	if err == nil {
+		r.Close()
+		t.Fatalf("Reader(%v,nil)=_,%v, want _,<non-nil>", textURL, err)
 	}
 }
