@@ -112,6 +112,8 @@ func (s *Server) Close() error {
 // 	• Not Found if either the buffer or editor is not found.
 // 	  The body is the path to the buffer or editor.
 //
+//  /editor/<ID>/text is the text that the editor edits.
+//
 // 	POST performs an atomic sequence of edits on the buffer.
 // 	The body must be an ordered list of Edits.
 // 	The response is an ordered list of EditResult.
@@ -131,7 +133,7 @@ func (s *Server) RegisterHandlers(r *mux.Router) {
 	r.HandleFunc("/buffer/{id}", s.newEditor).Methods(http.MethodPut)
 	r.HandleFunc("/editor/{id}", s.editorInfo).Methods(http.MethodGet)
 	r.HandleFunc("/editor/{id}", s.closeEditor).Methods(http.MethodDelete)
-	r.HandleFunc("/editor/{id}", s.edit).Methods(http.MethodPost)
+	r.HandleFunc("/editor/{id}/text", s.edit).Methods(http.MethodPost)
 }
 
 // respond JSON encodes resp to w, and sends an Internal Server Error on failure.

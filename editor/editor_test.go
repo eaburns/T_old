@@ -330,10 +330,10 @@ func TestDo(t *testing.T) {
 		{Sequence: 2},
 		{Sequence: 3, Print: hi},
 	}
-	editorURL := urlWithPath(s.url, ed.Path)
-	got, err := Do(editorURL, edits...)
+	textURL := urlWithPath(s.url, ed.Path, "text")
+	got, err := Do(textURL, edits...)
 	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", editorURL, edits, got, err, want)
+		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", textURL, edits, got, err, want)
 	}
 }
 
@@ -353,10 +353,10 @@ func TestDo_Nohthing(t *testing.T) {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
-	editorURL := urlWithPath(s.url, ed.Path)
-	got, err := Do(editorURL)
+	textURL := urlWithPath(s.url, ed.Path, "text")
+	got, err := Do(textURL)
 	if err != nil || len(got) != 0 {
-		t.Errorf("Do(%q)=%v,%v, want [],nil", editorURL, got, err)
+		t.Errorf("Do(%q)=%v,%v, want [],nil", textURL, got, err)
 	}
 }
 
@@ -364,7 +364,7 @@ func TestDo_NotFound(t *testing.T) {
 	s := newServer()
 	defer s.close()
 
-	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound")
+	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound", "text")
 	if _, err := Do(notFoundURL); err != ErrNotFound {
 		t.Errorf("Do(%q)=_,%v, want %v", notFoundURL, err, ErrNotFound)
 	}
@@ -386,13 +386,12 @@ func TestDo_BadRequest(t *testing.T) {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
-	editorURL := urlWithPath(s.url, ed.Path)
-
+	textURL := urlWithPath(s.url, ed.Path, "text")
 	for _, e := range []string{`not json`, `["badEdit"]`, `["c/a/b/leftover"]`} {
 		badEdit := strings.NewReader(e)
-		req, err := http.NewRequest(http.MethodPost, editorURL.String(), badEdit)
+		req, err := http.NewRequest(http.MethodPost, textURL.String(), badEdit)
 		if err != nil {
-			t.Fatalf("http.NewRequest(%v, %q, nil)=_,%v, want _,nil", http.MethodPost, editorURL, err)
+			t.Fatalf("http.NewRequest(%v, %q, nil)=_,%v, want _,nil", http.MethodPost, textURL, err)
 		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil || resp.StatusCode != http.StatusBadRequest {
@@ -433,10 +432,10 @@ func TestEditorEdit_UpdateMarks(t *testing.T) {
 		{Sequence: 4, Print: "hi"},
 		{Sequence: 5, Print: "世界"},
 	}
-	editorURL := urlWithPath(s.url, ed.Path)
-	got, err := Do(editorURL, edits...)
+	textURL := urlWithPath(s.url, ed.Path, "text")
+	got, err := Do(textURL, edits...)
 	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", editorURL, edits, got, err, want)
+		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", textURL, edits, got, err, want)
 	}
 }
 
@@ -456,28 +455,28 @@ func TestEditorEdit_MultipleEditors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
-	editor0URL := urlWithPath(s.url, ed0.Path)
+	text0URL := urlWithPath(s.url, ed0.Path, "text")
 
 	ed1, err := NewEditor(bufferURL)
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
-	editor1URL := urlWithPath(s.url, ed1.Path)
+	text1URL := urlWithPath(s.url, ed1.Path, "text")
 
 	const hi = "Hello, 世界!"
 	edits := []edit.Edit{
 		edit.Append(edit.All, hi),        // 1
 		edit.Set(edit.Regexp("世界"), 'm'), // 2
 	}
-	if _, err := Do(editor0URL, edits...); err != nil {
-		t.Errorf("Do(%q, %v...)=_,%v, want _,nil", editor0URL, edits, err)
+	if _, err := Do(text0URL, edits...); err != nil {
+		t.Errorf("Do(%q, %v...)=_,%v, want _,nil", text0URL, edits, err)
 	}
 
 	edits = []edit.Edit{
 		edit.Change(edit.Regexp("Hello"), "hi"), // 3
 	}
-	if _, err := Do(editor1URL, edits...); err != nil {
-		t.Errorf("Do(%q, %v...)=_,%v, want _,nil", editor1URL, edits, err)
+	if _, err := Do(text1URL, edits...); err != nil {
+		t.Errorf("Do(%q, %v...)=_,%v, want _,nil", text1URL, edits, err)
 	}
 
 	edits = []edit.Edit{
@@ -490,8 +489,8 @@ func TestEditorEdit_MultipleEditors(t *testing.T) {
 		{Sequence: 5, Print: "世界"},
 		{Sequence: 6},
 	}
-	if got, err := Do(editor0URL, edits...); err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", editor0URL, edits, got, err, want)
+	if got, err := Do(text0URL, edits...); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", text0URL, edits, got, err, want)
 	}
 
 	edits = []edit.Edit{
@@ -502,7 +501,7 @@ func TestEditorEdit_MultipleEditors(t *testing.T) {
 		{Sequence: 7, Print: "hi"},
 		{Sequence: 8, Print: "Oh, hi, 世界!"},
 	}
-	if got, err := Do(editor1URL, edits...); err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", editor1URL, edits, got, err, want)
+	if got, err := Do(text1URL, edits...); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", text1URL, edits, got, err, want)
 	}
 }
