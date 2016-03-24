@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -283,6 +284,10 @@ func (unitFace) GlyphBounds(rune) (fixed.Rectangle26_6, fixed.Int26_6, bool) {
 	return fixed.R(0, 0, 1, 1), fixed.I(1), true
 }
 
+func (unitFace) Metrics() font.Metrics {
+	return font.Metrics{Height: fixed.I(1), Ascent: fixed.I(1)}
+}
+
 func advStyle(adv map[rune]fixed.Int26_6) Style {
 	return Style{Face: &testFace{adv: adv, height: fixed.I(1)}}
 }
@@ -316,4 +321,8 @@ func (f testFace) GlyphBounds(r rune) (fixed.Rectangle26_6, fixed.Int26_6, bool)
 		Max: fixed.Point26_6{X: a, Y: f.height - f.ascent},
 	}
 	return b, a, true
+}
+
+func (f testFace) Metrics() font.Metrics {
+	return font.Metrics{Height: f.height, Ascent: f.ascent}
 }

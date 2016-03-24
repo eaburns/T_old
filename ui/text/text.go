@@ -29,13 +29,21 @@ package text
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/exp/shiny/screen"
+	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
+
+// A Style describes a font face and colors.
+type Style struct {
+	Face   font.Face
+	FG, BG color.Color
+}
 
 // Options control text layout by a setter.
 type Options struct {
@@ -102,7 +110,7 @@ func (s *Setter) Reset(opts Options) {
 
 // Tab returns the next tab stop.
 func (s *Setter) tab(x fixed.Int26_6) fixed.Int26_6 {
-	sp := s.opts.DefaultStyle.Advance(' ')
+	sp := advance(&s.opts.DefaultStyle, ' ')
 	w := sp * fixed.Int26_6(s.opts.TabWidth)
 	t := w - (x % w) + x
 	if t-x < sp {
@@ -119,14 +127,14 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 	if len(text) == 0 {
 		return
 	}
-	h, a := s.opts.DefaultStyle.Height(), s.opts.DefaultStyle.Ascent()
+	m := s.opts.DefaultStyle.Face.Metrics()
 	if len(s.lines) == 0 {
-		s.lines = append(s.lines, &line{h: h, a: a})
+		s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
 	}
 	for len(text) > 0 {
 		text = add1(s, sty, text)
 		if len(text) > 0 {
-			s.lines = append(s.lines, &line{h: h, a: a})
+			s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
 		}
 	}
 }
@@ -154,7 +162,7 @@ func add1(s *Setter, sty *Style, text []byte) []byte {
 	var start, i int
 	for i < len(text) {
 		r, w := utf8.DecodeRune(text[i:])
-		adv := sty.Advance(r)
+		adv := advance(sty, r)
 		if i > 0 {
 			p, _ := utf8.DecodeLastRune(text[:i])
 			adv += sty.Face.Kern(p, r)
@@ -175,16 +183,25 @@ func add1(s *Setter, sty *Style, text []byte) []byte {
 		sp.x1 += adv
 	}
 
+	m := sp.Face.Metrics()
+	if m.Height > l.h {
+		l.h = m.Height
+	}
+	if m.Ascent > l.a {
+		l.a = m.Ascent
+	}
 	l.w = sp.x1
-	if h := sp.Height(); h > l.h {
-		l.h = h
-	}
-	if a := sp.Ascent(); a > l.a {
-		l.a = a
-	}
 	sp.text = string(text[start:i])
 	l.spans = append(l.spans, sp)
 	return text[i:]
+}
+
+func advance(sty *Style, r rune) fixed.Int26_6 {
+	adv, ok := sty.Face.GlyphAdvance(r)
+	if !ok {
+		adv, _ = sty.Face.GlyphAdvance(unicode.ReplacementChar)
+	}
+	return adv
 }
 
 // Set returns the Text containing the text from all calls to Add or AddStyle
@@ -281,7 +298,7 @@ func (t *Text) Index(p image.Point) int {
 			if r == '\t' {
 				x = t.setter.tab(x)
 			} else {
-				x += sp.Advance(r)
+				x += advance(&sp.Style, r)
 				if j > 0 {
 					p, _ := utf8.DecodeLastRuneInString(sp.text[:j])
 					x += sp.Face.Kern(p, r)
@@ -375,7 +392,7 @@ func drawLine(t *Text, l *line, img draw.Image) {
 				dr, mask, maskp, _, _ = sp.Face.Glyph(pt, unicode.ReplacementChar)
 			}
 			draw.DrawMask(img, dr, fg, image.ZP, mask, maskp, draw.Over)
-			x += sp.Advance(r)
+			x += advance(&sp.Style, r)
 		}
 	}
 }
