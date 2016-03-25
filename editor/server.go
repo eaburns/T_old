@@ -331,6 +331,7 @@ func (s *Server) read(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
+	w.Header().Set("Content-Type", "text/plain")
 	if _, err = io.Copy(w, ed.Buffer.Reader(span)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
