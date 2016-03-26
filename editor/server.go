@@ -6,15 +6,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/eaburns/T/edit"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 )
 
 // Server implements http.Handler, serving an HTTP text editor.
@@ -52,7 +55,7 @@ func NewServer() *Server {
 func (s *Server) Close() error {
 	var errs []error
 	for _, b := range s.buffers {
-		errs = append(errs, b.buffer.Close())
+		errs = append(errs, b.close())
 	}
 	for _, err := range errs {
 		if err != nil {
@@ -92,6 +95,15 @@ func (s *Server) Close() error {
 // 	PUT creates a new editor for the buffer and returns its Editor.
 // 	Returns:
 // 	• OK on success.
+// 	• Internal Server Error on internal error.
+// 	• Not Found if the buffer is not found.
+//
+//  /buffer/<ID>/changes is the buffer's change stream.
+//
+// 	GET upgrades the connection to a websocket.
+// 	A ChangeList is sent on the websocket
+// 	for each edit made to the buffer.
+// 	Returns:
 // 	• Internal Server Error on internal error.
 // 	• Not Found if the buffer is not found.
 //
@@ -141,6 +153,7 @@ func (s *Server) RegisterHandlers(r *mux.Router) {
 	r.HandleFunc("/buffer/{id}", s.bufferInfo).Methods(http.MethodGet)
 	r.HandleFunc("/buffer/{id}", s.closeBuffer).Methods(http.MethodDelete)
 	r.HandleFunc("/buffer/{id}", s.newEditor).Methods(http.MethodPut)
+	r.HandleFunc("/buffer/{id}/changes", s.changes).Methods(http.MethodGet)
 	r.HandleFunc("/editor/{id}", s.editorInfo).Methods(http.MethodGet)
 	r.HandleFunc("/editor/{id}", s.closeEditor).Methods(http.MethodDelete)
 	r.HandleFunc("/editor/{id}/text", s.read).Methods(http.MethodGet)
@@ -176,6 +189,7 @@ func (s *Server) newBuffer(w http.ResponseWriter, req *http.Request) {
 		},
 		buffer:  edit.NewBuffer(),
 		editors: make(map[string]*editor),
+		done:    make(chan struct{}),
 	}
 	s.buffers[buf.ID] = buf
 	s.Unlock()
@@ -215,8 +229,84 @@ func (s *Server) closeBuffer(w http.ResponseWriter, req *http.Request) {
 	}
 	s.Unlock()
 
-	if err := buf.buffer.Close(); err != nil {
+	if err := buf.close(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+var upgrader = websocket.Upgrader{
+	HandshakeTimeout: wsTimeout,
+	CheckOrigin:      func(*http.Request) bool { return true },
+}
+
+func (s *Server) changes(w http.ResponseWriter, req *http.Request) {
+	s.Lock()
+	buf, ok := s.buffers[mux.Vars(req)["id"]]
+	if !ok {
+		s.Unlock()
+		http.NotFound(w, req)
+		return
+	}
+	buf.Lock()
+	s.Unlock()
+	changes := make(chan []ChangeList)
+	buf.watchers = append(buf.watchers, changes)
+	buf.Unlock()
+
+	defer func() {
+		buf.Lock()
+		for i := range buf.watchers {
+			if buf.watchers[i] == changes {
+				buf.watchers = append(buf.watchers[:i], buf.watchers[i+1:]...)
+				if buf.watcherRemoved != nil {
+					buf.watcherRemoved <- struct{}{}
+				}
+				break
+			}
+		}
+		buf.Unlock()
+	}()
+
+	conn, err := upgrader.Upgrade(w, req, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		dl := time.Now().Add(wsTimeout)
+		err := conn.WriteControl(websocket.CloseMessage, nil, dl)
+		if err != nil && err != websocket.ErrCloseSent {
+			log.Printf("error sending close to websocket: %v", err)
+		}
+		conn.Close()
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		for {
+			if _, _, err := conn.NextReader(); err != nil {
+				close(done)
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-buf.done:
+			return
+		case cls := <-changes:
+			for _, cl := range cls {
+				conn.SetWriteDeadline(time.Now().Add(wsTimeout))
+				err := conn.WriteJSON(cl)
+				if err != nil && err != websocket.ErrCloseSent {
+					log.Printf("error sending to websocket: %v", err)
+					return
+				}
+			}
+		}
 	}
 }
 
@@ -379,9 +469,22 @@ func (s *Server) edit(w http.ResponseWriter, req *http.Request) {
 type buffer struct {
 	sync.RWMutex
 	Buffer
-	buffer       *edit.Buffer
+	buffer *edit.Buffer
+
 	editors      map[string]*editor
 	nextEditorID int
+
+	watchers []chan []ChangeList
+	done     chan struct{}
+	// watcherRemoved is for testing purposes.
+	// If non-nil, an empty struct is sent when a watcher is removed.
+	watcherRemoved chan struct{}
+}
+
+// Must be called with the write Lock held.
+func (buf *buffer) close() error {
+	close(buf.done)
+	return buf.buffer.Close()
 }
 
 type editor struct {
@@ -389,7 +492,7 @@ type editor struct {
 	*edit.Buffer
 	buffer  *buffer
 	marks   map[rune]edit.Span
-	pending []change
+	pending []Change
 }
 
 type change struct {
@@ -407,10 +510,32 @@ func (ed *editor) SetMark(m rune, s edit.Span) error {
 	return nil
 }
 
+type changeReader struct {
+	r      io.Reader
+	nbytes int
+	text   []byte
+}
+
+func (cr *changeReader) Read(d []byte) (int, error) {
+	n, err := cr.r.Read(d)
+	m := MaxInline - len(cr.text)
+	if m > n {
+		m = n
+	}
+	cr.text = append(cr.text, d[:m]...)
+	cr.nbytes += n
+	return n, err
+}
+
 func (ed *editor) Change(s edit.Span, r io.Reader) (int64, error) {
-	n, err := ed.Buffer.Change(s, r)
+	cr := changeReader{r: r}
+	n, err := ed.Buffer.Change(s, &cr)
 	if err == nil {
-		ed.pending = append(ed.pending, change{span: s, size: n})
+		c := Change{Span: s, NewSize: n}
+		if 0 < cr.nbytes && cr.nbytes <= MaxInline {
+			c.Text = cr.text
+		}
+		ed.pending = append(ed.pending, c)
 	}
 	return n, err
 }
@@ -422,20 +547,31 @@ func (ed *editor) Apply() error {
 	for _, c := range ed.pending {
 		for _, e := range ed.buffer.editors {
 			for m, s := range e.marks {
-				if e == ed && m == '.' && c.span[0] == s[0] {
+				if e == ed && m == '.' && c.Span[0] == s[0] {
 					// We handle dot of the current editor specially.
 					// If the change has the same start, grow dot.
 					// Otherwise, update would simply leave it
 					// as a point address and move it.
 					dot := e.marks[m]
-					dot[1] = dot.Update(c.span, c.size)[1]
+					dot[1] = dot.Update(c.Span, c.NewSize)[1]
 					e.marks[m] = dot
 				} else {
-					e.marks[m] = e.marks[m].Update(c.span, c.size)
+					e.marks[m] = e.marks[m].Update(c.Span, c.NewSize)
 				}
 			}
 		}
 	}
-	ed.pending = ed.pending[:0]
+	cl := ChangeList{
+		Sequence: ed.buffer.Sequence + 1,
+		Changes:  ed.pending,
+	}
+	for _, c := range ed.buffer.watchers {
+		select {
+		case cls := <-c:
+			c <- append(cls, cl)
+		case c <- []ChangeList{cl}:
+		}
+	}
+	ed.pending = nil
 	return nil
 }
