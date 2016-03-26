@@ -10,8 +10,10 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/eaburns/T/edit"
+	"github.com/gorilla/websocket"
 )
 
 var (
@@ -73,6 +75,51 @@ func BufferInfo(URL *url.URL) (Buffer, error) {
 		return Buffer{}, err
 	}
 	return buf, nil
+}
+
+// A ChangeStream reads changes made to a buffer.
+type ChangeStream struct {
+	conn *websocket.Conn
+}
+
+// Close closes the stream.
+// The ChangeStream should not be used after being closed.
+func (s *ChangeStream) Close() error {
+	dl := time.Now().Add(wsTimeout)
+	if err := s.conn.WriteControl(websocket.CloseMessage, nil, dl); err == nil {
+		// Make a best-effort attempt to wait for the close response.
+		for {
+			code, _, err := s.conn.ReadMessage()
+			if err != nil || code == websocket.CloseMessage {
+				break
+			}
+		}
+	}
+	return s.conn.Close()
+}
+
+// Next returns the next ChangeList from the stream.
+func (s *ChangeStream) Next() (ChangeList, error) {
+	var cl ChangeList
+	return cl, s.conn.ReadJSON(&cl)
+}
+
+// Changes returns a ChangeStream that reads changes made to a buffer.
+// The URL is expected to point at the changes file of a buffer.
+// Note that the changes file is a websocket, and must use a ws scheme:
+// 	ws://host:port/buffer/<ID>/changes
+func Changes(URL *url.URL) (*ChangeStream, error) {
+	conn, resp, err := websocket.DefaultDialer.Dial(URL.String(), make(http.Header))
+	switch {
+	case err == websocket.ErrBadHandshake:
+		if resp.StatusCode != http.StatusOK {
+			return nil, responseError(resp)
+		}
+		fallthrough
+	case err != nil:
+		return nil, err
+	}
+	return &ChangeStream{conn: conn}, nil
 }
 
 // NewEditor does a PUT and returns an Editor from the response body.

@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/eaburns/T/edit"
 	"github.com/gorilla/mux"
@@ -322,7 +324,7 @@ func TestDo(t *testing.T) {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
-	const hi = "Hello, ���界"
+	const hi = "Hello, �������界"
 	edits := []edit.Edit{
 		edit.Print(edit.Line(100)), // 1
 		edit.Append(edit.All, hi),  // 2
@@ -631,5 +633,176 @@ func TestReader(t *testing.T) {
 	if err == nil {
 		r.Close()
 		t.Fatalf("Reader(%v,nil)=_,%v, want _,<non-nil>", textURL, err)
+	}
+}
+
+func TestChangeStream(t *testing.T) {
+	s := newServer()
+	defer s.close()
+
+	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buf, err := NewBuffer(buffersURL)
+	if err != nil {
+		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
+	}
+
+	bufferURL := urlWithPath(s.url, buf.Path)
+	ed, err := NewEditor(bufferURL)
+	if err != nil {
+		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
+	}
+
+	changesURL := urlWithPath(s.url, buf.Path, "changes")
+	changesURL.Scheme = "ws"
+	var watchers [3]*ChangeStream
+	for i := range watchers {
+		var err error
+		watchers[i], err = Changes(changesURL)
+		if err != nil {
+			t.Fatalf("Changes(%q)=_,%v, want _,nil", changesURL, err)
+		}
+		defer watchers[i].Close()
+	}
+
+	var hi = "Hello, 世界!" + strings.Repeat("x", MaxInline)
+	eds := []edit.Edit{
+		edit.Insert(edit.All, hi),               // 1
+		edit.Change(edit.Regexp("世界"), "World"), // 2
+		edit.SubGlobal(edit.All, ",|!", "."),    // 3
+		edit.Delete(edit.All),                   // 4
+	}
+	textURL := urlWithPath(s.url, ed.Path, "text")
+	if res, err := Do(textURL, eds...); err != nil {
+		t.Fatalf("ed.Do(%q, %v...)=%v,%v want _,nil", textURL, eds, res, err)
+	}
+
+	wants := []ChangeList{
+		ChangeList{
+			Sequence: 1,
+			Changes: []Change{
+				{
+					Span:    edit.Span{0: 0, 1: 0},
+					NewSize: int64(utf8.RuneCountInString(hi)),
+				},
+			},
+		},
+		ChangeList{
+			Sequence: 2,
+			Changes: []Change{
+				{
+					Span:    edit.Span{0: 7, 1: 9},
+					NewSize: int64(utf8.RuneCountInString("World")),
+					Text:    []byte("World"),
+				},
+			},
+		},
+		ChangeList{
+			Sequence: 3,
+			Changes: []Change{
+				{
+					Span:    edit.Span{0: 5, 1: 6},
+					NewSize: 1,
+					Text:    []byte("."),
+				},
+				{
+					Span:    edit.Span{0: 12, 1: 13},
+					NewSize: 1,
+					Text:    []byte("."),
+				},
+			},
+		},
+		ChangeList{
+			Sequence: 4,
+			Changes: []Change{
+				{
+					// +3, because 世界 changed to World.
+					Span:    edit.Span{0: 0, 1: int64(utf8.RuneCountInString(hi)) + 3},
+					NewSize: 0,
+				},
+			},
+		},
+	}
+	for _, want := range wants {
+		for i := range watchers {
+			got, err := watchers[i].Next()
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Errorf("watchers[%d].Next()=%v,%v, want %v,nil", i, got, err, want)
+			}
+		}
+	}
+}
+
+func TestChangeStream_Close(t *testing.T) {
+	s := newServer()
+	defer s.close()
+
+	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buf, err := NewBuffer(buffersURL)
+	if err != nil {
+		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
+	}
+
+	s.editorServer.buffers[buf.ID].watcherRemoved = make(chan struct{})
+
+	changesURL := urlWithPath(s.url, buf.Path, "changes")
+	changesURL.Scheme = "ws"
+	changes, err := Changes(changesURL)
+	if err != nil {
+		t.Fatalf("Changes(%q)=_,%v, want _,nil", changesURL, err)
+	}
+
+	if err := changes.Close(); err != nil {
+		t.Fatalf("changes.Close()=%v, want nil", err)
+	}
+
+	// Wait 1 second for the server to receive the close
+	// and call the defer to remove the watcher.
+	// This is suboptimal, but better than nothing.
+	select {
+	case <-s.editorServer.buffers[buf.ID].watcherRemoved:
+	case <-time.After(1 * time.Second):
+		t.Errorf("timed out waiting for watcher to close")
+	}
+}
+
+func TestChangeStream_BufferClose(t *testing.T) {
+	s := newServer()
+	defer s.close()
+
+	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buf, err := NewBuffer(buffersURL)
+	if err != nil {
+		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
+	}
+
+	changesURL := urlWithPath(s.url, buf.Path, "changes")
+	changesURL.Scheme = "ws"
+	changes, err := Changes(changesURL)
+	if err != nil {
+		t.Fatalf("Changes(%q)=_,%v, want _,nil", changesURL, err)
+	}
+
+	bufferURL := urlWithPath(s.url, buf.Path)
+	if err := Close(bufferURL); err != nil {
+		t.Fatalf("buf.Close()=%v, want nil", err)
+	}
+
+	if _, err := changes.Next(); err == nil {
+		t.Errorf("changes.Next()=_,%v, want non-nil", err)
+	}
+}
+
+func TestChangeStream_NotFound(t *testing.T) {
+	s := newServer()
+	defer s.close()
+
+	changesURL := urlWithPath(s.url, "buffer", "notfound", "changes")
+	changesURL.Scheme = "ws"
+	changes, err := Changes(changesURL)
+	if err != ErrNotFound {
+		t.Errorf("Changes(%q)=_,%v, want _,%v", changesURL, err, ErrNotFound)
+	}
+	if err == nil {
+		changes.Close()
 	}
 }
