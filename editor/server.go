@@ -471,8 +471,7 @@ type buffer struct {
 	Buffer
 	buffer *edit.Buffer
 
-	editors      map[string]*editor
-	nextEditorID int
+	editors map[string]*editor
 
 	watchers []chan []ChangeList
 	done     chan struct{}
