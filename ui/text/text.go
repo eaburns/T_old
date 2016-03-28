@@ -47,12 +47,8 @@ type Style struct {
 
 // Options control text layout by a setter.
 type Options struct {
-	// Bounds defines the rectangle into which the setter will set text.
-	// Text returned by the Set method
-	// will be no wider than Bounds.Dx(),
-	// will be no taller than Bounds.Dy(),
-	// and will draw to the window at offset Bounds.Min.
-	Bounds image.Rectangle
+	// Size is the size of the Text returned by Set.
+	Size image.Point
 
 	// DefaultStyle dictates
 	// the default background color of text,
@@ -142,7 +138,7 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 func add1(s *Setter, sty *Style, text []byte) []byte {
 	l := s.lines[len(s.lines)-1]
 	var x0 fixed.Int26_6
-	width := fixed.I(s.opts.Bounds.Dx() - 2*s.opts.Padding)
+	width := fixed.I(s.opts.Size.X - 2*s.opts.Padding)
 	if len(l.spans) > 0 && len(l.spans[len(l.spans)-1].text) > 0 {
 		lastSpan := l.spans[len(l.spans)-1]
 		lastText := lastSpan.text
@@ -234,7 +230,7 @@ func (s *Setter) Set() *Text {
 		}
 		h1 += int(line.h >> 6)
 	}
-	t := &Text{setter: s, lines: s.lines}
+	t := &Text{setter: s, lines: s.lines, size: s.opts.Size}
 	for _, l := range s.reuseLines {
 		if l.buf != nil {
 			l.buf.Release()
@@ -250,7 +246,11 @@ func (s *Setter) Set() *Text {
 type Text struct {
 	setter *Setter
 	lines  []*line
+	size   image.Point
 }
+
+// Size returns the size of the Text.
+func (t *Text) Size() image.Point { return t.size }
 
 // Release releases the rasterized lines of the Text
 // back to the Setter that created it
@@ -268,9 +268,12 @@ func (t *Text) Release() {
 
 // Index returns the byte index into the text
 // corresponding to the glyph at the given point.
+// 0,0 is the top left of the text.
 func (t *Text) Index(p image.Point) int {
-	y := fixed.I(t.setter.opts.Bounds.Min.Y + t.setter.opts.Padding)
-	if len(t.lines) == 0 || fixed.I(p.Y) < y {
+	px, py := fixed.I(p.X), fixed.I(p.Y)
+	pad := t.setter.opts.Padding
+	y := fixed.I(pad)
+	if len(t.lines) == 0 || py < y {
 		return 0
 	}
 
@@ -278,7 +281,7 @@ func (t *Text) Index(p image.Point) int {
 	for l = 0; l < len(t.lines); l++ {
 		line := t.lines[l]
 		y += line.h
-		if y > fixed.I(p.Y) {
+		if y > py {
 			break
 		}
 		i += line.len()
@@ -290,7 +293,7 @@ func (t *Text) Index(p image.Point) int {
 	var w int
 	line := t.lines[l]
 	for _, sp := range line.spans {
-		x := sp.x0 + fixed.I(t.setter.opts.Padding)
+		x := sp.x0 + fixed.I(pad)
 		var j int
 		for j < len(sp.text) {
 			var r rune
@@ -304,7 +307,7 @@ func (t *Text) Index(p image.Point) int {
 					x += sp.Face.Kern(p, r)
 				}
 			}
-			if x > fixed.I(p.X-t.setter.opts.Bounds.Min.X) {
+			if x > px {
 				return i
 			}
 			j += w
@@ -324,8 +327,8 @@ func (l *line) len() int {
 }
 
 // Draw draws the text to the Window.
-func (t *Text) Draw(scr screen.Screen, win screen.Window) {
-	b := t.setter.opts.Bounds
+func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
+	b := image.Rectangle{Min: at, Max: at.Add(t.size)}
 	win.Fill(b, t.setter.opts.DefaultStyle.BG, draw.Over)
 
 	pad := t.setter.opts.Padding

@@ -74,7 +74,7 @@ func loadFace() font.Face {
 	return face
 }
 
-func inin() { runtime.LockOSThread() }
+func init() { runtime.LockOSThread() }
 
 func main() { driver.Main(Main) }
 
@@ -93,7 +93,8 @@ func Main(scr screen.Screen) {
 	defer win.Release()
 
 	sz := image.Pt(width, height)
-	opts.Bounds = image.Rect(sz.X/20, sz.Y/20, sz.X-sz.X/20, sz.Y-sz.Y/20)
+	at := image.Pt(sz.X/20, sz.Y/20)
+	opts.Size = image.Pt(sz.X-sz.X/10, sz.Y-sz.Y/10)
 	setter := text.NewSetter(opts)
 	defer setter.Release()
 
@@ -141,7 +142,8 @@ func Main(scr screen.Screen) {
 		case mouse.Event:
 			switch e.Direction {
 			case mouse.DirPress:
-				a0 = txt.Index(image.Pt(int(e.X), int(e.Y)))
+				click := image.Pt(int(e.X), int(e.Y))
+				a0 = txt.Index(click.Sub(at))
 				a1 = a0
 				drag = true
 				txt = resetText(setter, txt, a0, a1)
@@ -155,7 +157,8 @@ func Main(scr screen.Screen) {
 					continue
 				}
 				a1Prev := a1
-				a1 = txt.Index(image.Pt(int(e.X), int(e.Y)))
+				click := image.Pt(int(e.X), int(e.Y))
+				a1 = txt.Index(click.Sub(at))
 				if a1 != a1Prev {
 					txt = resetText(setter, txt, a0, a1)
 					win.Send(paint.Event{})
@@ -164,13 +167,14 @@ func Main(scr screen.Screen) {
 
 		case size.Event:
 			sz = e.Size()
-			opts.Bounds = image.Rect(sz.X/20, sz.Y/20, sz.X-sz.X/20, sz.Y-sz.Y/20)
+			at = image.Pt(sz.X/20, sz.Y/20)
+			opts.Size = image.Pt(sz.X-sz.X/10, sz.Y-sz.Y/10)
 			setter.Reset(opts)
 			txt = resetText(setter, txt, a0, a1)
 
 		case paint.Event:
 			win.Fill(image.Rect(0, 0, sz.X, sz.Y), image.White, draw.Over)
-			txt.Draw(scr, win)
+			txt.Draw(at, scr, win)
 			win.Publish()
 		}
 	}
