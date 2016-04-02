@@ -261,7 +261,7 @@ func lineString(t *Text) string {
 	for _, l := range t.lines {
 		buf.WriteRune('[')
 		for _, s := range l.spans {
-			buf.WriteString(s.text)
+			buf.Write(s.text)
 		}
 		buf.WriteRune(']')
 	}

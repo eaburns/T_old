@@ -80,7 +80,7 @@ func main() { driver.Main(Main) }
 
 // Main is the logical main function, the real main function is hijacked by shiny.
 func Main(scr screen.Screen) {
-	defer profile.Start(profile.CPUProfile).Stop()
+	defer profile.Start(profile.MemProfile).Stop()
 
 	width, height := 300, 300
 	win, err := scr.NewWindow(&screen.NewWindowOptions{
