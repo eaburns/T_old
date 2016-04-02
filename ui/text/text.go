@@ -384,17 +384,18 @@ func (l *line) len() int {
 
 // Draw draws the text to the Window.
 func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
-	b := image.Rectangle{Min: at, Max: at.Add(t.size)}
-	win.Fill(b, t.setter.opts.DefaultStyle.BG, draw.Src)
-
 	pad := t.setter.opts.Padding
-	textWidth := b.Dx() - 2*pad
+	bg := t.setter.opts.DefaultStyle.BG
+	x0, y0, x1, y1 := at.X, at.Y, at.X+t.size.X, at.Y+t.size.Y
+
 	var y int
-	x0, y1 := b.Min.X+pad, b.Min.Y+pad
+	x, ynext := at.X+pad, at.Y+pad
+	textWidth := (x1 - x0) - 2*pad
 	for _, l := range t.lines {
-		y = y1
-		y1 = y + int(l.h>>6)
-		if y1 > b.Max.Y-pad {
+		y = ynext
+		ynext = y + int(l.h>>6)
+		if ynext > y1-pad {
+			ynext = y
 			break
 		}
 		if l.buf == nil && int(l.w>>6) > 0 {
@@ -406,24 +407,26 @@ func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
 			}
 			drawLine(t, l, l.buf.RGBA())
 		}
-		if l.buf == nil {
-			continue
+		var dx int
+		if l.buf != nil && l.buf.Bounds().Dx() <= textWidth {
+			dx = l.buf.Bounds().Dx()
+			win.Upload(image.Pt(x, y), l.buf, l.buf.Bounds())
 		}
-
-		if l.buf.Bounds().Dx() > textWidth {
-			// The line doesn't fit the width, don't draw it.
-			continue
-		}
-
-		win.Upload(image.Pt(x0, y), l.buf, l.buf.Bounds())
-		if dx := l.buf.Bounds().Dx(); dx < textWidth {
-			bg := t.setter.opts.DefaultStyle.BG
+		if dx < textWidth {
+			lineBG := bg
 			if len(l.spans) > 0 {
-				bg = l.spans[len(l.spans)-1].BG
+				lineBG = l.spans[len(l.spans)-1].BG
 			}
-			win.Fill(image.Rect(x0+dx, y, b.Max.X-pad, y1), bg, draw.Src)
+			win.Fill(image.Rect(x+dx, y, x1-pad, y1), lineBG, draw.Src)
 		}
 	}
+	if ynext < y1 {
+		win.Fill(image.Rect(x0+pad, ynext, x1-pad, y1), bg, draw.Src)
+	}
+	win.Fill(image.Rect(x0, y0, x1, y0+pad), bg, draw.Src)         // top
+	win.Fill(image.Rect(x0, y1-pad, x1, y1), bg, draw.Src)         // bottom
+	win.Fill(image.Rect(x0, y0+pad, x0+pad, y1-pad), bg, draw.Src) // left
+	win.Fill(image.Rect(x1-pad, y0+pad, x1, y1-pad), bg, draw.Src) // right
 }
 
 func drawLine(t *Text, l *line, img draw.Image) {
