@@ -16,8 +16,8 @@ import (
 	"runtime"
 	"unicode/utf8"
 
-	"github.com/davecheney/profile"
 	"github.com/eaburns/T/ui/text"
+	"github.com/pkg/profile"
 	"golang.org/x/exp/shiny/driver"
 	"golang.org/x/exp/shiny/screen"
 	"golang.org/x/image/font"
@@ -74,13 +74,13 @@ func loadFace() font.Face {
 	return face
 }
 
-func inin() { runtime.LockOSThread() }
+func init() { runtime.LockOSThread() }
 
 func main() { driver.Main(Main) }
 
 // Main is the logical main function, the real main function is hijacked by shiny.
 func Main(scr screen.Screen) {
-	defer profile.Start(profile.CPUProfile).Stop()
+	defer profile.Start(profile.MemProfile).Stop()
 
 	width, height := 300, 300
 	win, err := scr.NewWindow(&screen.NewWindowOptions{
@@ -93,7 +93,8 @@ func Main(scr screen.Screen) {
 	defer win.Release()
 
 	sz := image.Pt(width, height)
-	opts.Bounds = image.Rect(sz.X/20, sz.Y/20, sz.X-sz.X/20, sz.Y-sz.Y/20)
+	at := image.Pt(sz.X/20, sz.Y/20)
+	opts.Size = image.Pt(sz.X-sz.X/10, sz.Y-sz.Y/10)
 	setter := text.NewSetter(opts)
 	defer setter.Release()
 
@@ -164,13 +165,19 @@ func Main(scr screen.Screen) {
 
 		case size.Event:
 			sz = e.Size()
-			opts.Bounds = image.Rect(sz.X/20, sz.Y/20, sz.X-sz.X/20, sz.Y-sz.Y/20)
+			at = image.Pt(sz.X/20, sz.Y/20)
+			opts.Size = image.Pt(sz.X-sz.X/10, sz.Y-sz.Y/10)
 			setter.Reset(opts)
 			txt = resetText(setter, txt, a0, a1)
 
 		case paint.Event:
-			win.Fill(image.Rect(0, 0, sz.X, sz.Y), image.White, draw.Over)
-			txt.Draw(scr, win)
+			bg := image.White
+			r := image.Rect(at.X, at.Y, at.X+opts.Size.X, at.Y+opts.Size.Y)
+			win.Fill(image.Rect(0, 0, sz.X, r.Min.Y), bg, draw.Src)             // top
+			win.Fill(image.Rect(0, r.Max.Y, sz.X, sz.Y), bg, draw.Src)          // bottom
+			win.Fill(image.Rect(0, r.Min.Y, r.Min.X, r.Max.Y), bg, draw.Src)    // left
+			win.Fill(image.Rect(r.Min.X, r.Min.Y, sz.X, r.Max.Y), bg, draw.Src) // right
+			txt.Draw(at, scr, win)
 			win.Publish()
 		}
 	}

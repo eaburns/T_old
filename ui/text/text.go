@@ -28,6 +28,7 @@
 package text
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
@@ -47,12 +48,8 @@ type Style struct {
 
 // Options control text layout by a setter.
 type Options struct {
-	// Bounds defines the rectangle into which the setter will set text.
-	// Text returned by the Set method
-	// will be no wider than Bounds.Dx(),
-	// will be no taller than Bounds.Dy(),
-	// and will draw to the window at offset Bounds.Min.
-	Bounds image.Rectangle
+	// Size is the size of the Text returned by Set.
+	Size image.Point
 
 	// DefaultStyle dictates
 	// the default background color of text,
@@ -72,8 +69,30 @@ type Options struct {
 
 // A Setter lays out text to fit in a rectangle.
 type Setter struct {
-	opts              Options
-	lines, reuseLines []*line
+	opts Options
+
+	// Text contains the text of lines.
+	text []byte
+
+	// Lines are the lines currently being typeset.
+	lines []*line
+
+	// ReuseLines are pre-rendered lines
+	// that have been released to the Setter.
+	// The next Set will try to re-use their rendered Buffers.
+	reuseLines []*line
+	// ReuseText is the text that goes along with reuseLines.
+	// After reuseLines have been used, the text can be freed.
+	reuseText []byte
+
+	// Styles is an intern table of styles.
+	// This lets the Texts returned by Setter
+	// use internal copies of the given Styles,
+	// while avoiding extra allocation.
+	styles []*Style
+
+	freeSpans []*span
+	freeLines []*line
 }
 
 type line struct {
@@ -83,8 +102,8 @@ type line struct {
 }
 
 type span struct {
-	Style
-	text   string
+	*Style
+	text   []byte
 	x0, x1 fixed.Int26_6
 }
 
@@ -99,11 +118,15 @@ func (s *Setter) Release() {
 		if l.buf != nil {
 			l.buf.Release()
 		}
+		s.freeSpans = append(s.freeSpans, l.spans...)
 	}
 }
 
 // Reset clears any added lines, and resets the setter with new Options.
 func (s *Setter) Reset(opts Options) {
+	for _, l := range s.lines {
+		s.freeSpans = append(s.freeSpans, l.spans...)
+	}
 	s.lines = s.lines[:0]
 	s.opts = opts
 }
@@ -127,38 +150,85 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 	if len(text) == 0 {
 		return
 	}
-	m := s.opts.DefaultStyle.Face.Metrics()
+
+	ymax := fixed.I(s.opts.Size.Y)
+	var h fixed.Int26_6
+	for _, l := range s.lines {
+		h += l.h
+	}
+
+	styCopy := s.internStyle(sty)
+
 	if len(s.lines) == 0 {
-		s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
+		s.lines = append(s.lines, s.newLine())
 	}
 	for len(text) > 0 {
-		text = add1(s, sty, text)
+		if h > ymax {
+			// Tall enough.
+			return
+		}
+		text = add1(s, styCopy, text)
 		if len(text) > 0 {
-			s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
+			h += s.lines[len(s.lines)-1].h
+			s.lines = append(s.lines, s.newLine())
 		}
 	}
+}
+
+func (s *Setter) newLine() *line {
+	var l *line
+	if n := len(s.freeLines); n == 0 {
+		l = new(line)
+	} else {
+		l, s.freeLines = s.freeLines[n-1], s.freeLines[:n-1]
+	}
+	m := s.opts.DefaultStyle.Face.Metrics()
+	l.w = 0
+	l.h = m.Height
+	l.a = m.Ascent
+	l.spans = nil
+	l.buf = nil
+	return l
+}
+
+// InternStyle returns a copy of the style from the intern table.
+// If the style is not in the table, it is added.
+func (s *Setter) internStyle(sty *Style) *Style {
+	var styCopy *Style
+	for _, sc := range s.styles {
+		if *sc == *sty {
+			styCopy = sc
+			break
+		}
+	}
+	if styCopy == nil {
+		styCopy = new(Style)
+		*styCopy = *sty
+		s.styles = append(s.styles, styCopy)
+	}
+	return styCopy
 }
 
 func add1(s *Setter, sty *Style, text []byte) []byte {
 	l := s.lines[len(s.lines)-1]
 	var x0 fixed.Int26_6
-	width := fixed.I(s.opts.Bounds.Dx() - 2*s.opts.Padding)
+	width := fixed.I(s.opts.Size.X - 2*s.opts.Padding)
 	if len(l.spans) > 0 && len(l.spans[len(l.spans)-1].text) > 0 {
 		lastSpan := l.spans[len(l.spans)-1]
 		lastText := lastSpan.text
-		if r, _ := utf8.DecodeLastRuneInString(lastText); r == '\n' {
+		if r, _ := utf8.DecodeLastRune(lastText); r == '\n' {
 			return text
 		}
 		x0 = lastSpan.x1
 		if len(text) > 0 && lastSpan.Face == sty.Face {
 			r, _ := utf8.DecodeRune(text)
 			if len(lastText) > 0 {
-				p, _ := utf8.DecodeLastRuneInString(lastText)
+				p, _ := utf8.DecodeLastRune(lastText)
 				x0 += sty.Face.Kern(p, r)
 			}
 		}
 	}
-	sp := &span{Style: *sty, x0: x0, x1: x0}
+	sp := s.newSpan(sty, x0, x0)
 	var start, i int
 	for i < len(text) {
 		r, w := utf8.DecodeRune(text[i:])
@@ -191,9 +261,25 @@ func add1(s *Setter, sty *Style, text []byte) []byte {
 		l.a = m.Ascent
 	}
 	l.w = sp.x1
-	sp.text = string(text[start:i])
+	n := len(s.text)
+	s.text = append(s.text, text[start:i]...)
+	sp.text = s.text[n:len(s.text)]
 	l.spans = append(l.spans, sp)
 	return text[i:]
+}
+
+func (s *Setter) newSpan(sty *Style, x0, x1 fixed.Int26_6) *span {
+	var sp *span
+	if n := len(s.freeSpans); n == 0 {
+		sp = new(span)
+	} else {
+		sp, s.freeSpans = s.freeSpans[n-1], s.freeSpans[:n-1]
+	}
+	sp.Style = sty
+	sp.text = nil
+	sp.x0 = x0
+	sp.x1 = x1
+	return sp
 }
 
 func advance(sty *Style, r rune) fixed.Int26_6 {
@@ -213,44 +299,58 @@ func advance(sty *Style, r rune) fixed.Int26_6 {
 func (s *Setter) Set() *Text {
 	var h1 int
 	for _, line := range s.lines {
-		// Find resue line with the exact same spans and reuse its buffer.
-		for _, reuseLine := range s.reuseLines {
-			if reuseLine.buf == nil || len(reuseLine.spans) != len(line.spans) {
+		// Find a reuse line with the exact same spans; reuse its buffer.
+		for _, r := range s.reuseLines {
+			if r.buf == nil || len(r.spans) != len(line.spans) {
 				continue
 			}
 			match := true
-			for i, reuseSpan := range reuseLine.spans {
+			for i, sp := range r.spans {
 				span := line.spans[i]
-				if reuseSpan.Style != span.Style || reuseSpan.text != span.text {
+				if sp.Style != span.Style || !bytes.Equal(sp.text, span.text) {
 					match = false
 					break
 				}
 			}
 			if match {
-				line.buf = reuseLine.buf
-				reuseLine.buf = nil
+				line.buf = r.buf
+				r.buf = nil
 				break
 			}
 		}
 		h1 += int(line.h >> 6)
 	}
-	t := &Text{setter: s, lines: s.lines}
+	t := &Text{
+		setter: s,
+		text:   s.text,
+		lines:  s.lines,
+		size:   s.opts.Size,
+	}
 	for _, l := range s.reuseLines {
+		s.freeSpans = append(s.freeSpans, l.spans...)
+		l.spans = nil
 		if l.buf != nil {
 			l.buf.Release()
 			l.buf = nil
 		}
 	}
+	s.lines = nil
+	s.freeLines = append(s.freeLines, s.reuseLines...)
 	s.reuseLines = nil
-	s.lines = s.reuseLines[:0]
+	s.text = s.reuseText[:0]
 	return t
 }
 
 // A Text is a type-set text.
 type Text struct {
 	setter *Setter
+	text   []byte
 	lines  []*line
+	size   image.Point
 }
+
+// Size returns the size of the Text.
+func (t *Text) Size() image.Point { return t.size }
 
 // Release releases the rasterized lines of the Text
 // back to the Setter that created it
@@ -263,13 +363,16 @@ type Text struct {
 // then call Setter.Release.
 func (t *Text) Release() {
 	t.setter.reuseLines = append(t.setter.reuseLines, t.lines...)
+	t.setter.reuseText = t.text
 	t.lines = nil
+	t.text = nil
 }
 
 // Index returns the byte index into the text
 // corresponding to the glyph at the given point.
+// 0,0 is the top left of the text.
 func (t *Text) Index(p image.Point) int {
-	y := fixed.I(t.setter.opts.Bounds.Min.Y + t.setter.opts.Padding)
+	y := fixed.I(t.setter.opts.Padding)
 	if len(t.lines) == 0 || fixed.I(p.Y) < y {
 		return 0
 	}
@@ -294,17 +397,17 @@ func (t *Text) Index(p image.Point) int {
 		var j int
 		for j < len(sp.text) {
 			var r rune
-			r, w = utf8.DecodeRuneInString(sp.text[j:])
+			r, w = utf8.DecodeRune(sp.text[j:])
 			if r == '\t' {
 				x = t.setter.tab(x)
 			} else {
-				x += advance(&sp.Style, r)
+				x += advance(sp.Style, r)
 				if j > 0 {
-					p, _ := utf8.DecodeLastRuneInString(sp.text[:j])
+					p, _ := utf8.DecodeLastRune(sp.text[:j])
 					x += sp.Face.Kern(p, r)
 				}
 			}
-			if x > fixed.I(p.X-t.setter.opts.Bounds.Min.X) {
+			if x > fixed.I(p.X) {
 				return i
 			}
 			j += w
@@ -324,18 +427,19 @@ func (l *line) len() int {
 }
 
 // Draw draws the text to the Window.
-func (t *Text) Draw(scr screen.Screen, win screen.Window) {
-	b := t.setter.opts.Bounds
-	win.Fill(b, t.setter.opts.DefaultStyle.BG, draw.Over)
-
+func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
 	pad := t.setter.opts.Padding
-	textWidth := b.Dx() - 2*pad
+	bg := t.setter.opts.DefaultStyle.BG
+	x0, y0, x1, y1 := at.X, at.Y, at.X+t.size.X, at.Y+t.size.Y
+
 	var y int
-	x0, y1 := b.Min.X+pad, b.Min.Y+pad
+	x, ynext := at.X+pad, at.Y+pad
+	textWidth := (x1 - x0) - 2*pad
 	for _, l := range t.lines {
-		y = y1
-		y1 = y + int(l.h>>6)
-		if y1 > b.Max.Y-pad {
+		y = ynext
+		ynext = y + int(l.h>>6)
+		if ynext > y1-pad {
+			ynext = y
 			break
 		}
 		if l.buf == nil && int(l.w>>6) > 0 {
@@ -347,24 +451,26 @@ func (t *Text) Draw(scr screen.Screen, win screen.Window) {
 			}
 			drawLine(t, l, l.buf.RGBA())
 		}
-		if l.buf == nil {
-			continue
+		var dx int
+		if l.buf != nil && l.buf.Bounds().Dx() <= textWidth {
+			dx = l.buf.Bounds().Dx()
+			win.Upload(image.Pt(x, y), l.buf, l.buf.Bounds())
 		}
-
-		if l.buf.Bounds().Dx() > textWidth {
-			// The line doesn't fit the width, don't draw it.
-			continue
-		}
-
-		win.Upload(image.Pt(x0, y), l.buf, l.buf.Bounds())
-		if dx := l.buf.Bounds().Dx(); dx < textWidth {
-			bg := t.setter.opts.DefaultStyle.BG
+		if dx < textWidth {
+			lineBG := bg
 			if len(l.spans) > 0 {
-				bg = l.spans[len(l.spans)-1].BG
+				lineBG = l.spans[len(l.spans)-1].BG
 			}
-			win.Fill(image.Rect(x0+dx, y, b.Max.X-pad, y1), bg, draw.Over)
+			win.Fill(image.Rect(x+dx, y, x1-pad, y1), lineBG, draw.Src)
 		}
 	}
+	if ynext < y1 {
+		win.Fill(image.Rect(x0+pad, ynext, x1-pad, y1), bg, draw.Src)
+	}
+	win.Fill(image.Rect(x0, y0, x1, y0+pad), bg, draw.Src)         // top
+	win.Fill(image.Rect(x0, y1-pad, x1, y1), bg, draw.Src)         // bottom
+	win.Fill(image.Rect(x0, y0+pad, x0+pad, y1-pad), bg, draw.Src) // left
+	win.Fill(image.Rect(x1-pad, y0+pad, x1, y1-pad), bg, draw.Src) // right
 }
 
 func drawLine(t *Text, l *line, img draw.Image) {
@@ -372,9 +478,12 @@ func drawLine(t *Text, l *line, img draw.Image) {
 		fg := image.NewUniform(sp.FG)
 		bg := image.NewUniform(sp.BG)
 		box := image.Rect(int(sp.x0>>6), 0, int(sp.x1>>6), int(l.h>>6))
-		draw.Draw(img, box, bg, image.ZP, draw.Over)
+		draw.Draw(img, box, bg, image.ZP, draw.Src)
 		x := sp.x0
-		for i, r := range sp.text {
+		var i int
+		for i < len(sp.text) {
+			r, w := utf8.DecodeRune(sp.text[i:])
+			i += w
 			if r == '\t' {
 				x = t.setter.tab(x)
 				continue
@@ -382,8 +491,8 @@ func drawLine(t *Text, l *line, img draw.Image) {
 			if r == '\n' {
 				continue
 			}
-			if i > 0 {
-				p, _ := utf8.DecodeLastRuneInString(sp.text[:i])
+			if i-w > 0 {
+				p, _ := utf8.DecodeLastRune(sp.text[:i-w])
 				x += sp.Face.Kern(p, r)
 			}
 			pt := fixed.Point26_6{X: x, Y: l.a}
@@ -392,7 +501,7 @@ func drawLine(t *Text, l *line, img draw.Image) {
 				dr, mask, maskp, _, _ = sp.Face.Glyph(pt, unicode.ReplacementChar)
 			}
 			draw.DrawMask(img, dr, fg, image.ZP, mask, maskp, draw.Over)
-			x += advance(&sp.Style, r)
+			x += advance(sp.Style, r)
 		}
 	}
 }
