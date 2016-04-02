@@ -237,8 +237,8 @@ func (s *Setter) Set() *Text {
 			l.buf = nil
 		}
 	}
-	s.reuseLines = nil
 	s.lines = s.reuseLines[:0]
+	s.reuseLines = nil
 	return t
 }
 
