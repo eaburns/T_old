@@ -71,6 +71,11 @@ type Setter struct {
 	opts              Options
 	lines, reuseLines []*line
 	freeSpans         []*span
+	// Styles is an intern table of styles.
+	// This lets the Texts returned by Setter
+	// use internal copies of the given Styles,
+	// while avoiding extra allocation.
+	styles []*Style
 }
 
 type line struct {
@@ -80,7 +85,7 @@ type line struct {
 }
 
 type span struct {
-	Style
+	*Style
 	text   string
 	x0, x1 fixed.Int26_6
 }
@@ -135,6 +140,8 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 		h += l.h
 	}
 
+	styCopy := s.internStyle(sty)
+
 	m := s.opts.DefaultStyle.Face.Metrics()
 	if len(s.lines) == 0 {
 		s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
@@ -144,12 +151,30 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 			// Tall enough.
 			return
 		}
-		text = add1(s, sty, text)
+		text = add1(s, styCopy, text)
 		if len(text) > 0 {
 			h += s.lines[len(s.lines)-1].h
 			s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
 		}
 	}
+}
+
+// InternStyle returns a copy of the style from the intern table.
+// If the style is not in the table, it is added.
+func (s *Setter) internStyle(sty *Style) *Style {
+	var styCopy *Style
+	for _, sc := range s.styles {
+		if *sc == *sty {
+			styCopy = sc
+			break
+		}
+	}
+	if styCopy == nil {
+		styCopy = new(Style)
+		*styCopy = *sty
+		s.styles = append(s.styles, styCopy)
+	}
+	return styCopy
 }
 
 func add1(s *Setter, sty *Style, text []byte) []byte {
@@ -216,7 +241,7 @@ func (s *Setter) newSpan(sty *Style, text string, x0, x1 fixed.Int26_6) *span {
 	} else {
 		sp, s.freeSpans = s.freeSpans[n-1], s.freeSpans[:n-1]
 	}
-	sp.Style = *sty
+	sp.Style = sty
 	sp.text = text
 	sp.x0 = x0
 	sp.x1 = x1
@@ -332,7 +357,7 @@ func (t *Text) Index(p image.Point) int {
 			if r == '\t' {
 				x = t.setter.tab(x)
 			} else {
-				x += advance(&sp.Style, r)
+				x += advance(sp.Style, r)
 				if j > 0 {
 					p, _ := utf8.DecodeLastRuneInString(sp.text[:j])
 					x += sp.Face.Kern(p, r)
@@ -426,7 +451,7 @@ func drawLine(t *Text, l *line, img draw.Image) {
 				dr, mask, maskp, _, _ = sp.Face.Glyph(pt, unicode.ReplacementChar)
 			}
 			draw.DrawMask(img, dr, fg, image.ZP, mask, maskp, draw.Over)
-			x += advance(&sp.Style, r)
+			x += advance(sp.Style, r)
 		}
 	}
 }
