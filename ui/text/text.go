@@ -81,19 +81,18 @@ type Setter struct {
 	// that have been released to the Setter.
 	// The next Set will try to re-use their rendered Buffers.
 	reuseLines []*line
-
-	// ReuseText is a byte buffer released to the Setter.
-	// It will be re-used as text after the next call to Set.
+	// ReuseText is the text that goes along with reuseLines.
+	// After reuseLines have been used, the text can be freed.
 	reuseText []byte
-
-	// FreeSpans is a freelist of allocated spans.
-	freeSpans []*span
 
 	// Styles is an intern table of styles.
 	// This lets the Texts returned by Setter
 	// use internal copies of the given Styles,
 	// while avoiding extra allocation.
 	styles []*Style
+
+	freeSpans []*span
+	freeLines []*line
 }
 
 type line struct {
@@ -160,9 +159,8 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 
 	styCopy := s.internStyle(sty)
 
-	m := s.opts.DefaultStyle.Face.Metrics()
 	if len(s.lines) == 0 {
-		s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
+		s.lines = append(s.lines, s.newLine())
 	}
 	for len(text) > 0 {
 		if h > ymax {
@@ -172,9 +170,25 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 		text = add1(s, styCopy, text)
 		if len(text) > 0 {
 			h += s.lines[len(s.lines)-1].h
-			s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
+			s.lines = append(s.lines, s.newLine())
 		}
 	}
+}
+
+func (s *Setter) newLine() *line {
+	var l *line
+	if n := len(s.freeLines); n == 0 {
+		l = new(line)
+	} else {
+		l, s.freeLines = s.freeLines[n-1], s.freeLines[:n-1]
+	}
+	m := s.opts.DefaultStyle.Face.Metrics()
+	l.w = 0
+	l.h = m.Height
+	l.a = m.Ascent
+	l.spans = nil
+	l.buf = nil
+	return l
 }
 
 // InternStyle returns a copy of the style from the intern table.
@@ -320,10 +334,10 @@ func (s *Setter) Set() *Text {
 			l.buf = nil
 		}
 	}
-	s.lines = s.reuseLines[:0]
-	s.text = s.reuseText[:0]
+	s.lines = nil
+	s.freeLines = append(s.freeLines, s.reuseLines...)
 	s.reuseLines = nil
-	s.reuseText = nil
+	s.text = s.reuseText[:0]
 	return t
 }
 
@@ -349,7 +363,7 @@ func (t *Text) Size() image.Point { return t.size }
 // then call Setter.Release.
 func (t *Text) Release() {
 	t.setter.reuseLines = append(t.setter.reuseLines, t.lines...)
-	t.setter.reuseText = t.text[:0]
+	t.setter.reuseText = t.text
 	t.lines = nil
 	t.text = nil
 }
