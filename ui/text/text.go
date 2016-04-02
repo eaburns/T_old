@@ -385,7 +385,7 @@ func (l *line) len() int {
 // Draw draws the text to the Window.
 func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
 	b := image.Rectangle{Min: at, Max: at.Add(t.size)}
-	win.Fill(b, t.setter.opts.DefaultStyle.BG, draw.Over)
+	win.Fill(b, t.setter.opts.DefaultStyle.BG, draw.Src)
 
 	pad := t.setter.opts.Padding
 	textWidth := b.Dx() - 2*pad
@@ -421,7 +421,7 @@ func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
 			if len(l.spans) > 0 {
 				bg = l.spans[len(l.spans)-1].BG
 			}
-			win.Fill(image.Rect(x0+dx, y, b.Max.X-pad, y1), bg, draw.Over)
+			win.Fill(image.Rect(x0+dx, y, b.Max.X-pad, y1), bg, draw.Src)
 		}
 	}
 }
@@ -431,7 +431,7 @@ func drawLine(t *Text, l *line, img draw.Image) {
 		fg := image.NewUniform(sp.FG)
 		bg := image.NewUniform(sp.BG)
 		box := image.Rect(int(sp.x0>>6), 0, int(sp.x1>>6), int(l.h>>6))
-		draw.Draw(img, box, bg, image.ZP, draw.Over)
+		draw.Draw(img, box, bg, image.ZP, draw.Src)
 		x := sp.x0
 		for i, r := range sp.text {
 			if r == '\t' {

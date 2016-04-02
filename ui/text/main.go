@@ -80,7 +80,7 @@ func main() { driver.Main(Main) }
 
 // Main is the logical main function, the real main function is hijacked by shiny.
 func Main(scr screen.Screen) {
-	defer profile.Start(profile.MemProfile).Stop()
+	defer profile.Start(profile.CPUProfile).Stop()
 
 	width, height := 300, 300
 	win, err := scr.NewWindow(&screen.NewWindowOptions{
@@ -171,7 +171,7 @@ func Main(scr screen.Screen) {
 			txt = resetText(setter, txt, a0, a1)
 
 		case paint.Event:
-			win.Fill(image.Rect(0, 0, sz.X, sz.Y), image.White, draw.Over)
+			win.Fill(image.Rect(0, 0, sz.X, sz.Y), image.White, draw.Src)
 			txt.Draw(at, scr, win)
 			win.Publish()
 		}
