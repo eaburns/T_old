@@ -70,6 +70,7 @@ type Options struct {
 type Setter struct {
 	opts              Options
 	lines, reuseLines []*line
+	freeSpans         []*span
 }
 
 type line struct {
@@ -95,11 +96,15 @@ func (s *Setter) Release() {
 		if l.buf != nil {
 			l.buf.Release()
 		}
+		s.freeSpans = append(s.freeSpans, l.spans...)
 	}
 }
 
 // Reset clears any added lines, and resets the setter with new Options.
 func (s *Setter) Reset(opts Options) {
+	for _, l := range s.lines {
+		s.freeSpans = append(s.freeSpans, l.spans...)
+	}
 	s.lines = s.lines[:0]
 	s.opts = opts
 }
@@ -154,7 +159,7 @@ func add1(s *Setter, sty *Style, text []byte) []byte {
 			}
 		}
 	}
-	sp := &span{Style: *sty, x0: x0, x1: x0}
+	sp := s.newSpan(sty, "", x0, x0)
 	var start, i int
 	for i < len(text) {
 		r, w := utf8.DecodeRune(text[i:])
@@ -192,6 +197,20 @@ func add1(s *Setter, sty *Style, text []byte) []byte {
 	return text[i:]
 }
 
+func (s *Setter) newSpan(sty *Style, text string, x0, x1 fixed.Int26_6) *span {
+	var sp *span
+	if n := len(s.freeSpans); n == 0 {
+		sp = new(span)
+	} else {
+		sp, s.freeSpans = s.freeSpans[n-1], s.freeSpans[:n-1]
+	}
+	sp.Style = *sty
+	sp.text = text
+	sp.x0 = x0
+	sp.x1 = x1
+	return sp
+}
+
 func advance(sty *Style, r rune) fixed.Int26_6 {
 	adv, ok := sty.Face.GlyphAdvance(r)
 	if !ok {
@@ -209,22 +228,22 @@ func advance(sty *Style, r rune) fixed.Int26_6 {
 func (s *Setter) Set() *Text {
 	var h1 int
 	for _, line := range s.lines {
-		// Find resue line with the exact same spans and reuse its buffer.
-		for _, reuseLine := range s.reuseLines {
-			if reuseLine.buf == nil || len(reuseLine.spans) != len(line.spans) {
+		// Find a reuse line with the exact same spans; reuse its buffer.
+		for _, r := range s.reuseLines {
+			if r.buf == nil || len(r.spans) != len(line.spans) {
 				continue
 			}
 			match := true
-			for i, reuseSpan := range reuseLine.spans {
+			for i, sp := range r.spans {
 				span := line.spans[i]
-				if reuseSpan.Style != span.Style || reuseSpan.text != span.text {
+				if sp.Style != span.Style || sp.text != span.text {
 					match = false
 					break
 				}
 			}
 			if match {
-				line.buf = reuseLine.buf
-				reuseLine.buf = nil
+				line.buf = r.buf
+				r.buf = nil
 				break
 			}
 		}
@@ -232,6 +251,8 @@ func (s *Setter) Set() *Text {
 	}
 	t := &Text{setter: s, lines: s.lines, size: s.opts.Size}
 	for _, l := range s.reuseLines {
+		s.freeSpans = append(s.freeSpans, l.spans...)
+		l.spans = nil
 		if l.buf != nil {
 			l.buf.Release()
 			l.buf = nil
