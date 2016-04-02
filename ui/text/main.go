@@ -173,7 +173,12 @@ func Main(scr screen.Screen) {
 			txt = resetText(setter, txt, a0, a1)
 
 		case paint.Event:
-			win.Fill(image.Rect(0, 0, sz.X, sz.Y), image.White, draw.Src)
+			bg := image.White
+			r := image.Rect(at.X, at.Y, at.X+opts.Size.X, at.Y+opts.Size.Y)
+			win.Fill(image.Rect(0, 0, sz.X, r.Min.Y), bg, draw.Src)             // top
+			win.Fill(image.Rect(0, r.Max.Y, sz.X, sz.Y), bg, draw.Src)          // bottom
+			win.Fill(image.Rect(0, r.Min.Y, r.Min.X, r.Max.Y), bg, draw.Src)    // left
+			win.Fill(image.Rect(r.Min.X, r.Min.Y, sz.X, r.Max.Y), bg, draw.Src) // right
 			txt.Draw(at, scr, win)
 			win.Publish()
 		}
