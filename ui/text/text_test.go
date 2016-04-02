@@ -145,7 +145,7 @@ func TestAddVerticalMetrics(t *testing.T) {
 	}
 	opts := Options{
 		DefaultStyle: medium,
-		Size:         image.Pt(5, 5),
+		Size:         image.Pt(5, 100000),
 	}
 	s := NewSetter(opts)
 
