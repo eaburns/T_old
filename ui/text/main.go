@@ -16,8 +16,9 @@ import (
 	"runtime"
 	"unicode/utf8"
 
-	"github.com/davecheney/profile"
 	"github.com/eaburns/T/ui/text"
+	"github.com/golang/freetype/truetype"
+	"github.com/pkg/profile"
 	"golang.org/x/exp/shiny/driver"
 	"golang.org/x/exp/shiny/screen"
 	"golang.org/x/image/font"
@@ -52,6 +53,26 @@ var (
 )
 
 func loadFace() font.Face {
+	file := path.Join(os.Getenv("HOME"), ".fonts", "Roboto-Regular.ttf")
+	f, err := os.Open(file)
+	if err != nil {
+		return loadPlan9Face()
+	}
+	data, err := ioutil.ReadAll(f)
+	if err != nil {
+		return loadPlan9Face()
+	}
+	ttf, err := truetype.Parse(data)
+	if err != nil {
+		return loadPlan9Face()
+	}
+	return truetype.NewFace(ttf, &truetype.Options{
+		Size: 11, // pt
+		DPI:  96,
+	})
+}
+
+func loadPlan9Face() font.Face {
 	dir := path.Join(os.Getenv("PLAN9"), "font/lucsans")
 	file := path.Join(dir, "unicode.8.font")
 	f, err := os.Open(file)
@@ -80,7 +101,7 @@ func main() { driver.Main(Main) }
 
 // Main is the logical main function, the real main function is hijacked by shiny.
 func Main(scr screen.Screen) {
-	defer profile.Start(profile.CPUProfile).Stop()
+	defer profile.Start(profile.MemProfile).Stop()
 
 	width, height := 300, 300
 	win, err := scr.NewWindow(&screen.NewWindowOptions{

@@ -179,9 +179,14 @@ func add1(s *Setter, sty *Style, text []byte) []byte {
 			adv = s.tab(sp.x1) - sp.x1
 		}
 		if r == '\n' || sp.x1+adv > width {
-			// Always add newline or non-fitting tabs to the end of the line.
-			// If the line is empty and the first rune doesn't fit, add it anyway.
-			if r == '\n' || r == '\t' || len(l.spans) == 0 && i == 0 {
+			// Always add newline or non-fitting tabs to the end of the line,
+			// but ignore their width.
+			if r == '\n' || r == '\t' {
+				i += w
+			}
+			// If the line is empty and the first rune doesn't fit, add it anyway,
+			// and bump the line width up so it's too wide to draw.
+			if len(l.spans) == 0 && i == 0 {
 				i += w
 				sp.x1 += adv
 			}
@@ -364,9 +369,13 @@ func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
 			drawLine(t, l, l.buf.RGBA())
 		}
 		var dx int
-		if l.buf != nil && l.buf.Bounds().Dx() <= textWidth {
-			dx = l.buf.Bounds().Dx()
-			win.Upload(image.Pt(x, y), l.buf, l.buf.Bounds())
+		if l.buf != nil && l.w <= fixed.I(textWidth) {
+			b := l.buf.Bounds()
+			if b.Dx() > textWidth {
+				b.Max.X = b.Min.X + textWidth
+			}
+			dx = b.Dx()
+			win.Upload(image.Pt(x, y), l.buf, b)
 		}
 		if dx < textWidth {
 			lineBG := bg
