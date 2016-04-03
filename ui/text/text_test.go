@@ -16,7 +16,7 @@ import (
 func TestAdd(t *testing.T) {
 	opts := Options{
 		DefaultStyle: Style{Face: &unitFace{}},
-		Bounds:       image.Rect(0, 0, 5, 5),
+		Size:         image.Pt(5, 5),
 		TabWidth:     2,
 	}
 
@@ -87,7 +87,7 @@ func TestAdd(t *testing.T) {
 					' ': fixed.I(2),
 					'a': fixed.I(1),
 				}),
-				Bounds:   image.Rect(0, 0, 5, 5),
+				Size:     image.Pt(5, 5),
 				TabWidth: 1,
 			},
 			// Would tab to 1→2, but that is less than 2, so go ahead to 3.
@@ -100,7 +100,7 @@ func TestAdd(t *testing.T) {
 				DefaultStyle: advStyle(map[rune]fixed.Int26_6{
 					unicode.ReplacementChar: fixed.I(1),
 				}),
-				Bounds: image.Rect(0, 0, 5, 5),
+				Size: image.Pt(5, 5),
 			},
 			// Would tab to 1→2, but that is less than 2, so go ahead to 3.
 			adds: []string{"1234567890"},
@@ -145,7 +145,7 @@ func TestAddVerticalMetrics(t *testing.T) {
 	}
 	opts := Options{
 		DefaultStyle: medium,
-		Bounds:       image.Rect(0, 0, 5, 5),
+		Size:         image.Pt(5, 100000),
 	}
 	s := NewSetter(opts)
 
@@ -179,14 +179,14 @@ func TestAddVerticalMetrics(t *testing.T) {
 func TestReset(t *testing.T) {
 	s := NewSetter(Options{
 		DefaultStyle: Style{Face: &unitFace{}},
-		Bounds:       image.Rect(0, 0, 5, 5),
+		Size:         image.Pt(5, 5),
 	})
 
 	s.Add([]byte("1234567890abcde"))
 
 	s.Reset(Options{
 		DefaultStyle: Style{Face: &unitFace{}},
-		Bounds:       image.Rect(0, 0, 10, 5),
+		Size:         image.Pt(10, 5),
 	})
 
 	s.Add([]byte("1234567890abcde"))
@@ -216,7 +216,7 @@ func TestTextIndex(t *testing.T) {
 				},
 				height: fixed.I(10),
 			}},
-		Bounds:   image.Rect(0, 0, 50, 50),
+		Size:     image.Pt(50, 50),
 		Padding:  10,
 		TabWidth: 1,
 	})

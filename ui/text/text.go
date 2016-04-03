@@ -47,12 +47,8 @@ type Style struct {
 
 // Options control text layout by a setter.
 type Options struct {
-	// Bounds defines the rectangle into which the setter will set text.
-	// Text returned by the Set method
-	// will be no wider than Bounds.Dx(),
-	// will be no taller than Bounds.Dy(),
-	// and will draw to the window at offset Bounds.Min.
-	Bounds image.Rectangle
+	// Size is the size of the Text returned by Set.
+	Size image.Point
 
 	// DefaultStyle dictates
 	// the default background color of text,
@@ -127,13 +123,25 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 	if len(text) == 0 {
 		return
 	}
+
+	ymax := fixed.I(s.opts.Size.Y)
+	var h fixed.Int26_6
+	for _, l := range s.lines {
+		h += l.h
+	}
+
 	m := s.opts.DefaultStyle.Face.Metrics()
 	if len(s.lines) == 0 {
 		s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
 	}
 	for len(text) > 0 {
+		if h > ymax {
+			// Tall enough.
+			return
+		}
 		text = add1(s, sty, text)
 		if len(text) > 0 {
+			h += s.lines[len(s.lines)-1].h
 			s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
 		}
 	}
@@ -142,7 +150,7 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 func add1(s *Setter, sty *Style, text []byte) []byte {
 	l := s.lines[len(s.lines)-1]
 	var x0 fixed.Int26_6
-	width := fixed.I(s.opts.Bounds.Dx() - 2*s.opts.Padding)
+	width := fixed.I(s.opts.Size.X - 2*s.opts.Padding)
 	if len(l.spans) > 0 && len(l.spans[len(l.spans)-1].text) > 0 {
 		lastSpan := l.spans[len(l.spans)-1]
 		lastText := lastSpan.text
@@ -171,9 +179,14 @@ func add1(s *Setter, sty *Style, text []byte) []byte {
 			adv = s.tab(sp.x1) - sp.x1
 		}
 		if r == '\n' || sp.x1+adv > width {
-			// Always add newline or non-fitting tabs to the end of the line.
-			// If the line is empty and the first rune doesn't fit, add it anyway.
-			if r == '\n' || r == '\t' || len(l.spans) == 0 && i == 0 {
+			// Always add newline or non-fitting tabs to the end of the line,
+			// but ignore their width.
+			if r == '\n' || r == '\t' {
+				i += w
+			}
+			// If the line is empty and the first rune doesn't fit, add it anyway,
+			// and bump the line width up so it's too wide to draw.
+			if len(l.spans) == 0 && i == 0 {
 				i += w
 				sp.x1 += adv
 			}
@@ -234,15 +247,15 @@ func (s *Setter) Set() *Text {
 		}
 		h1 += int(line.h >> 6)
 	}
-	t := &Text{setter: s, lines: s.lines}
+	t := &Text{setter: s, lines: s.lines, size: s.opts.Size}
 	for _, l := range s.reuseLines {
 		if l.buf != nil {
 			l.buf.Release()
 			l.buf = nil
 		}
 	}
-	s.reuseLines = nil
 	s.lines = s.reuseLines[:0]
+	s.reuseLines = nil
 	return t
 }
 
@@ -250,7 +263,11 @@ func (s *Setter) Set() *Text {
 type Text struct {
 	setter *Setter
 	lines  []*line
+	size   image.Point
 }
+
+// Size returns the size of the Text.
+func (t *Text) Size() image.Point { return t.size }
 
 // Release releases the rasterized lines of the Text
 // back to the Setter that created it
@@ -268,9 +285,12 @@ func (t *Text) Release() {
 
 // Index returns the byte index into the text
 // corresponding to the glyph at the given point.
+// 0,0 is the top left of the text.
 func (t *Text) Index(p image.Point) int {
-	y := fixed.I(t.setter.opts.Bounds.Min.Y + t.setter.opts.Padding)
-	if len(t.lines) == 0 || fixed.I(p.Y) < y {
+	px, py := fixed.I(p.X), fixed.I(p.Y)
+	pad := t.setter.opts.Padding
+	y := fixed.I(pad)
+	if len(t.lines) == 0 || py < y {
 		return 0
 	}
 
@@ -278,7 +298,7 @@ func (t *Text) Index(p image.Point) int {
 	for l = 0; l < len(t.lines); l++ {
 		line := t.lines[l]
 		y += line.h
-		if y > fixed.I(p.Y) {
+		if y > py {
 			break
 		}
 		i += line.len()
@@ -290,7 +310,7 @@ func (t *Text) Index(p image.Point) int {
 	var w int
 	line := t.lines[l]
 	for _, sp := range line.spans {
-		x := sp.x0 + fixed.I(t.setter.opts.Padding)
+		x := sp.x0 + fixed.I(pad)
 		var j int
 		for j < len(sp.text) {
 			var r rune
@@ -304,7 +324,7 @@ func (t *Text) Index(p image.Point) int {
 					x += sp.Face.Kern(p, r)
 				}
 			}
-			if x > fixed.I(p.X-t.setter.opts.Bounds.Min.X) {
+			if x > px {
 				return i
 			}
 			j += w
@@ -324,18 +344,19 @@ func (l *line) len() int {
 }
 
 // Draw draws the text to the Window.
-func (t *Text) Draw(scr screen.Screen, win screen.Window) {
-	b := t.setter.opts.Bounds
-	win.Fill(b, t.setter.opts.DefaultStyle.BG, draw.Over)
-
+func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
 	pad := t.setter.opts.Padding
-	textWidth := b.Dx() - 2*pad
+	bg := t.setter.opts.DefaultStyle.BG
+	x0, y0, x1, y1 := at.X, at.Y, at.X+t.size.X, at.Y+t.size.Y
+
 	var y int
-	x0, y1 := b.Min.X+pad, b.Min.Y+pad
+	x, ynext := at.X+pad, at.Y+pad
+	textWidth := (x1 - x0) - 2*pad
 	for _, l := range t.lines {
-		y = y1
-		y1 = y + int(l.h>>6)
-		if y1 > b.Max.Y-pad {
+		y = ynext
+		ynext = y + int(l.h>>6)
+		if ynext > y1-pad {
+			ynext = y
 			break
 		}
 		if l.buf == nil && int(l.w>>6) > 0 {
@@ -347,24 +368,30 @@ func (t *Text) Draw(scr screen.Screen, win screen.Window) {
 			}
 			drawLine(t, l, l.buf.RGBA())
 		}
-		if l.buf == nil {
-			continue
-		}
-
-		if l.buf.Bounds().Dx() > textWidth {
-			// The line doesn't fit the width, don't draw it.
-			continue
-		}
-
-		win.Upload(image.Pt(x0, y), l.buf, l.buf.Bounds())
-		if dx := l.buf.Bounds().Dx(); dx < textWidth {
-			bg := t.setter.opts.DefaultStyle.BG
-			if len(l.spans) > 0 {
-				bg = l.spans[len(l.spans)-1].BG
+		var dx int
+		if l.buf != nil && l.w <= fixed.I(textWidth) {
+			b := l.buf.Bounds()
+			if b.Dx() > textWidth {
+				b.Max.X = b.Min.X + textWidth
 			}
-			win.Fill(image.Rect(x0+dx, y, b.Max.X-pad, y1), bg, draw.Over)
+			dx = b.Dx()
+			win.Upload(image.Pt(x, y), l.buf, b)
+		}
+		if dx < textWidth {
+			lineBG := bg
+			if len(l.spans) > 0 {
+				lineBG = l.spans[len(l.spans)-1].BG
+			}
+			win.Fill(image.Rect(x+dx, y, x1-pad, y1), lineBG, draw.Src)
 		}
 	}
+	if ynext < y1 {
+		win.Fill(image.Rect(x0+pad, ynext, x1-pad, y1), bg, draw.Src)
+	}
+	win.Fill(image.Rect(x0, y0, x1, y0+pad), bg, draw.Src)         // top
+	win.Fill(image.Rect(x0, y1-pad, x1, y1), bg, draw.Src)         // bottom
+	win.Fill(image.Rect(x0, y0+pad, x0+pad, y1-pad), bg, draw.Src) // left
+	win.Fill(image.Rect(x1-pad, y0+pad, x1, y1-pad), bg, draw.Src) // right
 }
 
 func drawLine(t *Text, l *line, img draw.Image) {
@@ -372,7 +399,7 @@ func drawLine(t *Text, l *line, img draw.Image) {
 		fg := image.NewUniform(sp.FG)
 		bg := image.NewUniform(sp.BG)
 		box := image.Rect(int(sp.x0>>6), 0, int(sp.x1>>6), int(l.h>>6))
-		draw.Draw(img, box, bg, image.ZP, draw.Over)
+		draw.Draw(img, box, bg, image.ZP, draw.Src)
 		x := sp.x0
 		for i, r := range sp.text {
 			if r == '\t' {
