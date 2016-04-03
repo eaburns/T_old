@@ -106,6 +106,26 @@ func TestAdd(t *testing.T) {
 			adds: []string{"1234567890"},
 			want: "[12345][67890]",
 		},
+		{
+			name: "stop adding when max height is exceeded",
+			opts: Options{
+				DefaultStyle: Style{Face: &unitFace{}},
+				Size:         image.Pt(1, 2),
+				TabWidth:     2,
+			},
+			adds: []string{"12345", "67890"},
+			want: "[1][2][3]",
+		},
+		{
+			name: "add to empty line doesn't fit",
+			opts: Options{
+				DefaultStyle: Style{Face: &unitFace{}},
+				Size:         image.Pt(0, 10),
+				TabWidth:     2,
+			},
+			adds: []string{"12345"},
+			want: "[1][2][3][4][5]",
+		},
 	}
 
 	for _, test := range tests {

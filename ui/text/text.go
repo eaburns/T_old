@@ -129,19 +129,21 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 	for _, l := range s.lines {
 		h += l.h
 	}
+	if h > ymax {
+		return
+	}
 
 	m := s.opts.DefaultStyle.Face.Metrics()
 	if len(s.lines) == 0 {
 		s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
 	}
 	for len(text) > 0 {
-		if h > ymax {
-			// Tall enough.
-			return
-		}
 		text = add1(s, sty, text)
 		if len(text) > 0 {
 			h += s.lines[len(s.lines)-1].h
+			if h > ymax {
+				break
+			}
 			s.lines = append(s.lines, &line{h: m.Height, a: m.Ascent})
 		}
 	}
