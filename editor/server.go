@@ -65,8 +65,8 @@ func (s *Server) Close() error {
 	return nil
 }
 
-// RegisterHandlers registeres handlers for the following paths and methods:
-//  /buffers is the list of opened buffers
+// RegisterHandlers registers handlers for the following paths and methods:
+//  /buffers is the list of opened buffers.
 //
 // 	GET returns a Buffer list of the opened buffers.
 // 	Returns:
