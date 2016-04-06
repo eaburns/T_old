@@ -411,10 +411,6 @@ type column struct {
 	image.Rectangle
 	frames []frame
 	ys     []float64
-
-	p      image.Point
-	button mouse.Button
-	origX  float64
 }
 
 // NewColumn returns a new column, with a body, but no window or bounds.
