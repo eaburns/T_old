@@ -15,6 +15,7 @@ import (
 
 	"github.com/eaburns/T/ui"
 	"github.com/gorilla/mux"
+	"github.com/pkg/profile"
 	"golang.org/x/exp/shiny/driver"
 	"golang.org/x/exp/shiny/screen"
 )
@@ -25,9 +26,13 @@ func main() { driver.Main(Main) }
 
 // Main is the logical main function, called by the shiny driver.
 func Main(scr screen.Screen) {
+	profiler := profile.Start(profile.CPUProfile)
 	r := mux.NewRouter()
 	s := ui.NewServer(scr)
-	s.SetDoneHandler(func() { os.Exit(0) })
+	s.SetDoneHandler(func() {
+		profiler.Stop()
+		os.Exit(0)
+	})
 	s.RegisterHandlers(r)
 	baseURL, err := url.Parse(httptest.NewServer(r).URL)
 	if err != nil {
