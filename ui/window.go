@@ -95,15 +95,17 @@ func (w *window) events() {
 		}
 	}()
 
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
+	const drawTime = 33 * time.Millisecond
+	timer := time.NewTimer(drawTime)
+	defer timer.Stop()
 
 	var click int
 	var redraw bool
 	for {
 		select {
-		case <-ticker.C:
+		case <-timer.C:
 			if !redraw {
+				timer.Reset(drawTime)
 				break
 			}
 			w.draw(w.server.screen, w.Window)
@@ -111,6 +113,7 @@ func (w *window) events() {
 				w.inFocus.drawLast(w.server.screen, w.Window)
 			}
 			w.Publish()
+			timer.Reset(drawTime)
 			redraw = false
 
 		case e, ok := <-events:
