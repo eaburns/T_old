@@ -288,7 +288,7 @@ func lineForward(n int, from int64, text Text) (Span, error) {
 		// If s1 is already at the beginning of a full line, we've got it.
 		// Start by going back 1 rune.
 		_, w, err := text.RuneReader(Span{from, 0}).ReadRune()
-		if err != nil {
+		if err != nil && err != io.EOF {
 			return Span{}, err
 		}
 		s[1] -= int64(w)
@@ -301,10 +301,6 @@ func lineForward(n int, from int64, text Text) (Span, error) {
 			case err == io.EOF:
 				break loop
 			case r == '\n':
-				_, w, err := rr.ReadRune()
-				if err != nil {
-					return Span{}, err
-				}
 				s[1] += int64(w)
 				break loop
 			default:
@@ -319,7 +315,11 @@ func lineForward(n int, from int64, text Text) (Span, error) {
 	rr := text.RuneReader(Span{s[1], text.Size()})
 	for n > 0 && s[1] < text.Size() {
 		r, w, err := rr.ReadRune()
-		if err != nil { // The error can't be EOF; s[1] < text.Size().
+		if err != nil {
+			// The error can't be EOF; s[1] < text.Size().
+			if err == io.EOF {
+				panic(err)
+			}
 			return Span{}, err
 		}
 		s[1] += int64(w)

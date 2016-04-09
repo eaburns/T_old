@@ -635,9 +635,9 @@ var lineTests = []editTest{
 	},
 	{
 		name:  "plus line to EOF",
-		given: "abc\n{..}abc",
+		given: "abc\n{..}αβξ",
 		do:    address(Dot.Plus(Line(1))),
-		want:  "abc\n{..a}abc{a}",
+		want:  "abc\n{..a}αβξ{a}",
 	},
 	{
 		name:  "plus line minus rune",
@@ -1538,6 +1538,31 @@ var clampTests = []editTest{
 		given: "12{..}34",
 		do:    address(Clamp(Rune(5)).Between(Rune(4))),
 		want:  "12{..}34{aa}",
+	},
+
+	{
+		name:  "$ plus clamp line",
+		given: "1\n2\n3\n",
+		do:    address(End.Plus(Clamp(Line(1)))),
+		want:  "1\n2\n3\n{aa}",
+	},
+	{
+		name:  "#0 minus clamp line",
+		given: "1\n2\n3\n",
+		do:    address(Rune(0).Minus(Clamp(Line(1)))),
+		want:  "{aa}1\n2\n3\n",
+	},
+	{
+		name:  "$ plus clamp rune",
+		given: "1\n2\n3\n",
+		do:    address(End.Plus(Clamp(Rune(1)))),
+		want:  "1\n2\n3\n{aa}",
+	},
+	{
+		name:  "#0 minus clamp rune",
+		given: "1\n2\n3\n",
+		do:    address(Rune(0).Minus(Clamp(Rune(1)))),
+		want:  "{aa}1\n2\n3\n",
 	},
 }
 
