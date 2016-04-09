@@ -1,3 +1,5 @@
+// Copyright © 2016, The T Authors.
+
 package editor
 
 import (
