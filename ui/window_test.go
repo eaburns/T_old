@@ -92,9 +92,16 @@ func TestDeleteFrame(t *testing.T) {
 	sheet0 := w.columns[0].frames[1].(*sheet)
 	sheet1 := w.columns[0].frames[2].(*sheet)
 
+	// Read the center points before we delete anything.
+	// Otherwise there is a race between the deleting (which is async),
+	// and reading the bounds.
+	column0pt := center(column0)
+	sheet0pt := center(sheet0)
+	sheet1pt := center(sheet1)
+
 	// Delete sheet1
-	mouseTo(w, center(sheet1))
-	shiftClick(w, center(sheet1), mouse.ButtonMiddle)
+	mouseTo(w, sheet1pt)
+	shiftClick(w, sheet1pt, mouse.ButtonMiddle)
 	wait(w)
 	// Even after waiting, sheets are deleted from the window asynchronously.
 	// But they are deleted from the server right away, so we check that.
@@ -103,16 +110,16 @@ func TestDeleteFrame(t *testing.T) {
 	}
 
 	// Delete sheet0
-	mouseTo(w, center(sheet0))
-	shiftClick(w, center(sheet0), mouse.ButtonMiddle)
+	mouseTo(w, sheet0pt)
+	shiftClick(w, sheet0pt, mouse.ButtonMiddle)
 	wait(w)
 	if _, ok := s.uiServer.sheets[sheet0.id]; ok {
 		t.Errorf("sheet0 not deleted")
 	}
 
 	// Delete column0
-	mouseTo(w, center(column0))
-	shiftClick(w, center(column0), mouse.ButtonMiddle)
+	mouseTo(w, column0pt)
+	shiftClick(w, column0pt, mouse.ButtonMiddle)
 	wait(w)
 	if len(w.columns) != 2 {
 		t.Errorf("len(w.columns)=%d, want 2", len(w.columns))
@@ -127,8 +134,10 @@ func TestDelete_LastColumn(t *testing.T) {
 		tag := c.frames[0]
 		mouseTo(w, center(tag))
 		shiftClick(w, center(tag), mouse.ButtonMiddle)
+		// Wait before we read the next tag
+		// or before we drop out and read the number of columns.
+		wait(w)
 	}
-	wait(w)
 	if len(w.columns) != 1 {
 		t.Errorf("len(w.columns)=%d, want 1", len(w.columns))
 	}
