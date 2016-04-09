@@ -162,7 +162,13 @@ func (s *Server) RegisterHandlers(r *mux.Router) {
 
 // respond JSON encodes resp to w, and sends an Internal Server Error on failure.
 func respond(w http.ResponseWriter, resp interface{}) {
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	body, err := json.Marshal(resp)
+	if err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		_, err = w.Write(body)
+	}
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -249,7 +255,7 @@ func (s *Server) changes(w http.ResponseWriter, req *http.Request) {
 	}
 	buf.Lock()
 	s.Unlock()
-	changes := make(chan []ChangeList)
+	changes := make(chan []ChangeList, 1)
 	buf.watchers = append(buf.watchers, changes)
 	buf.Unlock()
 
