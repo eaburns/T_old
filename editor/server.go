@@ -249,7 +249,7 @@ func (s *Server) changes(w http.ResponseWriter, req *http.Request) {
 	}
 	buf.Lock()
 	s.Unlock()
-	changes := make(chan []ChangeList)
+	changes := make(chan []ChangeList, 1)
 	buf.watchers = append(buf.watchers, changes)
 	buf.Unlock()
 
