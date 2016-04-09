@@ -86,15 +86,8 @@ type ChangeStream struct {
 // The ChangeStream should not be used after being closed.
 func (s *ChangeStream) Close() error {
 	dl := time.Now().Add(wsTimeout)
-	if err := s.conn.WriteControl(websocket.CloseMessage, nil, dl); err == nil {
-		// Make a best-effort attempt to wait for the close response.
-		for {
-			code, _, err := s.conn.ReadMessage()
-			if err != nil || code == websocket.CloseMessage {
-				break
-			}
-		}
-	}
+	s.conn.WriteControl(websocket.CloseMessage, nil, dl)
+	// TODO(eaburns): Read the close response before dropping the connection.
 	return s.conn.Close()
 }
 
