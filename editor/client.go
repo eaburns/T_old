@@ -10,10 +10,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/eaburns/T/edit"
-	"github.com/gorilla/websocket"
+	"github.com/eaburns/T/websocket"
 )
 
 var (
@@ -78,23 +77,19 @@ func BufferInfo(URL *url.URL) (Buffer, error) {
 }
 
 // A ChangeStream reads changes made to a buffer.
+// Methods on ChangeStream are safe for use by concurrent go routines.
 type ChangeStream struct {
 	conn *websocket.Conn
 }
 
-// Close closes the stream.
-// The ChangeStream should not be used after being closed.
-func (s *ChangeStream) Close() error {
-	dl := time.Now().Add(wsTimeout)
-	s.conn.WriteControl(websocket.CloseMessage, nil, dl)
-	// TODO(eaburns): Read the close response before dropping the connection.
-	return s.conn.Close()
-}
+// Close unblocks any calls to Next and closes the stream.
+func (s *ChangeStream) Close() error { return s.conn.Close() }
 
 // Next returns the next ChangeList from the stream.
+// Calling Next on a closed ChangeStream returns io.EOF.
 func (s *ChangeStream) Next() (ChangeList, error) {
 	var cl ChangeList
-	return cl, s.conn.ReadJSON(&cl)
+	return cl, s.conn.Recv(&cl)
 }
 
 // Changes returns a ChangeStream that reads changes made to a buffer.
@@ -102,17 +97,19 @@ func (s *ChangeStream) Next() (ChangeList, error) {
 // Note that the changes file is a websocket, and must use a ws scheme:
 // 	ws://host:port/buffer/<ID>/changes
 func Changes(URL *url.URL) (*ChangeStream, error) {
-	conn, resp, err := websocket.DefaultDialer.Dial(URL.String(), make(http.Header))
-	switch {
-	case err == websocket.ErrBadHandshake:
-		if resp.StatusCode != http.StatusOK {
-			return nil, responseError(resp)
+	conn, err := websocket.Dial(URL)
+	if err != nil {
+		if isNotFoundError(err) {
+			err = ErrNotFound
 		}
-		fallthrough
-	case err != nil:
 		return nil, err
 	}
 	return &ChangeStream{conn: conn}, nil
+}
+
+func isNotFoundError(err error) bool {
+	hsErr, ok := err.(websocket.HandshakeError)
+	return ok && hsErr.StatusCode == http.StatusNotFound
 }
 
 // NewEditor does a PUT and returns an Editor from the response body.
