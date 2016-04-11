@@ -286,7 +286,9 @@ func (s *Server) changes(w http.ResponseWriter, req *http.Request) {
 		case cls := <-changes:
 			for _, cl := range cls {
 				if err := conn.Send(cl); err != nil {
-					log.Printf("Error sending to websocket: %v", err)
+					if err != websocket.ErrCloseSent {
+						log.Printf("Error sending to websocket: %v", err)
+					}
 					return
 				}
 			}

@@ -33,6 +33,9 @@ const (
 	HandshakeTimeout = 5 * time.Second
 )
 
+// ErrCloseSent is returned by Send if sending to a connection that is closing.
+var ErrCloseSent = websocket.ErrCloseSent
+
 // A HandshakeError is returned if Dial fails the handshake.
 type HandshakeError struct {
 	// Status is the string representation of the HTTP response status code.
