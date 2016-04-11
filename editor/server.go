@@ -13,11 +13,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/eaburns/T/edit"
+	"github.com/eaburns/T/websocket"
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 )
 
 // Server implements http.Handler, serving an HTTP text editor.
@@ -240,11 +239,6 @@ func (s *Server) closeBuffer(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-var upgrader = websocket.Upgrader{
-	HandshakeTimeout: wsTimeout,
-	CheckOrigin:      func(*http.Request) bool { return true },
-}
-
 func (s *Server) changes(w http.ResponseWriter, req *http.Request) {
 	s.Lock()
 	buf, ok := s.buffers[mux.Vars(req)["id"]]
@@ -273,29 +267,15 @@ func (s *Server) changes(w http.ResponseWriter, req *http.Request) {
 		buf.Unlock()
 	}()
 
-	conn, err := upgrader.Upgrade(w, req, nil)
+	conn, err := websocket.Upgrade(w, req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer func() {
-		dl := time.Now().Add(wsTimeout)
-		err := conn.WriteControl(websocket.CloseMessage, nil, dl)
-		if err != nil && err != websocket.ErrCloseSent {
-			log.Printf("error sending close to websocket: %v", err)
-		}
-		conn.Close()
-	}()
+	defer conn.Close()
 
 	done := make(chan struct{})
-	go func() {
-		for {
-			if _, _, err := conn.NextReader(); err != nil {
-				close(done)
-				return
-			}
-		}
-	}()
+	go recvUntilError(conn, done)
 
 	for {
 		select {
@@ -305,13 +285,23 @@ func (s *Server) changes(w http.ResponseWriter, req *http.Request) {
 			return
 		case cls := <-changes:
 			for _, cl := range cls {
-				conn.SetWriteDeadline(time.Now().Add(wsTimeout))
-				err := conn.WriteJSON(cl)
-				if err != nil && err != websocket.ErrCloseSent {
-					log.Printf("error sending to websocket: %v", err)
+				if err := conn.Send(cl); err != nil {
+					log.Printf("Error sending to websocket: %v", err)
 					return
 				}
 			}
+		}
+	}
+}
+
+func recvUntilError(conn *websocket.Conn, done chan<- struct{}) {
+	defer close(done)
+	for {
+		if err := conn.Recv(nil); err != nil {
+			if err != io.EOF {
+				log.Printf("Error receiving from websocket: %v", err)
+			}
+			return
 		}
 	}
 }
