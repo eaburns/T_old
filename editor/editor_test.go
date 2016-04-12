@@ -6,9 +6,6 @@ import (
 	"io/ioutil"
 	"math"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"path"
 	"reflect"
 	"sort"
 	"strconv"
@@ -18,35 +15,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/eaburns/T/edit"
-	"github.com/gorilla/mux"
+	"github.com/eaburns/T/editor/editortest"
 )
-
-type testServer struct {
-	editorServer *Server
-	httpServer   *httptest.Server
-	url          *url.URL
-}
-
-func newServer() *testServer {
-	router := mux.NewRouter()
-	editorServer := NewServer()
-	editorServer.RegisterHandlers(router)
-	httpServer := httptest.NewServer(router)
-	url, err := url.Parse(httpServer.URL)
-	if err != nil {
-		panic(err)
-	}
-	return &testServer{
-		editorServer: editorServer,
-		httpServer:   httpServer,
-		url:          url,
-	}
-}
-
-func (s *testServer) close() {
-	s.editorServer.Close()
-	s.httpServer.Close()
-}
 
 type bufferSlice []Buffer
 
@@ -60,17 +30,11 @@ func (s editorSlice) Len() int           { return len(s) }
 func (s editorSlice) Less(i, j int) bool { return s[i].ID < s[j].ID }
 func (s editorSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
-func urlWithPath(u *url.URL, elems ...string) *url.URL {
-	v := *u
-	v.Path = path.Join(elems...)
-	return &v
-}
-
 func TestBufferList(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 
 	// Empty.
 	if bufs, err := BufferList(buffersURL); err != nil || len(bufs) != 0 {
@@ -93,10 +57,10 @@ func TestBufferList(t *testing.T) {
 }
 
 func TestNewBuffer(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 
 	var bufs []Buffer
 	for i := 0; i < 3; i++ {
@@ -115,10 +79,10 @@ func TestNewBuffer(t *testing.T) {
 }
 
 func TestBufferInfo(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 
 	for i := 0; i < 3; i++ {
 		buf, err := NewBuffer(buffersURL)
@@ -126,14 +90,14 @@ func TestBufferInfo(t *testing.T) {
 			t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 		}
 
-		bufferURL := urlWithPath(s.url, buf.Path)
+		bufferURL := s.PathURL(buf.Path)
 		got, err := BufferInfo(bufferURL)
 		if err != nil || !reflect.DeepEqual(got, buf) {
 			t.Errorf("BufferInfo(%q)=%v,%v, want %v,nil", bufferURL, got, err, buf)
 		}
 	}
 
-	notFoundURL := urlWithPath(s.url, "/", "buffer", "notfound")
+	notFoundURL := s.PathURL("/", "buffer", "notfound")
 	buf, err := BufferInfo(notFoundURL)
 	if err != ErrNotFound {
 		t.Errorf("BufferInfo(%q)=%v,%v, want _,%v", notFoundURL, buf, err, ErrNotFound)
@@ -141,10 +105,10 @@ func TestBufferInfo(t *testing.T) {
 }
 
 func TestCloseBuffer(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 
 	var bufs []Buffer
 	for i := 0; i < 3; i++ {
@@ -156,7 +120,7 @@ func TestCloseBuffer(t *testing.T) {
 	}
 
 	for _, buf := range bufs {
-		bufferURL := urlWithPath(s.url, buf.Path)
+		bufferURL := s.PathURL(buf.Path)
 		if err := Close(bufferURL); err != nil {
 			t.Errorf("Close(%q)=%v, want nil", bufferURL, err)
 		}
@@ -165,24 +129,25 @@ func TestCloseBuffer(t *testing.T) {
 		t.Errorf("BufferList(%q)=%v,%v, want [],nil", buffersURL, got, err)
 	}
 
-	notFoundURL := urlWithPath(s.url, "/", "buffer", "notfound")
+	notFoundURL := s.PathURL("/", "buffer", "notfound")
 	if err := Close(notFoundURL); err != ErrNotFound {
 		t.Errorf("Close(%q)=%v, want %v", notFoundURL, err, ErrNotFound)
 	}
 }
 
 func TestCloseBuffer_ClosesEditors(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	editorServer := NewServer()
+	s := editortest.NewServer(editorServer)
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	ed, err := NewEditor(bufferURL)
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, ed, err)
@@ -192,22 +157,22 @@ func TestCloseBuffer_ClosesEditors(t *testing.T) {
 		t.Errorf("Close(%q)=%v, want nil", bufferURL, err)
 	}
 
-	if n := len(s.editorServer.editors); n != 0 {
+	if n := len(editorServer.editors); n != 0 {
 		t.Errorf("len(s.editorServer.editors)=%d, want 0", n)
 	}
 }
 
 func TestNewEditor(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	var eds []Editor
 	for i := 0; i < 3; i++ {
 		ed, err := NewEditor(bufferURL)
@@ -232,53 +197,53 @@ func TestNewEditor(t *testing.T) {
 		t.Errorf("buf.Editors=%v, want %v\n", buf.Editors, eds)
 	}
 
-	notFoundURL := urlWithPath(s.url, "/", "buffer", "notfound")
+	notFoundURL := s.PathURL("/", "buffer", "notfound")
 	if got, err := NewEditor(notFoundURL); err != ErrNotFound {
 		t.Errorf("NewEditor(%q)=%v,%v, want _,%v", notFoundURL, got, err, ErrNotFound)
 	}
 }
 
 func TestEditorInfo(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	for i := 0; i < 3; i++ {
 		ed, err := NewEditor(bufferURL)
 		if err != nil {
 			t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, ed, err)
 		}
 
-		editorURL := urlWithPath(s.url, ed.Path)
+		editorURL := s.PathURL(ed.Path)
 		got, err := EditorInfo(editorURL)
 		if err != nil || got != ed {
 			t.Errorf("EditorInfo(%q)=%v,%v, want %v,nil", editorURL, got, err, ed)
 		}
 	}
 
-	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound")
+	notFoundURL := s.PathURL("/", "editor", "notfound")
 	if got, err := EditorInfo(notFoundURL); err != ErrNotFound {
 		t.Errorf("EditorInfo(%q)=%v,%v, want _,%v", notFoundURL, got, err, ErrNotFound)
 	}
 }
 
 func TestCloseEditor(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	var eds []Editor
 	for i := 0; i < 3; i++ {
 		ed, err := NewEditor(bufferURL)
@@ -290,7 +255,7 @@ func TestCloseEditor(t *testing.T) {
 
 	sort.Sort(editorSlice(eds))
 	for i, ed := range eds {
-		editorURL := urlWithPath(s.url, ed.Path)
+		editorURL := s.PathURL(ed.Path)
 		if err := Close(editorURL); err != nil {
 			t.Errorf("Close(%q)=%v, want nil", editorURL, err)
 		}
@@ -304,23 +269,23 @@ func TestCloseEditor(t *testing.T) {
 		}
 	}
 
-	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound")
+	notFoundURL := s.PathURL("/", "editor", "notfound")
 	if err := Close(notFoundURL); err != ErrNotFound {
 		t.Errorf("Close(%q)=%v, want %v", notFoundURL, err, ErrNotFound)
 	}
 }
 
 func TestDo(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	ed, err := NewEditor(bufferURL)
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
@@ -337,7 +302,7 @@ func TestDo(t *testing.T) {
 		{Sequence: 2},
 		{Sequence: 3, Print: hi},
 	}
-	textURL := urlWithPath(s.url, ed.Path, "text")
+	textURL := s.PathURL(ed.Path, "text")
 	got, err := Do(textURL, edits...)
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", textURL, edits, got, err, want)
@@ -345,22 +310,22 @@ func TestDo(t *testing.T) {
 }
 
 func TestDo_Nothing(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	ed, err := NewEditor(bufferURL)
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
-	textURL := urlWithPath(s.url, ed.Path, "text")
+	textURL := s.PathURL(ed.Path, "text")
 	got, err := Do(textURL)
 	if err != nil || len(got) != 0 {
 		t.Errorf("Do(%q)=%v,%v, want [],nil", textURL, got, err)
@@ -368,32 +333,32 @@ func TestDo_Nothing(t *testing.T) {
 }
 
 func TestDo_NotFound(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound", "text")
+	notFoundURL := s.PathURL("/", "editor", "notfound", "text")
 	if _, err := Do(notFoundURL); err != ErrNotFound {
 		t.Errorf("Do(%q)=_,%v, want %v", notFoundURL, err, ErrNotFound)
 	}
 }
 
 func TestDo_BadRequest(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	ed, err := NewEditor(bufferURL)
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
-	textURL := urlWithPath(s.url, ed.Path, "text")
+	textURL := s.PathURL(ed.Path, "text")
 	for _, e := range []string{`not json`, `["badEdit"]`, `["c/a/b/leftover"]`} {
 		badEdit := strings.NewReader(e)
 		req, err := http.NewRequest(http.MethodPost, textURL.String(), badEdit)
@@ -409,16 +374,16 @@ func TestDo_BadRequest(t *testing.T) {
 }
 
 func TestEditorEdit_UpdateMarks(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	ed, err := NewEditor(bufferURL)
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
@@ -439,7 +404,7 @@ func TestEditorEdit_UpdateMarks(t *testing.T) {
 		{Sequence: 4, Print: "hi"},
 		{Sequence: 5, Print: "世界"},
 	}
-	textURL := urlWithPath(s.url, ed.Path, "text")
+	textURL := s.PathURL(ed.Path, "text")
 	got, err := Do(textURL, edits...)
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("Do(%q, %v...)=%v,%v, want %v,nil", textURL, edits, got, err, want)
@@ -447,28 +412,28 @@ func TestEditorEdit_UpdateMarks(t *testing.T) {
 }
 
 func TestEditorEdit_MultipleEditors(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 
 	ed0, err := NewEditor(bufferURL)
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
-	text0URL := urlWithPath(s.url, ed0.Path, "text")
+	text0URL := s.PathURL(ed0.Path, "text")
 
 	ed1, err := NewEditor(bufferURL)
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
-	text1URL := urlWithPath(s.url, ed1.Path, "text")
+	text1URL := s.PathURL(ed1.Path, "text")
 
 	const hi = "Hello, 世界!"
 	edits := []edit.Edit{
@@ -517,22 +482,22 @@ func TestReader(t *testing.T) {
 	const line1 = "Hello, World\n"
 	const hi = line1 + "☺☹\n←→\n"
 
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	ed, err := NewEditor(bufferURL)
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
-	textURL := urlWithPath(s.url, ed.Path, "text")
+	textURL := s.PathURL(ed.Path, "text")
 
 	// Empty reader.
 	r, err := Reader(textURL, nil)
@@ -592,7 +557,7 @@ func TestReader(t *testing.T) {
 	}
 
 	// Not found.
-	notFoundURL := urlWithPath(s.url, "/", "editor", "notfound", "text")
+	notFoundURL := s.PathURL("/", "editor", "notfound", "text")
 	r, err = Reader(notFoundURL, nil)
 	if err != ErrNotFound {
 		t.Errorf("Do(%q)=_,%v, want %v", notFoundURL, err, ErrNotFound)
@@ -639,22 +604,22 @@ func TestReader(t *testing.T) {
 }
 
 func TestChangeStream(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	ed, err := NewEditor(bufferURL)
 	if err != nil {
 		t.Fatalf("NewEditor(%q)=%v,%v, want _,nil", bufferURL, buf, err)
 	}
 
-	changesURL := urlWithPath(s.url, buf.Path, "changes")
+	changesURL := s.PathURL(buf.Path, "changes")
 	changesURL.Scheme = "ws"
 	var watchers [3]*ChangeStream
 	for i := range watchers {
@@ -673,7 +638,7 @@ func TestChangeStream(t *testing.T) {
 		edit.SubGlobal(edit.All, ",|!", "."),    // 3
 		edit.Delete(edit.All),                   // 4
 	}
-	textURL := urlWithPath(s.url, ed.Path, "text")
+	textURL := s.PathURL(ed.Path, "text")
 	if res, err := Do(textURL, eds...); err != nil {
 		t.Fatalf("ed.Do(%q, %v...)=%v,%v want _,nil", textURL, eds, res, err)
 	}
@@ -735,18 +700,19 @@ func TestChangeStream(t *testing.T) {
 }
 
 func TestChangeStream_Close(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	editorServer := NewServer()
+	s := editortest.NewServer(editorServer)
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	s.editorServer.buffers[buf.ID].watcherRemoved = make(chan struct{})
+	editorServer.buffers[buf.ID].watcherRemoved = make(chan struct{})
 
-	changesURL := urlWithPath(s.url, buf.Path, "changes")
+	changesURL := s.PathURL(buf.Path, "changes")
 	changesURL.Scheme = "ws"
 	changes, err := Changes(changesURL)
 	if err != nil {
@@ -761,30 +727,30 @@ func TestChangeStream_Close(t *testing.T) {
 	// and call the defer to remove the watcher.
 	// This is suboptimal, but better than nothing.
 	select {
-	case <-s.editorServer.buffers[buf.ID].watcherRemoved:
+	case <-editorServer.buffers[buf.ID].watcherRemoved:
 	case <-time.After(1 * time.Second):
 		t.Errorf("timed out waiting for watcher to close")
 	}
 }
 
 func TestChangeStream_BufferClose(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	buffersURL := urlWithPath(s.url, "/", "buffers")
+	buffersURL := s.PathURL("/", "buffers")
 	buf, err := NewBuffer(buffersURL)
 	if err != nil {
 		t.Fatalf("NewBuffer(%q)=%v,%v, want _,nil", buffersURL, buf, err)
 	}
 
-	changesURL := urlWithPath(s.url, buf.Path, "changes")
+	changesURL := s.PathURL(buf.Path, "changes")
 	changesURL.Scheme = "ws"
 	changes, err := Changes(changesURL)
 	if err != nil {
 		t.Fatalf("Changes(%q)=_,%v, want _,nil", changesURL, err)
 	}
 
-	bufferURL := urlWithPath(s.url, buf.Path)
+	bufferURL := s.PathURL(buf.Path)
 	if err := Close(bufferURL); err != nil {
 		t.Fatalf("buf.Close()=%v, want nil", err)
 	}
@@ -795,10 +761,10 @@ func TestChangeStream_BufferClose(t *testing.T) {
 }
 
 func TestChangeStream_NotFound(t *testing.T) {
-	s := newServer()
-	defer s.close()
+	s := editortest.NewServer(NewServer())
+	defer s.Close()
 
-	changesURL := urlWithPath(s.url, "buffer", "notfound", "changes")
+	changesURL := s.PathURL("buffer", "notfound", "changes")
 	changesURL.Scheme = "ws"
 	changes, err := Changes(changesURL)
 	if err != ErrNotFound {

@@ -3,7 +3,6 @@
 package view
 
 import (
-	"net/http/httptest"
 	"net/url"
 	"path"
 	"reflect"
@@ -12,7 +11,7 @@ import (
 
 	"github.com/eaburns/T/edit"
 	"github.com/eaburns/T/editor"
-	"github.com/gorilla/mux"
+	"github.com/eaburns/T/editor/editortest"
 )
 
 func TestNew(t *testing.T) {
@@ -386,24 +385,10 @@ func wait(v *View) {
 }
 
 func testBuffer() (bufferURL *url.URL, close func()) {
-	r := mux.NewRouter()
-	es := editor.NewServer()
-	es.RegisterHandlers(r)
-	hs := httptest.NewServer(r)
-	u, err := url.Parse(hs.URL)
+	s := editortest.NewServer(editor.NewServer())
+	b, err := editor.NewBuffer(s.PathURL("/", "buffers"))
 	if err != nil {
 		panic(err)
 	}
-
-	u.Path = path.Join("/", "buffers")
-	b, err := editor.NewBuffer(u)
-	if err != nil {
-		panic(err)
-	}
-
-	u.Path = b.Path
-	return u, func() {
-		es.Close()
-		hs.Close()
-	}
+	return s.PathURL(b.Path), s.Close
 }
