@@ -333,6 +333,33 @@ func TestTrackMarks(t *testing.T) {
 	}
 }
 
+// TestMaintainDot checks that, whatever we do under the hood, we don't affect dot.
+func TestMaintainDot(t *testing.T) {
+	bufferURL, close := testBuffer()
+	defer close()
+
+	v, err := New(bufferURL, 'm')
+	if err != nil {
+		t.Fatalf("New(%q, 'm')=_,%v, want _,nil", bufferURL, err)
+	}
+	defer v.Close()
+
+	v.Resize(1)
+	wait(v)
+
+	str := "Hello, 世界\n"
+	v.Do(nil, edit.Change(edit.All, str))
+	wait(v)
+
+	result := make(chan []editor.EditResult)
+	v.Do(result, edit.Print(edit.Dot))
+	wait(v)
+
+	if r := (<-result)[0]; r.Print != str {
+		t.Errorf("got %q, want %q", r.Print, str)
+	}
+}
+
 func markAddr(v *View, m rune) ([2]int64, bool) {
 	var ok bool
 	var where [2]int64
