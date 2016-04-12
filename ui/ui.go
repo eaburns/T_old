@@ -24,6 +24,14 @@ type NewColumnRequest struct {
 	X float64 `json:"x"`
 }
 
+// A NewSheetRequest requests a new sheet be created.
+type NewSheetRequest struct {
+	// URL is either the root URL of an editor
+	// on which to create a new buffer,
+	// or the URL of an already-created buffer.
+	URL string `json:"url"`
+}
+
 // A Window describes an opened window.
 type Window struct {
 	// ID is the ID of the window.

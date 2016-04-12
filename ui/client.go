@@ -63,9 +63,15 @@ func NewColumn(URL *url.URL, x float64) error {
 // NewSheet does a PUT and areturns a Sheet from the response body.
 // If the response status code is NotFound, ErrNotFound is returned.
 // The URL is expected to point to a window's sheets list.
-func NewSheet(URL *url.URL) (Sheet, error) {
+func NewSheet(uiURL *url.URL, editorOrBufferURL *url.URL) (Sheet, error) {
+	req, err := json.Marshal(NewSheetRequest{
+		URL: editorOrBufferURL.String(),
+	})
+	if err != nil {
+		return Sheet{}, err
+	}
 	var sheet Sheet
-	if err := request(URL, http.MethodPut, nil, &sheet); err != nil {
+	if err := request(uiURL, http.MethodPut, bytes.NewReader(req), &sheet); err != nil {
 		return Sheet{}, err
 	}
 	return sheet, nil

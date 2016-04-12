@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"net/url"
 	"strconv"
 	"sync"
 
@@ -41,12 +42,17 @@ type sheet struct {
 	win *window
 	image.Rectangle
 
-	// TODO(eaburns): this just mimics a tag and body, implement the real things.
-	tagOpts, bodyOpts     text.Options
-	tagSetter, bodySetter *text.Setter
-	tagText, bodyText     []byte
-	tag, body             *text.Text
-	sep                   image.Rectangle
+	// TODO(eaburns): implement a real tag.
+	tagOpts   text.Options
+	tagSetter *text.Setter
+	tagText   []byte
+	tag       *text.Text
+
+	body *textBox
+	sep  image.Rectangle
+
+	// SubFocus is either the tag, the body, or nil.
+	subFocus handler
 
 	p      image.Point
 	button mouse.Button
@@ -55,7 +61,7 @@ type sheet struct {
 	origY float64
 }
 
-func newSheet(id string, w *window) *sheet {
+func newSheet(id string, bufferURL *url.URL, w *window) (*sheet, error) {
 	lock.Lock()
 	defer lock.Unlock()
 	s := &sheet{
@@ -71,66 +77,74 @@ func newSheet(id string, w *window) *sheet {
 			Padding:  2,
 		},
 		tagText: []byte("/sheet/" + strconv.Itoa(nextColor)),
-		bodyOpts: text.Options{
-			DefaultStyle: text.Style{
-				Face: basicfont.Face7x13,
-				FG:   color.Black,
-				BG:   color.NRGBA{R: 0xFA, G: 0xF0, B: 0xE6, A: 0xFF},
-			},
-			TabWidth: 4,
-			Padding:  2,
-		},
-		bodyText: elPaso,
 	}
+
+	body, err := newTextBox(s, bufferURL, text.Style{
+		Face: basicfont.Face7x13,
+		FG:   color.Black,
+		BG:   color.NRGBA{R: 0xFA, G: 0xF0, B: 0xE6, A: 0xFF},
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.body = body
+
 	nextColor++
 	s.tagSetter = text.NewSetter(s.tagOpts)
 	s.tagSetter.Add(s.tagText)
 	s.tag = s.tagSetter.Set()
-	s.bodySetter = text.NewSetter(s.bodyOpts)
-	s.bodySetter.Add(s.bodyText)
-	s.body = s.bodySetter.Set()
-	return s
+
+	return s, nil
 }
 
-func (s *sheet) close() { s.win = nil }
+func (s *sheet) close() {
+	if s.win == nil {
+		// Already closed.
+		// This can happen if the sheet is in focus when the window is closed.
+		// The in-focus handler is closed, and so are all columns.
+		return
+	}
+	s.body.close()
+	s.tag.Release()
+	s.tagSetter.Release()
+	s.win = nil
+}
 
 func (s *sheet) bounds() image.Rectangle { return s.Rectangle }
 
 func (s *sheet) setBounds(b image.Rectangle) {
 	if s.Size() != b.Size() {
-		s.setText(b)
+		s.tagOpts.Size = image.Pt(b.Dx(), minFrameSize)
+		s.tag.Release()
+		s.tagSetter.Reset(s.tagOpts)
+		s.tagSetter.Add(s.tagText)
+		s.tag = s.tagSetter.Set()
 	}
-	s.Rectangle = b
 	s.sep = image.Rectangle{
 		Min: image.Pt(b.Min.X, b.Min.Y+minFrameSize),
 		Max: image.Pt(b.Max.X, b.Min.Y+minFrameSize+borderWidth),
 	}
-}
-
-func (s *sheet) setText(b image.Rectangle) {
-	s.tagOpts.Size = image.Pt(b.Dx(), minFrameSize)
-	s.tag.Release()
-	s.tagSetter.Reset(s.tagOpts)
-	s.tagSetter.Add(s.tagText)
-	s.tag = s.tagSetter.Set()
-
-	s.bodyOpts.Size = image.Pt(b.Dx(), b.Dy()-minFrameSize-borderWidth)
-	s.body.Release()
-	s.bodySetter.Reset(s.bodyOpts)
-	s.bodySetter.Add(s.bodyText)
-	s.body = s.bodySetter.Set()
+	s.body.setBounds(image.Rectangle{
+		Min: image.Pt(b.Min.X, s.sep.Max.Y),
+		Max: image.Pt(b.Max.X, b.Max.Y),
+	})
+	s.Rectangle = b
 }
 
 func (s *sheet) setColumn(c *column) { s.col = c }
 
-func (s *sheet) focus(p image.Point) handler { return s }
+func (s *sheet) focus(p image.Point) handler {
+	s.subFocus = nil
+	if p.In(s.body.bounds()) {
+		s.subFocus = s.body
+	}
+	return s
+}
 
 func (s *sheet) draw(scr screen.Screen, win screen.Window) {
-	p := s.Min
-	s.tag.Draw(p, scr, win)
+	s.tag.Draw(s.Min, scr, win)
 	win.Fill(s.sep, separatorColor, draw.Over)
-	p.Y += s.tag.Size().Y + s.sep.Dy()
-	s.body.Draw(p, scr, win)
+	s.body.draw(scr, win)
 }
 
 // DrawLast is called if the sheet is in focus, after the entire window has been drawn.
@@ -143,6 +157,8 @@ func (s *sheet) drawLast(scr screen.Screen, win screen.Window) {
 }
 
 func (s *sheet) key(w *window, event key.Event) bool {
+	var redraw bool
+
 	switch event.Code {
 	case key.CodeLeftShift, key.CodeRightShift:
 		if event.Direction == key.DirRelease && s.col == nil {
@@ -150,10 +166,15 @@ func (s *sheet) key(w *window, event key.Event) bool {
 			if _, c := columnAt(w, s.origX); !c.addFrame(s.origY, s) {
 				panic("can't put it back")
 			}
-			return true
+			redraw = true
 		}
 	}
-	return false
+
+	if s.subFocus != nil && s.subFocus.key(w, event) {
+		redraw = true
+	}
+
+	return redraw
 }
 
 func (s *sheet) mouse(w *window, event mouse.Event) bool {
@@ -164,7 +185,7 @@ func (s *sheet) mouse(w *window, event mouse.Event) bool {
 		if s.button == mouse.ButtonNone {
 			s.p = p
 			s.button = event.Button
-			return false
+			break
 		}
 		// A second button was pressed while the first was held.
 		// Sheets don't use chords; treat this as a release of the first.
@@ -201,7 +222,7 @@ func (s *sheet) mouse(w *window, event mouse.Event) bool {
 			}
 			return true
 		case mouse.ButtonMiddle:
-			s.col.win.server.delSheet(s.id)
+			s.win.server.delSheet(s.id)
 			return false
 		}
 
@@ -230,64 +251,9 @@ func (s *sheet) mouse(w *window, event mouse.Event) bool {
 			}
 		}
 	}
+
+	if s.subFocus != nil {
+		return s.subFocus.mouse(w, event)
+	}
 	return false
 }
-
-var elPaso = []byte(`Out in the West Texas town of El Paso
-I fell in love with a Mexican girl
-Nighttime would find me in Rosa's cantina
-Music would play and Felina would whirl
-Blacker than night were the eyes of Felina
-Wicked and evil while casting a spell
-My love was deep for this Mexican maiden
-I was in love but in vain, I could tell
-One night a wild young cowboy came in
-Wild as the West Texas wind
-Dashing and daring, a drink he was sharing
-With wicked Felina, the girl that I loved
-So in anger I
-Challenged his right for the love of this maiden
-Down went his hand for the gun that he wore
-My challenge was answered in less than a heartbeat
-The handsome young stranger lay dead on the floor
-Just for a moment I stood there in silence
-Shocked by the foul evil deed I had done
-Many thoughts raced through my mind as I stood there
-I had but one chance and that was to run
-Out through the back door of Rosa's I ran
-Out where the horses were tied
-I caught a good one, it looked like it could run
-Up on its back and away I did ride
-Just as fast as I
-Could from the West Texas town of El Paso
-Out to the badlands of New Mexico
-Back in El Paso my life would be worthless
-Everything's gone in life; nothing is left
-It's been so long since I've seen the young maiden
-My love is stronger than my fear of death
-I saddled up and away I did go
-Riding alone in the dark
-Maybe tomorrow, a bullet may find me
-Tonight nothing's worse than this pain in my heart
-And at last here I
-Am on the hill overlooking El Paso
-I can see Rosa's cantina below
-My love is strong and it pushes me onward
-Down off the hill to Felina I go
-Off to my right I see five mounted cowboys
-Off to my left ride a dozen or more
-Shouting and shooting, I can't let them catch me
-I have to make it to Rosa's back door
-Something is dreadfully wrong for I feel
-A deep burning pain in my side
-Though I am trying to stay in the saddle
-I'm getting weary, unable to ride
-But my love for
-Felina is strong and I rise where I've fallen
-Though I am weary I can't stop to rest
-I see the white puff of smoke from the rifle
-I feel the bullet go deep in my chest
-From out of nowhere Felina has found me
-Kissing my cheek as she kneels by my side
-Cradled by two loving arms that I'll die for
-One little kiss and Felina, goodbye`)

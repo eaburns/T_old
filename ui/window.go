@@ -37,6 +37,10 @@ type handler interface {
 	// DrawLast is called if the handler is in focus
 	// while the window is redrawn.
 	// It is always called after everything else on the window has been drawn.
+	//
+	// TODO(eaburns): textbox is a handler, but doesn't implement this.
+	// Instead, drawLast should be a separate interface,
+	// and only used for handlers that implement it.
 	drawLast(scr screen.Screen, win screen.Window)
 }
 
@@ -121,6 +125,7 @@ func (w *window) events() {
 				for _, c := range w.columns {
 					c.close()
 				}
+				// TODO(eaburns): Don't call this if the frame is not detached.
 				if f, ok := w.inFocus.(frame); ok {
 					f.close()
 				}
@@ -424,9 +429,11 @@ func newColumn() *column {
 }
 
 func (c *column) close() {
-	for _, f := range c.frames {
-		f.close()
-	}
+	// Closing the column is handled by closing the columnTag.
+	//
+	// TODO(eaburns): this is ugly, merge the columnTag into the column
+	// instead of making it a frame.
+	c.frames[0].close()
 }
 
 func (c *column) bounds() image.Rectangle { return c.Rectangle }
@@ -605,11 +612,17 @@ type columnTag struct {
 }
 
 func (t *columnTag) close() {
-	col := t.col
-	t.col = nil
-	if col != nil && col.win == nil {
-		col.close()
+	if t.col == nil {
+		// Already closed.
+		// This can happen if the columnTag is in focus when the window is closed.
+		// The in-focus handler is closed, and so are all columns.
+		return
 	}
+	// The columnTag is t.col.frames[0]; it's already closing, close the rest.
+	for _, f := range t.col.frames[1:] {
+		f.close()
+	}
+	t.col = nil
 }
 
 func (t *columnTag) bounds() image.Rectangle     { return t.Rectangle }
