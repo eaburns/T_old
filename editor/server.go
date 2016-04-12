@@ -52,10 +52,13 @@ func NewServer() *Server {
 
 // Close closes the server and all of its buffers.
 func (s *Server) Close() error {
+	s.Lock()
 	var errs []error
 	for _, b := range s.buffers {
 		errs = append(errs, b.close())
 	}
+	s.buffers = nil
+	s.Unlock()
 	for _, err := range errs {
 		if err != nil {
 			return err
