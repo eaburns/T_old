@@ -7,9 +7,11 @@ import (
 	"image/color"
 	"image/draw"
 	"net/url"
-	"strconv"
+	"path"
 	"sync"
 
+	"github.com/eaburns/T/edit"
+	"github.com/eaburns/T/editor"
 	"github.com/eaburns/T/ui/text"
 	"golang.org/x/exp/shiny/screen"
 	"golang.org/x/image/font/basicfont"
@@ -18,17 +20,19 @@ import (
 )
 
 var (
-	colors = []color.Color{
+	separatorColor = color.Gray16{0xAAAA}
+	tagColors      = []color.Color{
 		color.NRGBA{R: 0xE6, G: 0xF0, B: 0xFA, A: 0xFF},
 		color.NRGBA{R: 0xE6, G: 0xFA, B: 0xF0, A: 0xFF},
 		color.NRGBA{R: 0xF0, G: 0xE6, B: 0xFA, A: 0xFF},
 		color.NRGBA{R: 0xF0, G: 0xFA, B: 0xE6, A: 0xFF},
 		color.NRGBA{R: 0xFA, G: 0xE6, B: 0xF0, A: 0xFF},
 	}
-	nextColor      = 0
-	lock           sync.Mutex
-	separatorColor = color.Gray16{0xAAAA}
+	mu           sync.Mutex
+	nextTagColor = 0
 )
+
+const sheetTagText = "Get Undo Look"
 
 // A sheet is an editable view of a buffer of text.
 // Each sheet contains an editable tag and body.
@@ -42,12 +46,7 @@ type sheet struct {
 	win *window
 	image.Rectangle
 
-	// TODO(eaburns): implement a real tag.
-	tagOpts   text.Options
-	tagSetter *text.Setter
-	tagText   []byte
-	tag       *text.Text
-
+	tag  *textBox
 	body *textBox
 	sep  image.Rectangle
 
@@ -62,22 +61,34 @@ type sheet struct {
 }
 
 func newSheet(id string, bufferURL *url.URL, w *window) (*sheet, error) {
-	lock.Lock()
-	defer lock.Unlock()
-	s := &sheet{
-		id:  id,
-		win: w,
-		tagOpts: text.Options{
-			DefaultStyle: text.Style{
-				Face: basicfont.Face7x13,
-				FG:   color.Black,
-				BG:   colors[nextColor%len(colors)],
-			},
-			TabWidth: 4,
-			Padding:  2,
-		},
-		tagText: []byte("/sheet/" + strconv.Itoa(nextColor)),
+	s := &sheet{id: id, win: w}
+
+	mu.Lock()
+	tagBG := tagColors[nextTagColor%len(tagColors)]
+	nextTagColor++
+	mu.Unlock()
+
+	buffersURL := *bufferURL
+	buffersURL.Path = path.Join("/", "buffers")
+	tagBuffer, err := editor.NewBuffer(&buffersURL)
+	if err != nil {
+		return nil, err
 	}
+	tagBufferURL := *bufferURL
+	tagBufferURL.Path = tagBuffer.Path
+	tag, err := newTextBox(s, &tagBufferURL, text.Style{
+		Face: basicfont.Face7x13,
+		FG:   color.Black,
+		BG:   tagBG,
+	})
+	if err != nil {
+		editor.Close(&tagBufferURL)
+		return nil, err
+	}
+	tag.view.Do(nil,
+		edit.Change(edit.All, "/sheet/"+id+" "+sheetTagText+" "),
+		edit.Set(edit.End, '.'))
+	s.tag = tag
 
 	body, err := newTextBox(s, bufferURL, text.Style{
 		Face: basicfont.Face7x13,
@@ -85,14 +96,10 @@ func newSheet(id string, bufferURL *url.URL, w *window) (*sheet, error) {
 		BG:   color.NRGBA{R: 0xFA, G: 0xF0, B: 0xE6, A: 0xFF},
 	})
 	if err != nil {
+		tag.close()
 		return nil, err
 	}
 	s.body = body
-
-	nextColor++
-	s.tagSetter = text.NewSetter(s.tagOpts)
-	s.tagSetter.Add(s.tagText)
-	s.tag = s.tagSetter.Set()
 
 	return s, nil
 }
@@ -104,26 +111,22 @@ func (s *sheet) close() {
 		// The in-focus handler is closed, and so are all columns.
 		return
 	}
+	s.tag.close()
 	s.body.close()
-	s.tag.Release()
-	s.tagSetter.Release()
 	s.win = nil
 }
 
 func (s *sheet) bounds() image.Rectangle { return s.Rectangle }
 
 func (s *sheet) setBounds(b image.Rectangle) {
-	if s.Size() != b.Size() {
-		s.tagOpts.Size = image.Pt(b.Dx(), minFrameSize)
-		s.tag.Release()
-		s.tagSetter.Reset(s.tagOpts)
-		s.tagSetter.Add(s.tagText)
-		s.tag = s.tagSetter.Set()
-	}
 	s.sep = image.Rectangle{
 		Min: image.Pt(b.Min.X, b.Min.Y+minFrameSize),
 		Max: image.Pt(b.Max.X, b.Min.Y+minFrameSize+borderWidth),
 	}
+	s.tag.setBounds(image.Rectangle{
+		Min: image.Pt(b.Min.X, b.Min.Y),
+		Max: image.Pt(b.Max.X, s.sep.Min.Y),
+	})
 	s.body.setBounds(image.Rectangle{
 		Min: image.Pt(b.Min.X, s.sep.Max.Y),
 		Max: image.Pt(b.Max.X, b.Max.Y),
@@ -135,14 +138,16 @@ func (s *sheet) setColumn(c *column) { s.col = c }
 
 func (s *sheet) focus(p image.Point) handler {
 	s.subFocus = nil
-	if p.In(s.body.bounds()) {
+	if p.In(s.tag.bounds()) {
+		s.subFocus = s.tag
+	} else if p.In(s.body.bounds()) {
 		s.subFocus = s.body
 	}
 	return s
 }
 
 func (s *sheet) draw(scr screen.Screen, win screen.Window) {
-	s.tag.Draw(s.Min, scr, win)
+	s.tag.draw(scr, win)
 	win.Fill(s.sep, separatorColor, draw.Over)
 	s.body.draw(scr, win)
 }
@@ -158,7 +163,6 @@ func (s *sheet) drawLast(scr screen.Screen, win screen.Window) {
 
 func (s *sheet) key(w *window, event key.Event) bool {
 	var redraw bool
-
 	switch event.Code {
 	case key.CodeLeftShift, key.CodeRightShift:
 		if event.Direction == key.DirRelease && s.col == nil {
@@ -169,11 +173,9 @@ func (s *sheet) key(w *window, event key.Event) bool {
 			redraw = true
 		}
 	}
-
 	if s.subFocus != nil && s.subFocus.key(w, event) {
 		redraw = true
 	}
-
 	return redraw
 }
 
