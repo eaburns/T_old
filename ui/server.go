@@ -18,21 +18,26 @@ import (
 
 // Server is a T user interface server
 type Server struct {
-	screen  screen.Screen
-	windows map[string]*window
-	sheets  map[string]*sheet
-	nextID  int
-	done    func()
+	screen    screen.Screen
+	editorURL *url.URL
+	windows   map[string]*window
+	sheets    map[string]*sheet
+	nextID    int
+	done      func()
 	sync.RWMutex
 }
 
 // NewServer returns a new Server for the given Screen.
-func NewServer(scr screen.Screen) *Server {
+// The editorURL must be the root URL of an editor server.
+// Column and sheet tags use buffers created on this editor server.
+func NewServer(scr screen.Screen, editorURL *url.URL) *Server {
+	editorURL.Path = "/"
 	return &Server{
-		screen:  scr,
-		windows: make(map[string]*window),
-		sheets:  make(map[string]*sheet),
-		done:    func() {},
+		screen:    scr,
+		editorURL: editorURL,
+		windows:   make(map[string]*window),
+		sheets:    make(map[string]*sheet),
+		done:      func() {},
 	}
 }
 
@@ -212,8 +217,19 @@ func (s *Server) newColumn(w http.ResponseWriter, req *http.Request) {
 		http.NotFound(w, req)
 		return
 	}
-	win.Send(func() { win.addColumn(creq.X, newColumn()) })
+	errChan := make(chan error)
+	win.Send(func() {
+		c, err := newColumn(win)
+		if err == nil {
+			win.addColumn(creq.X, c)
+		}
+		errChan <- err
+	})
 	s.Unlock()
+	if err := <-errChan; err != nil {
+		// TODO(eaburns): this may be an http error, propogate it.
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) newSheet(w http.ResponseWriter, req *http.Request) {

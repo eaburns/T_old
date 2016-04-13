@@ -456,7 +456,7 @@ type testServer struct {
 func newServer(scr screen.Screen) *testServer {
 	editorServer := editortest.NewServer(editor.NewServer())
 	router := mux.NewRouter()
-	uiServer := NewServer(scr)
+	uiServer := NewServer(scr, editorServer.PathURL("/"))
 	uiServer.RegisterHandlers(router)
 	httpServer := httptest.NewServer(router)
 	url, err := url.Parse(httpServer.URL)

@@ -32,7 +32,7 @@ func Main(scr screen.Screen) {
 	es := editortest.NewServer(editor.NewServer())
 
 	r := mux.NewRouter()
-	s := ui.NewServer(scr)
+	s := ui.NewServer(scr, es.PathURL("/"))
 	s.SetDoneHandler(func() {
 		es.Close()
 		profiler.Stop()
