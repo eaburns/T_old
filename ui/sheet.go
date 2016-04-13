@@ -7,11 +7,9 @@ import (
 	"image/color"
 	"image/draw"
 	"net/url"
-	"path"
 	"sync"
 
 	"github.com/eaburns/T/edit"
-	"github.com/eaburns/T/editor"
 	"github.com/eaburns/T/ui/text"
 	"golang.org/x/exp/shiny/screen"
 	"golang.org/x/image/font/basicfont"
@@ -60,7 +58,10 @@ type sheet struct {
 	origY float64
 }
 
-func newSheet(id string, bufferURL *url.URL, w *window) (*sheet, error) {
+// NewSheet creates a new sheet.
+// URL is either the root path to an editor server,
+// or the path to an open buffer of an editor server.
+func newSheet(id string, URL *url.URL, w *window) (*sheet, error) {
 	s := &sheet{id: id, win: w}
 
 	mu.Lock()
@@ -68,21 +69,14 @@ func newSheet(id string, bufferURL *url.URL, w *window) (*sheet, error) {
 	nextTagColor++
 	mu.Unlock()
 
-	buffersURL := *bufferURL
-	buffersURL.Path = path.Join("/", "buffers")
-	tagBuffer, err := editor.NewBuffer(&buffersURL)
-	if err != nil {
-		return nil, err
-	}
-	tagBufferURL := *bufferURL
-	tagBufferURL.Path = tagBuffer.Path
-	tag, err := newTextBox(s, &tagBufferURL, text.Style{
+	editorURL := *URL
+	editorURL.Path = "/"
+	tag, err := newTextBox(s, &editorURL, text.Style{
 		Face: basicfont.Face7x13,
 		FG:   color.Black,
 		BG:   tagBG,
 	})
 	if err != nil {
-		editor.Close(&tagBufferURL)
 		return nil, err
 	}
 	tag.view.Do(nil,
@@ -90,7 +84,7 @@ func newSheet(id string, bufferURL *url.URL, w *window) (*sheet, error) {
 		edit.Set(edit.End, '.'))
 	s.tag = tag
 
-	body, err := newTextBox(s, bufferURL, text.Style{
+	body, err := newTextBox(s, URL, text.Style{
 		Face: basicfont.Face7x13,
 		FG:   color.Black,
 		BG:   color.NRGBA{R: 0xFA, G: 0xF0, B: 0xE6, A: 0xFF},

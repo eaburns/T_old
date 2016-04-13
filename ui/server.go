@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/eaburns/T/editor"
 	"github.com/gorilla/mux"
 	"golang.org/x/exp/shiny/screen"
 )
@@ -229,24 +228,6 @@ func (s *Server) newSheet(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "bad URL: "+sreq.URL, http.StatusBadRequest)
 		return
 	}
-	if URL.Path == "/" {
-		URL.Path = path.Join("/", "buffers")
-		buf, err := editor.NewBuffer(URL)
-		if err != nil {
-			// TODO(eaburns): This may be an http response error.
-			// Return that status and message, not StatusInternalServerError.
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		URL.Path = buf.Path
-	}
-	if ok, err := path.Match("/buffer/*", URL.Path); err != nil {
-		// The only error is path.ErrBadPattern. This pattern is not bad.
-		panic(err)
-	} else if !ok {
-		http.Error(w, "bad buffer path: "+URL.Path, http.StatusBadRequest)
-		return
-	}
 
 	s.Lock()
 	win, ok := s.windows[mux.Vars(req)["id"]]
@@ -259,6 +240,8 @@ func (s *Server) newSheet(w http.ResponseWriter, req *http.Request) {
 	f, err := newSheet(strconv.Itoa(s.nextID), URL, win)
 	if err != nil {
 		s.Unlock()
+		// TODO(eaburns): This may be an http response error.
+		// Return that status and message, not StatusInternalServerError.
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

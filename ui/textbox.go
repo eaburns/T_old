@@ -3,8 +3,10 @@
 package ui
 
 import (
+	"errors"
 	"image"
 	"net/url"
+	"path"
 	"sync"
 
 	"github.com/eaburns/T/edit"
@@ -31,8 +33,31 @@ type textBox struct {
 	sheet *sheet
 }
 
-func newTextBox(sheet *sheet, bufferURL *url.URL, style text.Style) (*textBox, error) {
-	v, err := view.New(bufferURL, '.')
+// NewTextBod creates a new text box.
+// URL is either the root path to an editor server,
+// or the path to an open buffer of an editor server.
+func newTextBox(sheet *sheet, URL *url.URL, style text.Style) (t *textBox, err error) {
+	if URL.Path == "/" {
+		URL.Path = path.Join("/", "buffers")
+		buf, err := editor.NewBuffer(URL)
+		if err != nil {
+			return nil, err
+		}
+		URL.Path = buf.Path
+		defer func(newBufferURL url.URL) {
+			if err != nil {
+				editor.Close(&newBufferURL)
+			}
+		}(*URL)
+	}
+	if ok, err := path.Match("/buffer/*", URL.Path); err != nil {
+		// The only error is path.ErrBadPattern. This pattern is not bad.
+		panic(err)
+	} else if !ok {
+		return nil, errors.New("bad buffer path: " + URL.Path)
+	}
+
+	v, err := view.New(URL, '.')
 	if err != nil {
 		return nil, err
 	}
@@ -42,9 +67,9 @@ func newTextBox(sheet *sheet, bufferURL *url.URL, style text.Style) (*textBox, e
 		Padding:      2,
 	}
 	setter := text.NewSetter(opts)
-	t := &textBox{
+	t = &textBox{
 		sheet:     sheet,
-		bufferURL: bufferURL,
+		bufferURL: URL,
 		view:      v,
 		opts:      opts,
 		setter:    setter,
