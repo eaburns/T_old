@@ -244,7 +244,10 @@ func (w *window) draw(scr screen.Screen, win screen.Window) {
 // AddFrame adds the frame to the last column of the window.
 func (w *window) addFrame(f frame) {
 	c := w.columns[len(w.columns)-1]
-	y := minFrameSize
+	var y int
+	if len(w.columns) == 1 {
+		y = minFrameSize
+	}
 	if len(c.frames) > 1 {
 		f := c.frames[len(c.frames)-1]
 		b := f.bounds()

@@ -77,6 +77,10 @@ func TestFocus(t *testing.T) {
 	for c := 0; c < 3; c++ {
 		for f := 0; f < 3; f++ {
 			fr := w.columns[c].frames[f]
+			if fr.bounds().Empty() {
+				// We can't focus on a totally-hidden frame, so don't try.
+				continue
+			}
 			mouseTo(w, center(fr))
 			wait(w)
 			if w.inFocus != fr.(handler) {
@@ -134,11 +138,8 @@ func TestDelete_LastColumn(t *testing.T) {
 	s, w := makeTestUI()
 	defer s.close()
 	for _, c := range w.columns {
-		tag := c.frames[0]
-		mouseTo(w, center(tag))
-		shiftClick(w, center(tag), mouse.ButtonMiddle)
-		// Wait before we read the next tag
-		// or before we drop out and read the number of columns.
+		// Cheat, because not all column tags may be visible to shich+2-click delete.
+		w.Send(func() { w.deleteColumn(c) })
 		wait(w)
 	}
 	if len(w.columns) != 1 {
@@ -154,6 +155,11 @@ func TestGrow(t *testing.T) {
 	for c := 0; c < 3; c++ {
 		for f := 0; f < 3; f++ {
 			fr := w.columns[c].frames[f]
+			if fr.bounds().Empty() {
+				// We can't focus on a totally-hidden frame, so don't try.
+				continue
+			}
+
 			mouseTo(w, center(fr))
 			wait(w)
 			if w.inFocus != fr.(handler) {
