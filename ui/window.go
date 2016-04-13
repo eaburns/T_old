@@ -493,11 +493,8 @@ func (c *column) draw(scr screen.Screen, win screen.Window) {
 }
 
 func (c *column) removeFrame(f frame) bool {
-	if len(c.frames) == 1 {
-		return false
-	}
 	i := frameIndex(c, f)
-	if i < 0 {
+	if i <= 0 {
 		return false
 	}
 	c.frames = append(c.frames[:i], c.frames[i+1:]...)
