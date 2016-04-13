@@ -4,9 +4,12 @@ package ui
 
 import (
 	"image"
+	"path"
 	"testing"
 	"time"
 
+	"github.com/eaburns/T/edit"
+	"github.com/eaburns/T/editor"
 	"golang.org/x/mobile/event/key"
 	"golang.org/x/mobile/event/lifecycle"
 	"golang.org/x/mobile/event/mouse"
@@ -560,6 +563,47 @@ func TestMove_Closed(t *testing.T) {
 	}
 }
 
+func TestSheetBodyText(t *testing.T) {
+	s, w := makeTestUI()
+	defer s.close()
+
+	sheet0 := w.columns[0].frames[1].(*sheet)
+
+	changesURL := *sheet0.body.bufferURL
+	changesURL.Scheme = "ws"
+	changesURL.Path = path.Join(sheet0.body.bufferURL.Path, "changes")
+	changes, err := editor.Changes(&changesURL)
+	if err != nil {
+		t.Fatalf("editor.Changes(%q)=_,%v", changesURL, err)
+	}
+	defer changes.Close()
+
+	mouseTo(w, center(sheet0))
+	pressKey(w, -1, key.CodeTab)
+	pressKey(w, 'a', key.CodeA)
+	pressKey(w, -1, key.CodeDeleteBackspace)
+	pressKey(w, 'b', key.CodeB)
+	pressKey(w, -1, key.CodeReturnEnter)
+
+	want := []struct {
+		Span edit.Span
+		Text string
+	}{
+		{Span: edit.Span{0, 0}, Text: "\t"},
+		{Span: edit.Span{1, 1}, Text: "a"},
+		{Span: edit.Span{1, 2}, Text: ""},
+		{Span: edit.Span{1, 1}, Text: "b"},
+		{Span: edit.Span{2, 2}, Text: "\n"},
+	}
+
+	for i, w := range want {
+		cl, err := changes.Next()
+		if err != nil || len(cl.Changes) != 1 || cl.Changes[0].Span != w.Span || string(cl.Changes[0].Text) != w.Text {
+			t.Errorf("%d changes.Next()=%v,%v, want %v,nil", i, cl, err, w)
+		}
+	}
+}
+
 // MakeTestUI returns a Server that has:
 // 	1 window
 // 	3 column, at 0.0, 0.33, and 0.66, respectively.
@@ -571,30 +615,31 @@ func makeTestUI() (*testServer, *window) {
 	if err != nil {
 		panic(err)
 	}
+	editorURL := s.editorServer.PathURL("/")
 	sheetsURL := urlWithPath(s.url, win.Path, "sheets")
-	if _, err := NewSheet(sheetsURL); err != nil {
+	if _, err := NewSheet(sheetsURL, editorURL); err != nil {
 		panic(err)
 	}
-	if _, err := NewSheet(sheetsURL); err != nil {
+	if _, err := NewSheet(sheetsURL, editorURL); err != nil {
 		panic(err)
 	}
 	colsURL := urlWithPath(s.url, win.Path, "columns")
 	if err := NewColumn(colsURL, 0.33); err != nil {
 		panic(err)
 	}
-	if _, err := NewSheet(sheetsURL); err != nil {
+	if _, err := NewSheet(sheetsURL, editorURL); err != nil {
 		panic(err)
 	}
-	if _, err := NewSheet(sheetsURL); err != nil {
+	if _, err := NewSheet(sheetsURL, editorURL); err != nil {
 		panic(err)
 	}
 	if err := NewColumn(colsURL, 0.33); err != nil {
 		panic(err)
 	}
-	if _, err := NewSheet(sheetsURL); err != nil {
+	if _, err := NewSheet(sheetsURL, editorURL); err != nil {
 		panic(err)
 	}
-	if _, err := NewSheet(sheetsURL); err != nil {
+	if _, err := NewSheet(sheetsURL, editorURL); err != nil {
 		panic(err)
 	}
 	w := s.uiServer.windows[win.ID]
@@ -673,6 +718,19 @@ func shiftClick(w *window, p image.Point, b mouse.Button) {
 
 func mouseTo(w *window, p image.Point) {
 	w.Send(mouse.Event{X: float32(p.X), Y: float32(p.Y)})
+}
+
+func pressKey(w *window, r rune, c key.Code) {
+	w.Send(key.Event{
+		Rune:      r,
+		Code:      c,
+		Direction: key.DirPress,
+	})
+	w.Send(key.Event{
+		Rune:      r,
+		Code:      c,
+		Direction: key.DirRelease,
+	})
 }
 
 func center(f frame) image.Point {

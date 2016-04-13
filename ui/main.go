@@ -13,6 +13,8 @@ import (
 	"path"
 	"runtime"
 
+	"github.com/eaburns/T/editor"
+	"github.com/eaburns/T/editor/editortest"
 	"github.com/eaburns/T/ui"
 	"github.com/gorilla/mux"
 	"github.com/pkg/profile"
@@ -27,9 +29,12 @@ func main() { driver.Main(Main) }
 // Main is the logical main function, called by the shiny driver.
 func Main(scr screen.Screen) {
 	profiler := profile.Start(profile.CPUProfile)
+	es := editortest.NewServer(editor.NewServer())
+
 	r := mux.NewRouter()
-	s := ui.NewServer(scr)
+	s := ui.NewServer(scr, es.PathURL("/"))
 	s.SetDoneHandler(func() {
+		es.Close()
 		profiler.Stop()
 		os.Exit(0)
 	})
@@ -50,7 +55,7 @@ func Main(scr screen.Screen) {
 	sheets := *baseURL
 	sheets.Path = path.Join(win.Path, "sheets")
 
-	if _, err := ui.NewSheet(&sheets); err != nil {
+	if _, err := ui.NewSheet(&sheets, es.PathURL("/")); err != nil {
 		panic(err)
 	}
 
@@ -60,20 +65,20 @@ func Main(scr screen.Screen) {
 	if err := ui.NewColumn(&cols, 0.33); err != nil {
 		panic(err)
 	}
-	if _, err := ui.NewSheet(&sheets); err != nil {
+	if _, err := ui.NewSheet(&sheets, es.PathURL("/")); err != nil {
 		panic(err)
 	}
-	if _, err := ui.NewSheet(&sheets); err != nil {
+	if _, err := ui.NewSheet(&sheets, es.PathURL("/")); err != nil {
 		panic(err)
 	}
 
 	if err := ui.NewColumn(&cols, 0.66); err != nil {
 		panic(err)
 	}
-	if _, err := ui.NewSheet(&sheets); err != nil {
+	if _, err := ui.NewSheet(&sheets, es.PathURL("/")); err != nil {
 		panic(err)
 	}
-	if _, err := ui.NewSheet(&sheets); err != nil {
+	if _, err := ui.NewSheet(&sheets, es.PathURL("/")); err != nil {
 		panic(err)
 	}
 

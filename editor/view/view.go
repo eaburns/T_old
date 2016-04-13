@@ -41,8 +41,14 @@ import (
 	"github.com/eaburns/T/editor"
 )
 
-// ViewMark is the mark rune indicating the start of the text tracked by a View.
-const ViewMark = '0'
+const (
+	// ViewMark is the mark rune indicating the start
+	// of the text tracked by a View.
+	ViewMark = '0'
+
+	// TmpMark is a mark used temporarily to save and restore dot.
+	TmpMark = '1'
+)
 
 // A View is an editor client
 // that maintains a local, consistent copy
@@ -253,34 +259,40 @@ func (v *View) run(do <-chan viewDo, Notify chan<- struct{}) {
 	}
 }
 
+var (
+	saveDot    = edit.Set(edit.Dot, TmpMark)
+	restoreDot = edit.Set(edit.Mark('1'), '.')
+)
+
 func (v *View) edit(vd viewDo, Notify chan<- struct{}) error {
 	v.mu.RLock()
-	prints := make([]edit.Edit, len(v.marks)+1)
-	for i, m := range v.marks {
-		prints[i] = edit.Where(edit.Mark(m.Name))
+	var prints []edit.Edit
+	for _, m := range v.marks {
+		prints = append(prints, edit.Where(edit.Mark(m.Name)))
 	}
 	start := edit.Mark(ViewMark).Minus(edit.Rune(0))
 	end := start.Plus(edit.Clamp(edit.Line(v.n)))
 	win := start.To(end)
-	prints[len(prints)-1] = edit.Print(win)
+	prints = append(prints, edit.Print(win))
 	v.mu.RUnlock()
 
-	edits := append(vd.edits, edit.Block(edit.All, prints...))
+	edits := append(vd.edits, saveDot, edit.Block(edit.All, prints...), restoreDot)
 	res, err := editor.Do(v.textURL, edits...)
 	if err != nil {
 		return err
 	}
 	if vd.result != nil {
-		go func() { vd.result <- res[:len(res)-1] }()
+		go func() { vd.result <- res[:len(res)-3] }()
 	}
 
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	update := res[len(res)-1]
+	update := res[len(res)-2]
 	printed := strings.SplitN(update.Print, "\n", len(prints))
 	if len(printed) != len(prints) || update.Error != "" {
-		panic("bad update: " + update.Error)
+		panic(fmt.Sprintf("bad update: len(%v)=%d want %d, Error=%v",
+			printed, len(printed), len(v.marks)+1, update.Error))
 	}
 	for i := range v.marks {
 		m := &v.marks[i]

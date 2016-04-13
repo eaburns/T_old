@@ -8,7 +8,9 @@ import (
 	"image/draw"
 	"time"
 
+	"github.com/eaburns/T/ui/text"
 	"golang.org/x/exp/shiny/screen"
+	"golang.org/x/image/font/basicfont"
 	"golang.org/x/mobile/event/key"
 	"golang.org/x/mobile/event/lifecycle"
 	"golang.org/x/mobile/event/mouse"
@@ -37,6 +39,10 @@ type handler interface {
 	// DrawLast is called if the handler is in focus
 	// while the window is redrawn.
 	// It is always called after everything else on the window has been drawn.
+	//
+	// TODO(eaburns): textbox is a handler, but doesn't implement this.
+	// Instead, drawLast should be a separate interface,
+	// and only used for handlers that implement it.
 	drawLast(scr screen.Screen, win screen.Window)
 }
 
@@ -75,7 +81,12 @@ func newWindow(id string, s *Server, size image.Point) (*window, error) {
 		Window:    win,
 		Rectangle: image.Rect(0, 0, size.X, size.Y),
 	}
-	w.addColumn(0.0, newColumn())
+	c, err := newColumn(w)
+	if err != nil {
+		win.Release()
+		return nil, err
+	}
+	w.addColumn(0.0, c)
 	go w.events()
 	return w, nil
 }
@@ -121,6 +132,7 @@ func (w *window) events() {
 				for _, c := range w.columns {
 					c.close()
 				}
+				// TODO(eaburns): Don't call this if the frame is not detached.
 				if f, ok := w.inFocus.(frame); ok {
 					f.close()
 				}
@@ -417,16 +429,22 @@ type column struct {
 }
 
 // NewColumn returns a new column, with a body, but no window or bounds.
-func newColumn() *column {
+func newColumn(w *window) (*column, error) {
 	c := new(column)
-	c.addFrame(0, new(columnTag))
-	return c
+	tag, err := newColumnTag(w)
+	if err != nil {
+		return nil, err
+	}
+	c.addFrame(0, tag)
+	return c, nil
 }
 
 func (c *column) close() {
-	for _, f := range c.frames {
-		f.close()
-	}
+	// Closing the column is handled by closing the columnTag.
+	//
+	// TODO(eaburns): this is ugly, merge the columnTag into the column
+	// instead of making it a frame.
+	c.frames[0].close()
 }
 
 func (c *column) bounds() image.Rectangle { return c.Rectangle }
@@ -596,7 +614,8 @@ func slideDown(c *column, i int, delta int) bool {
 }
 
 type columnTag struct {
-	col *column
+	col  *column
+	text *textBox
 	image.Rectangle
 
 	p      image.Point
@@ -604,22 +623,45 @@ type columnTag struct {
 	origX  float64
 }
 
-func (t *columnTag) close() {
-	col := t.col
-	t.col = nil
-	if col != nil && col.win == nil {
-		col.close()
+func newColumnTag(w *window) (*columnTag, error) {
+	text, err := newTextBox(w, *w.server.editorURL, text.Style{
+		Face: basicfont.Face7x13,
+		FG:   color.Black,
+		BG:   color.Gray16{0xF5F5},
+	})
+	if err != nil {
+		return nil, err
 	}
+	return &columnTag{text: text}, nil
 }
 
-func (t *columnTag) bounds() image.Rectangle     { return t.Rectangle }
-func (t *columnTag) setBounds(b image.Rectangle) { t.Rectangle = b }
-func (t *columnTag) setColumn(c *column)         { t.col = c }
-func (t *columnTag) focus(image.Point) handler   { return t }
+func (t *columnTag) close() {
+	if t.col == nil {
+		// Already closed.
+		// This can happen if the columnTag is in focus when the window is closed.
+		// The in-focus handler is closed, and so are all columns.
+		return
+	}
+	// The columnTag is t.col.frames[0]; it's already closing, close the rest.
+	for _, f := range t.col.frames[1:] {
+		f.close()
+	}
+	t.col = nil
+}
 
-func (t *columnTag) draw(_ screen.Screen, win screen.Window) {
-	bg := color.Gray16{0xF5F5}
-	win.Fill(t.bounds(), bg, draw.Over)
+func (t *columnTag) bounds() image.Rectangle { return t.Rectangle }
+
+func (t *columnTag) setBounds(b image.Rectangle) {
+	t.text.setBounds(b)
+	t.Rectangle = b
+}
+
+func (t *columnTag) setColumn(c *column) { t.col = c }
+
+func (t *columnTag) focus(image.Point) handler { return t }
+
+func (t *columnTag) draw(scr screen.Screen, win screen.Window) {
+	t.text.draw(scr, win)
 }
 
 func (t *columnTag) drawLast(scr screen.Screen, win screen.Window) {
@@ -640,6 +682,7 @@ func drawBorder(b image.Rectangle, win screen.Window) {
 }
 
 func (t *columnTag) key(w *window, event key.Event) bool {
+	var redraw bool
 	switch event.Code {
 	case key.CodeLeftShift, key.CodeRightShift:
 		if event.Direction == key.DirRelease && t.col.win == nil {
@@ -648,10 +691,13 @@ func (t *columnTag) key(w *window, event key.Event) bool {
 			if !w.addColumn(t.origX, t.col) {
 				panic("can't put it back")
 			}
-			return true
+			redraw = true
 		}
 	}
-	return false
+	if t.text.key(w, event) {
+		redraw = true
+	}
+	return redraw
 }
 
 func (t *columnTag) mouse(w *window, event mouse.Event) bool {
@@ -662,7 +708,7 @@ func (t *columnTag) mouse(w *window, event mouse.Event) bool {
 		if t.button == mouse.ButtonNone {
 			t.p = p
 			t.button = event.Button
-			return false
+			break
 		}
 		// A second button was pressed while the first was held.
 		// ColumnTag doesn't use chords; treat this as a release of the first.
@@ -721,5 +767,5 @@ func (t *columnTag) mouse(w *window, event mouse.Event) bool {
 			}
 		}
 	}
-	return false
+	return t.text.mouse(w, event)
 }

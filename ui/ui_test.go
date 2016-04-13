@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eaburns/T/editor"
+	"github.com/eaburns/T/editor/editortest"
 	"github.com/gorilla/mux"
 	"golang.org/x/exp/shiny/screen"
 )
@@ -65,6 +67,7 @@ func TestNewWindow(t *testing.T) {
 	}
 }
 
+// TODO(eaburns): test that we are actually getting BadRequest errors.
 func TestNewWindow_BadRequest(t *testing.T) {
 	s := newServer(new(stubScreen))
 	defer s.close()
@@ -149,6 +152,7 @@ func TestNewColumn_NotFound(t *testing.T) {
 	}
 }
 
+// TODO(eaburns): test that we are actually getting BadRequest errors.
 func TestNewColumn_BadRequest(t *testing.T) {
 	s := newServer(new(stubScreen))
 	defer s.close()
@@ -252,9 +256,11 @@ func TestNewSheet(t *testing.T) {
 	sheetsURL := urlWithPath(s.url, win.Path, "sheets")
 	var sheets []Sheet
 	for i := 0; i < 3; i++ {
-		sheet, err := NewSheet(sheetsURL)
+		editorURL := s.editorServer.PathURL("/")
+		sheet, err := NewSheet(sheetsURL, editorURL)
 		if err != nil {
-			t.Errorf("NewSheet(%q)=%v,%v, want _, nil", sheetsURL, sheet, err)
+			t.Errorf("NewSheet(%q, %q)=%v,%v, want _, nil",
+				sheetsURL, editorURL, sheet, err)
 		}
 		for j, h := range sheets {
 			if h.ID == sheet.ID {
@@ -274,9 +280,60 @@ func TestNewSheet_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWindow(%q)=%v,%v, want _,nil", winsURL, win, err)
 	}
+
+	// Request a sheet for a window that is not found.
 	notFoundURL := urlWithPath(s.url, "/", "window", "notfound", "sheets")
-	if h, err := NewSheet(notFoundURL); err != ErrNotFound {
-		t.Errorf("NewSheet(%q)=%v,%v, want %v", notFoundURL, h, err, ErrNotFound)
+	editorURL := s.editorServer.PathURL("/")
+	if h, err := NewSheet(notFoundURL, editorURL); err != ErrNotFound {
+		t.Errorf("NewSheet(%q, %q)=%v,%v, want %v",
+			notFoundURL, editorURL, h, err, ErrNotFound)
+	}
+
+	// Request a sheet for a buffer that is not found.
+	sheetsURL := urlWithPath(s.url, win.Path, "sheets")
+	// TODO(eaburns): This should be an ErrNotFound, but currently it's an internal server error.
+	notFoundURL = s.editorServer.PathURL("/", "buffer", "notfound")
+	if h, err := NewSheet(sheetsURL, notFoundURL); err == nil {
+		t.Errorf("NewSheet(%q, %q)=%v,%v, want non-nil",
+			sheetsURL, notFoundURL, h, err)
+	}
+
+	// Certainly no editor is serving on this port.
+	editorURL.Host = "localhost:1"
+	if h, err := NewSheet(sheetsURL, editorURL); err == nil {
+		t.Errorf("NewSheet(%q, %q)=%v,%v, want connection refused",
+			sheetsURL, editorURL, h, err)
+	}
+}
+
+// TODO(eaburns): test that we are actually getting BadRequest errors.
+func TestNewSheet_BadRequest(t *testing.T) {
+	s := newServer(new(stubScreen))
+	defer s.close()
+
+	winsURL := urlWithPath(s.url, "/", "windows")
+	win, err := NewWindow(winsURL, image.Pt(800, 600))
+	if err != nil {
+		t.Fatalf("NewWindow(%q)=%v,%v, want _,nil", winsURL, win, err)
+	}
+
+	sheetsURL := urlWithPath(s.url, win.Path, "sheets")
+	badBufferURL := s.editorServer.PathURL("/", "not", "buffer", "path")
+	if h, err := NewSheet(sheetsURL, badBufferURL); err == nil {
+		t.Errorf("NewSheet(%q, %q)=%v,%v, want bad request",
+			sheetsURL, badBufferURL, h, err)
+	}
+
+	bad := "bad json"
+	req := strings.NewReader(bad)
+	if err := request(sheetsURL, http.MethodPut, req, &win); err == nil {
+		t.Errorf("request(%q, PUT, %q, &win)=%v, want bad request", sheetsURL, bad, err)
+	}
+
+	bad = `{"url":"%ZZ"}` // ZZ is not hex, but % esc wants hex — URL parse fails.
+	req = strings.NewReader(bad)
+	if err := request(sheetsURL, http.MethodPut, req, &win); err == nil {
+		t.Errorf("request(%q, PUT, %q, &win)=%v, want bad request", sheetsURL, bad, err)
 	}
 }
 
@@ -292,11 +349,12 @@ func TestNewSheet_DoesNotFit(t *testing.T) {
 	}
 
 	sheetsURL := urlWithPath(s.url, win.Path, "sheets")
-	if sheet, err := NewSheet(sheetsURL); err != nil {
-		t.Errorf("NewSheet(%q)=%v,%v, want _, nil", sheetsURL, sheet, err)
+	editorURL := s.editorServer.PathURL("/")
+	if sheet, err := NewSheet(sheetsURL, editorURL); err != nil {
+		t.Errorf("NewSheet(%q, %q)=%v,%v, want _, nil", sheetsURL, editorURL, sheet, err)
 	}
-	if sheet, err := NewSheet(sheetsURL); err != nil {
-		t.Errorf("NewSheet(%q)=%v,%v, want _, nil", sheetsURL, sheet, err)
+	if sheet, err := NewSheet(sheetsURL, editorURL); err != nil {
+		t.Errorf("NewSheet(%q, %q)=%v,%v, want _, nil", sheetsURL, editorURL, sheet, err)
 	}
 
 	w := s.uiServer.windows[win.ID]
@@ -318,12 +376,13 @@ func TestCloseSheet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWindow(%q)=%v,%v, want _,nil", winsURL, win, err)
 	}
+	editorURL := s.editorServer.PathURL("/")
 	sheetsURL := urlWithPath(s.url, win.Path, "sheets")
 	var sheets []Sheet
 	for i := 0; i < 3; i++ {
-		sheet, err := NewSheet(sheetsURL)
+		sheet, err := NewSheet(sheetsURL, editorURL)
 		if err != nil {
-			t.Errorf("NewSheet(%q)=%v,%v, want _, nil", sheetsURL, sheet, err)
+			t.Errorf("NewSheet(%q, %q)=%v,%v, want _, nil", sheetsURL, editorURL, sheet, err)
 		}
 		sheets = append(sheets, sheet)
 	}
@@ -366,12 +425,13 @@ func TestSheetList(t *testing.T) {
 		t.Fatalf("NewWindow(%q)=%v,%v, want _,nil", winsURL, win, err)
 	}
 
+	editorURL := s.editorServer.PathURL("/")
 	sheetsURL := urlWithPath(s.url, win.Path, "sheets")
 	var want []Sheet
 	for i := 0; i < 3; i++ {
-		sheet, err := NewSheet(sheetsURL)
+		sheet, err := NewSheet(sheetsURL, editorURL)
 		if err != nil {
-			t.Errorf("NewSheet(%q)=%v,%v, want _, nil", sheetsURL, sheet, err)
+			t.Errorf("NewSheet(%q, %q)=%v,%v, want _, nil", sheetsURL, editorURL, sheet, err)
 		}
 		want = append(want, sheet)
 	}
@@ -385,16 +445,18 @@ func TestSheetList(t *testing.T) {
 }
 
 type testServer struct {
-	scr        screen.Screen
-	uiServer   *Server
-	httpServer *httptest.Server
-	url        *url.URL
-	done       bool
+	scr          screen.Screen
+	editorServer *editortest.Server
+	uiServer     *Server
+	httpServer   *httptest.Server
+	url          *url.URL
+	done         bool
 }
 
 func newServer(scr screen.Screen) *testServer {
+	editorServer := editortest.NewServer(editor.NewServer())
 	router := mux.NewRouter()
-	uiServer := NewServer(scr)
+	uiServer := NewServer(scr, editorServer.PathURL("/"))
 	uiServer.RegisterHandlers(router)
 	httpServer := httptest.NewServer(router)
 	url, err := url.Parse(httpServer.URL)
@@ -402,9 +464,10 @@ func newServer(scr screen.Screen) *testServer {
 		panic(err)
 	}
 	ts := &testServer{
-		uiServer:   uiServer,
-		httpServer: httpServer,
-		url:        url,
+		editorServer: editorServer,
+		uiServer:     uiServer,
+		httpServer:   httpServer,
+		url:          url,
 	}
 	uiServer.SetDoneHandler(func() { ts.done = true })
 	return ts
@@ -413,6 +476,7 @@ func newServer(scr screen.Screen) *testServer {
 func (s *testServer) close() {
 	s.httpServer.Close()
 	s.uiServer.Close()
+	s.editorServer.Close()
 }
 
 type windowSlice []Window
