@@ -35,15 +35,12 @@ func WindowList(URL *url.URL) ([]Window, error) {
 // and returns a Window from the response body.
 // The URL is expected to point at the server's windows list.
 func NewWindow(URL *url.URL, size image.Point) (Window, error) {
-	req, err := json.Marshal(NewWindowRequest{
+	req := NewWindowRequest{
 		Width:  size.X,
 		Height: size.Y,
-	})
-	if err != nil {
-		return Window{}, err
 	}
 	var win Window
-	if err := request(URL, http.MethodPut, bytes.NewReader(req), &win); err != nil {
+	if err := request(URL, http.MethodPut, req, &win); err != nil {
 		return Window{}, err
 	}
 	return win, nil
@@ -53,19 +50,19 @@ func NewWindow(URL *url.URL, size image.Point) (Window, error) {
 // If the response status code is NotFound, ErrNotFound is returned.
 // The URL is expected to point to a window's columns list.
 func NewColumn(URL *url.URL, x float64) error {
-	req, err := json.Marshal(NewColumnRequest{X: x})
-	if err != nil {
-		return err
-	}
-	return request(URL, http.MethodPut, bytes.NewReader(req), nil)
+	req := NewColumnRequest{X: x}
+	return request(URL, http.MethodPut, req, nil)
 }
 
 // NewSheet does a PUT and areturns a Sheet from the response body.
 // If the response status code is NotFound, ErrNotFound is returned.
 // The URL is expected to point to a window's sheets list.
-func NewSheet(URL *url.URL) (Sheet, error) {
+func NewSheet(uiURL *url.URL, editorOrBufferURL *url.URL) (Sheet, error) {
+	req := NewSheetRequest{
+		URL: editorOrBufferURL.String(),
+	}
 	var sheet Sheet
-	if err := request(URL, http.MethodPut, nil, &sheet); err != nil {
+	if err := request(uiURL, http.MethodPut, req, &sheet); err != nil {
 		return Sheet{}, err
 	}
 	return sheet, nil
@@ -81,7 +78,23 @@ func SheetList(URL *url.URL) ([]Sheet, error) {
 	return list, nil
 }
 
-func request(url *url.URL, method string, body io.Reader, resp interface{}) error {
+// Request makes an HTTP request to the given URL.
+// req is the body of the request.
+// If it implements io.Reader it is used directly as the body,
+// otherwise it is JSON-encoded.
+func request(url *url.URL, method string, req interface{}, resp interface{}) error {
+	var body io.Reader
+	if req != nil {
+		if r, ok := req.(io.Reader); ok {
+			body = r
+		} else {
+			d, err := json.Marshal(req)
+			if err != nil {
+				return err
+			}
+			body = bytes.NewReader(d)
+		}
+	}
 	httpReq, err := http.NewRequest(method, url.String(), body)
 	if err != nil {
 		return err
