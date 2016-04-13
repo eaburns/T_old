@@ -26,9 +26,11 @@ type NewColumnRequest struct {
 
 // A NewSheetRequest requests a new sheet be created.
 type NewSheetRequest struct {
-	// URL is either the root URL of an editor
-	// on which to create a new buffer,
-	// or the URL of an already-created buffer.
+	// URL is either the root URL of an editor server,
+	// or the URL of an existing editor server buffer.
+	//
+	// If URL is an existing buffer, that buffer will be used as the sheet body.
+	// Otherwise, a new buffer is created on the editor server for the body.
 	URL string `json:"url"`
 }
 

@@ -59,6 +59,8 @@ type sheet struct {
 // NewSheet creates a new sheet.
 // URL is either the root path to an editor server,
 // or the path to an open buffer of an editor server.
+// The body uses the given URL for its buffer (either a new one or existing).
+// The tag uses a new buffer created on the window server's editor.
 func newSheet(id string, URL *url.URL, w *window) (*sheet, error) {
 	s := &sheet{id: id, win: w}
 
@@ -67,9 +69,7 @@ func newSheet(id string, URL *url.URL, w *window) (*sheet, error) {
 	nextTagColor++
 	mu.Unlock()
 
-	editorURL := *URL
-	editorURL.Path = "/"
-	tag, err := newTextBox(s, &editorURL, text.Style{
+	tag, err := newTextBox(w, *w.server.editorURL, text.Style{
 		Face: basicfont.Face7x13,
 		FG:   color.Black,
 		BG:   tagBG,
@@ -80,7 +80,7 @@ func newSheet(id string, URL *url.URL, w *window) (*sheet, error) {
 	tag.view.Do(nil, edit.Change(edit.All, "/sheet/"+id), edit.Set(edit.End, '.'))
 	s.tag = tag
 
-	body, err := newTextBox(s, URL, text.Style{
+	body, err := newTextBox(w, *URL, text.Style{
 		Face: basicfont.Face7x13,
 		FG:   color.Black,
 		BG:   color.NRGBA{R: 0xFA, G: 0xF0, B: 0xE6, A: 0xFF},

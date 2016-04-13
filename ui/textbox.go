@@ -30,16 +30,16 @@ type textBox struct {
 
 	mu    sync.RWMutex
 	reset bool
-	sheet *sheet
+	win   *window
 }
 
 // NewTextBod creates a new text box.
 // URL is either the root path to an editor server,
 // or the path to an open buffer of an editor server.
-func newTextBox(sheet *sheet, URL *url.URL, style text.Style) (t *textBox, err error) {
+func newTextBox(w *window, URL url.URL, style text.Style) (t *textBox, err error) {
 	if URL.Path == "/" {
 		URL.Path = path.Join("/", "buffers")
-		buf, err := editor.NewBuffer(URL)
+		buf, err := editor.NewBuffer(&URL)
 		if err != nil {
 			return nil, err
 		}
@@ -48,7 +48,7 @@ func newTextBox(sheet *sheet, URL *url.URL, style text.Style) (t *textBox, err e
 			if err != nil {
 				editor.Close(&newBufferURL)
 			}
-		}(*URL)
+		}(URL)
 	}
 	if ok, err := path.Match("/buffer/*", URL.Path); err != nil {
 		// The only error is path.ErrBadPattern. This pattern is not bad.
@@ -57,7 +57,7 @@ func newTextBox(sheet *sheet, URL *url.URL, style text.Style) (t *textBox, err e
 		return nil, errors.New("bad buffer path: " + URL.Path)
 	}
 
-	v, err := view.New(URL, '.')
+	v, err := view.New(&URL, '.')
 	if err != nil {
 		return nil, err
 	}
@@ -68,34 +68,29 @@ func newTextBox(sheet *sheet, URL *url.URL, style text.Style) (t *textBox, err e
 	}
 	setter := text.NewSetter(opts)
 	t = &textBox{
-		sheet:     sheet,
-		bufferURL: URL,
+		bufferURL: &URL,
 		view:      v,
 		opts:      opts,
 		setter:    setter,
 		text:      setter.Set(),
+		win:       w,
 	}
 	go func() {
 		for range v.Notify {
 			t.mu.Lock()
 			t.reset = true
-			if t.sheet != nil {
-				t.sheet.win.Send(paint.Event{})
+			if t.win != nil {
+				t.win.Send(paint.Event{})
 			}
 			t.mu.Unlock()
 		}
-		t.mu.Lock()
-		if t.sheet != nil {
-			t.sheet.win.server.delSheet(t.sheet.id)
-		}
-		t.mu.Unlock()
 	}()
 	return t, nil
 }
 
 func (t *textBox) close() {
 	t.mu.Lock()
-	t.sheet = nil
+	t.win = nil
 	t.mu.Unlock()
 
 	t.text.Release()
