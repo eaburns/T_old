@@ -561,6 +561,9 @@ func (ed *editor) Apply() error {
 			}
 		}
 	}
+	if len(ed.pending) == 0 {
+		return nil
+	}
 	cl := ChangeList{
 		Sequence: ed.buffer.Sequence + 1,
 		Changes:  ed.pending,

@@ -633,10 +633,13 @@ func TestChangeStream(t *testing.T) {
 
 	var hi = "Hello, 世界!" + strings.Repeat("x", MaxInline)
 	eds := []edit.Edit{
-		edit.Insert(edit.All, hi),               // 1
-		edit.Change(edit.Regexp("世界"), "World"), // 2
-		edit.SubGlobal(edit.All, ",|!", "."),    // 3
-		edit.Delete(edit.All),                   // 4
+		edit.Insert(edit.All, hi),                                        // 1
+		edit.Change(edit.Regexp("世界"), "World"),                          // 2
+		edit.SubGlobal(edit.All, ",|!", "."),                             // 3
+		edit.Print(edit.All),                                             // 4
+		edit.Where(edit.Dot),                                             // 5
+		edit.Block(edit.All, edit.Where(edit.Dot), edit.Print(edit.Dot)), // 6
+		edit.Delete(edit.All),                                            // 7
 	}
 	textURL := s.PathURL(ed.Path, "text")
 	if res, err := Do(textURL, eds...); err != nil {
@@ -678,8 +681,11 @@ func TestChangeStream(t *testing.T) {
 				},
 			},
 		},
+		// Sequence 4 is a Print, which generates no change.
+		// Sequence 5 is a Where, which generates no change.
+		// Sequence 6 is a Block with Where and Print, which generates no change.
 		ChangeList{
-			Sequence: 4,
+			Sequence: 7,
 			Changes: []Change{
 				{
 					// +3, because 世界 changed to World.
