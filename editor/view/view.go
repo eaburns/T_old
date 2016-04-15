@@ -274,7 +274,11 @@ func (v *View) edit(vd viewDo, Notify chan<- struct{}) error {
 	v.mu.RLock()
 	var prints []edit.Edit
 	for _, m := range v.marks {
-		prints = append(prints, edit.Where(edit.Mark(m.Name)))
+		n := m.Name
+		if m.Name == '.' {
+			n = TmpMark
+		}
+		prints = append(prints, edit.Where(edit.Mark(n)))
 	}
 	start := edit.Mark(ViewMark).Minus(edit.Rune(0))
 	end := start.Plus(edit.Clamp(edit.Line(v.n)))

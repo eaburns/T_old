@@ -309,9 +309,9 @@ func TestTrackMarks(t *testing.T) {
 	const lines = "1\n2\n3\n4\n5\n6\n7\n8\n9\n0\n"
 	setText(bufferURL, lines)
 
-	v, err := New(bufferURL, 'm')
+	v, err := New(bufferURL, 'm', '.')
 	if err != nil {
-		t.Fatalf("New(%q, 'm')=_,%v, want _,nil", bufferURL, err)
+		t.Fatalf("New(%q, 'm', '.')=_,%v, want _,nil", bufferURL, err)
 	}
 	defer v.Close()
 
@@ -319,22 +319,30 @@ func TestTrackMarks(t *testing.T) {
 		wait(v)
 	}
 
-	v.Do(nil, edit.Set(edit.Rune(5), 'm'))
+	v.Do(nil, edit.Set(edit.Rune(5), 'm'), edit.Set(edit.Rune(10), '.'))
 	wait(v)
 
-	got, ok := markAddr(v, 'm')
 	want := [2]int64{5, 5}
-	if !ok || got != want {
+	if got, ok := markAddr(v, 'm'); !ok || got != want {
 		t.Errorf("mark['m']=%v,%v, want %v,true", got, ok, want)
+	}
+
+	want = [2]int64{10, 10}
+	if got, ok := markAddr(v, '.'); !ok || got != want {
+		t.Errorf("mark['.']=%v,%v, want %v,true", got, ok, want)
 	}
 
 	v.Do(nil, edit.Delete(edit.Rune(1).To(edit.Rune(2))))
 	wait(v)
 
-	got, ok = markAddr(v, 'm')
 	want = [2]int64{4, 4}
-	if !ok || got != want {
+	if got, ok := markAddr(v, 'm'); !ok || got != want {
 		t.Errorf("mark['m']=%v,%v, want %v,true", got, ok, want)
+	}
+
+	want = [2]int64{1, 1}
+	if got, ok := markAddr(v, '.'); !ok || got != want {
+		t.Errorf("mark['.']=%v,%v, want %v,true", got, ok, want)
 	}
 }
 
@@ -366,12 +374,12 @@ func TestMaintainDot(t *testing.T) {
 	}
 }
 
-func markAddr(v *View, m rune) ([2]int64, bool) {
+func markAddr(v *View, name rune) ([2]int64, bool) {
 	var ok bool
 	var where [2]int64
 	v.View(func(_ []byte, marks []Mark) {
 		for _, m := range marks {
-			if m.Name == 'm' {
+			if m.Name == name {
 				ok = true
 				where = m.Where
 			}
