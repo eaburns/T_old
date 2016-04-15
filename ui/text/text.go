@@ -124,7 +124,7 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 		return
 	}
 
-	ymax := fixed.I(s.opts.Size.Y)
+	ymax := fixed.I(s.opts.Size.Y - 2*s.opts.Padding)
 	var h fixed.Int26_6
 	for _, l := range s.lines {
 		h += l.h
