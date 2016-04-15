@@ -84,8 +84,9 @@ func TestResizeScroll(t *testing.T) {
 		if err != nil {
 			t.Fatalf("New(%q)=_,%v, want _,nil", bufferURL, err)
 		}
-		v.Resize(test.size)
-		wait(v)
+		if v.Resize(test.size) {
+			wait(v)
+		}
 		for _, s := range test.scroll {
 			if s != 0 {
 				v.Scroll(s)
@@ -134,8 +135,9 @@ func TestWarp(t *testing.T) {
 		if err != nil {
 			t.Fatalf("New(%q)=_,%v, want _,nil", bufferURL, err)
 		}
-		v.Resize(test.size)
-		wait(v)
+		if v.Resize(test.size) {
+			wait(v)
+		}
 		v.Warp(test.warp)
 		wait(v)
 		v.View(func(text []byte, marks []Mark) {
@@ -227,8 +229,9 @@ func TestDo(t *testing.T) {
 			t.Fatalf("New(%q)=_,%v, want _,nil", bufferURL, err)
 		}
 
-		v.Resize(test.size)
-		wait(v)
+		if v.Resize(test.size) {
+			wait(v)
+		}
 
 		v.Scroll(test.scroll)
 		if test.scroll != 0 {
@@ -274,8 +277,9 @@ func TestConcurrentChange(t *testing.T) {
 			t.Fatalf("New(%q)=_,%v, want _,nil", bufferURL, err)
 		}
 
-		v.Resize(test.size)
-		wait(v)
+		if v.Resize(test.size) {
+			wait(v)
+		}
 
 		v.Scroll(test.scroll)
 		if test.scroll != 0 {
@@ -311,8 +315,9 @@ func TestTrackMarks(t *testing.T) {
 	}
 	defer v.Close()
 
-	v.Resize(4)
-	wait(v)
+	if v.Resize(4) {
+		wait(v)
+	}
 
 	v.Do(nil, edit.Set(edit.Rune(5), 'm'))
 	wait(v)
@@ -344,8 +349,9 @@ func TestMaintainDot(t *testing.T) {
 	}
 	defer v.Close()
 
-	v.Resize(1)
-	wait(v)
+	if v.Resize(1) {
+		wait(v)
+	}
 
 	str := "Hello, 世界\n"
 	v.Do(nil, edit.Change(edit.All, str))
