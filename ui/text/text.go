@@ -351,6 +351,12 @@ func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
 	bg := t.setter.opts.DefaultStyle.BG
 	x0, y0, x1, y1 := at.X, at.Y, at.X+t.size.X, at.Y+t.size.Y
 
+	if x1-x0 < pad*2 || y1-y0 < pad*2 {
+		// Too small, just fill what's there with background.
+		win.Fill(image.Rect(x0, y0, x1, y1), bg, draw.Src)
+		return
+	}
+
 	var y int
 	x, ynext := at.X+pad, at.Y+pad
 	textWidth := (x1 - x0) - 2*pad
