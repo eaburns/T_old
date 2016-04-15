@@ -354,6 +354,80 @@ func (t *Text) Index(p image.Point) int {
 	return i - w
 }
 
+// GlyphBox returns the bounding box of the glyph at the given byte index.
+// The box is translated to the location of the glyph
+// relative to the upper-left of the text at point 0,0.
+// Vertically, the bounds are not tight-fitting, but instead fit the line height.
+//
+// If the corresponding rectangle does not fit in the Text size,
+// the zero Rectangle is returned.
+func (t *Text) GlyphBox(index int) image.Rectangle {
+	pad := t.setter.opts.Padding
+	if t.size.X <= 2*pad || t.size.Y <= 2*pad {
+		return image.ZR
+	}
+
+	if len(t.lines) == 0 {
+		h := int(t.setter.opts.DefaultStyle.Face.Metrics().Height >> 6)
+		return image.Rect(pad, pad, pad, pad+h)
+	}
+
+	if index < 0 {
+		index = 0
+	}
+
+	var h int
+	y := pad
+	var x0 fixed.Int26_6
+	for _, l := range t.lines {
+		h = int(l.h >> 6)
+		if y+h > t.size.Y-pad {
+			return image.ZR
+		}
+		for _, s := range l.spans {
+			x0 = s.x0 + fixed.I(pad)
+			if index >= len(s.text) {
+				index -= len(s.text)
+				// If this is the last span of the last line
+				// and we still don't have it,
+				// the index is beyond the end.
+				// We will return the empty rectangle at this x0.
+				x0 = fixed.I(pad) + s.x1
+				continue
+			}
+			for j, r := range s.text {
+				var x1 fixed.Int26_6
+				if r == '\t' {
+					x1 = t.setter.tab(x0)
+				} else {
+					x1 = x0 + advance(&s.Style, r)
+					if j > 0 {
+						p, _ := utf8.DecodeLastRuneInString(s.text[:j])
+						x1 += s.Face.Kern(p, r)
+					}
+				}
+				if j == index {
+					return image.Rect(int(x0>>6), y, int(x1>>6), y+h)
+				}
+				x0 = x1
+			}
+		}
+		y += h
+	}
+
+	// Beyond the end, return the empty rectangle after the last glyph.
+
+	if h := trailingNewlineHeight(t); h > 0 && y+h <= t.size.Y-pad {
+		// The text ends with a newline.
+		// Return the empty box
+		// of default line height
+		// at the beginning of the next line.
+		x0 = fixed.I(pad)
+		y += h
+	}
+	return image.Rect(int(x0>>6), y-h, int(x0>>6), y)
+}
+
 // Len returns the length of the line in bytes.
 func (l *line) len() int {
 	var n int
@@ -378,10 +452,10 @@ func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
 // allowed by the text.
 func (t *Text) LinesHeight() int {
 	pad := t.setter.opts.Padding
-	if t.size.Y < 0 {
+	if t.size.Y <= 0 {
 		return 0
 	}
-	if t.size.Y-2*pad < 0 {
+	if t.size.Y-2*pad <= 0 {
 		return t.size.Y
 	}
 	y := pad
@@ -415,7 +489,7 @@ func (t *Text) DrawLines(at image.Point, scr screen.Screen, win screen.Window) i
 	if x1 < x0 {
 		x1 = x0
 	}
-	if t.size.X < pad*2 || t.size.Y < pad*2 {
+	if t.size.X <= 2*pad || t.size.Y <= 2*pad {
 		// Too small, just fill what's there with background.
 		win.Fill(image.Rect(x0, y0, x1, y1), bg, draw.Src)
 		return y1

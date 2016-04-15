@@ -348,6 +348,141 @@ func TestTextIndex(t *testing.T) {
 	}
 }
 
+func TestTextGlyphBox(t *testing.T) {
+	const (
+		pad        = 3
+		lineHeight = 1
+	)
+
+	opts := Options{
+		DefaultStyle: Style{Face: &unitFace{}},
+		Size:         image.Pt(100, 100),
+		Padding:      pad,
+		TabWidth:     2,
+	}
+
+	tests := []struct {
+		name  string
+		opts  Options
+		text  string
+		index int
+		want  image.Rectangle
+	}{
+		{
+			name:  "empty text",
+			opts:  opts,
+			text:  "",
+			index: 0,
+			want:  image.Rect(pad, pad, pad, lineHeight+pad),
+		},
+		{
+			name: "text too small for padding",
+			opts: Options{
+				DefaultStyle: Style{Face: &unitFace{}},
+				Size:         image.Pt(1, 1),
+				Padding:      pad,
+			},
+			text:  "abc\ndef",
+			index: 1,
+			want:  image.ZR,
+		},
+		{
+			name:  "index beyond end",
+			opts:  opts,
+			text:  "abc\ndef",
+			index: 8,
+			// We want the empty rectangle after 'f', the 3rd glyph of line 2.
+			want: image.Rect(pad+3, pad+1, pad+3, pad+2),
+		},
+		{
+			name:  "index way beyond end",
+			opts:  opts,
+			text:  "abc\ndef",
+			index: 8000,
+			// We want the empty rectangle after 'f', the 3rd glyph of line 2.
+			want: image.Rect(pad+3, pad+1, pad+3, pad+2),
+		},
+		{
+			name:  "negative index",
+			opts:  opts,
+			text:  "abc\ndef",
+			index: -1,
+			want:  image.Rect(pad, pad, pad+1, pad+1),
+		},
+		{
+			name:  "first line first rune",
+			opts:  opts,
+			text:  "abc\ndef",
+			index: 0,
+			want:  image.Rect(pad, pad, pad+1, pad+1),
+		},
+		{
+			name:  "first line second rune",
+			opts:  opts,
+			text:  "abc\ndef",
+			index: 1,
+			want:  image.Rect(pad+1, pad, pad+2, pad+1),
+		},
+		{
+			name:  "first line last rune",
+			opts:  opts,
+			text:  "abc\ndef",
+			index: 3,
+			want:  image.Rect(pad+3, pad, pad+4, pad+1),
+		},
+		{
+			name:  "second line first rune",
+			opts:  opts,
+			text:  "abc\ndef",
+			index: 4,
+			want:  image.Rect(pad, pad+1, pad+1, pad+2),
+		},
+		{
+			name:  "tab",
+			opts:  opts,
+			text:  "a\tb\tc",
+			index: 1,
+			want:  image.Rect(pad+1, pad, pad+3, pad+1),
+		},
+		{
+			name:  "trailing newline",
+			opts:  opts,
+			text:  "a\n",
+			index: 3,
+			// There is a newline at the end,
+			// so the box beyond the text
+			// is the start of the next line.
+			want: image.Rect(pad, pad+1, pad, pad+2),
+		},
+		{
+			name: "last line extends beyond ymax",
+			opts: Options{
+				DefaultStyle: Style{Face: &unitFace{}},
+				Size:         image.Pt(100, 2*pad+1),
+				Padding:      pad,
+			},
+			text:  "a\nb",
+			index: 3,
+			// Only 1 line fits with padding.
+			// B will be added, but it will extend just beyond ymax,
+			// so its box is reported as the zero Rectangle.
+			want: image.ZR,
+		},
+	}
+
+	for _, test := range tests {
+		s := NewSetter(test.opts)
+		if test.text != "" {
+			s.Add([]byte(test.text))
+		}
+		txt := s.Set()
+		if got := txt.GlyphBox(test.index); got != test.want {
+			t.Errorf("%s txt.GlyphBox(%d)=%v, want %v",
+				test.name, test.index, got, test.want)
+		}
+	}
+}
+
 func lineString(t *Text) string {
 	buf := bytes.NewBuffer(nil)
 	for _, l := range t.lines {
