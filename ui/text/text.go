@@ -289,7 +289,16 @@ func (t *Text) Release() {
 
 // Index returns the byte index into the text
 // corresponding to the glyph at the given point.
-// 0,0 is the top left of the text.
+// The point 0,0 is the top left of the text.
+//
+// This method is designed with text selection in mind.
+// As such, points outside follow these rules:
+// If the point is above the start of the text, 0 is returned.
+// If the point is below the end of the text, the length of the text is returned.
+// If the point is to the left of a line, the first rune in that line is returned.
+// If the point is to the right of the last rune in a line,
+// the last rune in the line is returned, unless it is \n,
+// in which case the second to last rune in the line is returned.
 func (t *Text) Index(p image.Point) int {
 	px, py := fixed.I(p.X), fixed.I(p.Y)
 	pad := t.setter.opts.Padding
@@ -333,6 +342,13 @@ func (t *Text) Index(p image.Point) int {
 			}
 			j += w
 			i += w
+
+			// If clicking beyond the end of the line,
+			// select the last rune unless that rune is \n.
+			// \n is only selected if clicking before the next line.
+			if r != '\n' {
+				w = 0
+			}
 		}
 	}
 	return i - w
