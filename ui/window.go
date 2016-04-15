@@ -245,8 +245,8 @@ func (w *window) draw(scr screen.Screen, win screen.Window) {
 func (w *window) addFrame(f frame) {
 	c := w.columns[len(w.columns)-1]
 	var y int
-	if len(w.columns) == 1 {
-		y = minFrameSize
+	if len(w.columns) == 1 && len(c.frames) == 1 {
+		y = minHeight(w.columns[0].frames[0].(*columnTag).text.opts)
 	}
 	if len(c.frames) > 1 {
 		f := c.frames[len(c.frames)-1]
@@ -423,6 +423,10 @@ type frame interface {
 	// because close is only intended to be called
 	// after the frame has been removed from its container.
 	close()
+
+	// MinHeight returns the frame's minimum recommended height in pixels.
+	// If the window is smaller than minHeight, the frame may also be smaller.
+	minHeight() int
 }
 
 type column struct {
@@ -520,20 +524,22 @@ func (c *column) addFrame(yfrac float64, f frame) bool {
 		y = 0
 		yfrac = 0.0
 	}
-	if max := c.Dy() - minFrameSize - borderWidth; y > max {
+	if max := c.Dy() - f.minHeight() - borderWidth; y > max {
 		y = max
 		yfrac = float64(y) / float64(c.Dy())
 	}
 
+	// The frame we are splitting goes on top.
+	// The added frame goes on the bottom.
 	splitBounds := splitFrame.bounds()
-	if topSize := y - splitBounds.Min.Y; i > 0 && topSize < minFrameSize {
-		if !slideUp(c, i, minFrameSize-topSize) {
-			y += minFrameSize - topSize
+	if topSize := y - splitBounds.Min.Y; i > 0 && topSize < splitFrame.minHeight() {
+		if !slideUp(c, i, splitFrame.minHeight()-topSize) {
+			y += splitFrame.minHeight() - topSize
 			yfrac = float64(y) / float64(c.Dy())
 		}
 	}
-	if bottomSize := splitBounds.Max.Y - y - borderWidth; bottomSize < minFrameSize {
-		if !slideDown(c, i, minFrameSize-bottomSize) {
+	if bottomSize := splitBounds.Max.Y - y - borderWidth; bottomSize < f.minHeight() {
+		if !slideDown(c, i, f.minHeight()-bottomSize) {
 			return false
 		}
 	}
@@ -586,10 +592,7 @@ func slideUp(c *column, i int, delta int) bool {
 	if i <= 0 {
 		return false
 	}
-	min := minFrameSize
-	if i == 1 {
-		min = 0 // min size of the 0th cell is 0.
-	}
+	min := c.frames[i-1].minHeight()
 	y := c.frames[i].bounds().Min.Y - delta
 	if sz := y - c.frames[i-1].bounds().Min.Y - borderWidth; sz < min {
 		if !slideUp(c, i-1, min-sz) {
@@ -604,9 +607,10 @@ func slideDown(c *column, i int, delta int) bool {
 	if i > len(c.frames)-2 {
 		return false
 	}
+	min := c.frames[i].minHeight()
 	y := c.frames[i].bounds().Max.Y + delta
-	if sz := c.frames[i+1].bounds().Max.Y - borderWidth - y; sz < minFrameSize {
-		if !slideDown(c, i+1, minFrameSize-sz) {
+	if sz := c.frames[i+1].bounds().Max.Y - borderWidth - y; sz < min {
+		if !slideDown(c, i+1, min-sz) {
 			return false
 		}
 	}
@@ -659,6 +663,8 @@ func (t *columnTag) setBounds(b image.Rectangle) {
 	t.text.setBounds(b)
 	t.Rectangle = b
 }
+
+func (*columnTag) minHeight() int { return 0 }
 
 func (t *columnTag) setColumn(c *column) { t.col = c }
 
@@ -733,7 +739,7 @@ func (t *columnTag) mouse(w *window, event mouse.Event) bool {
 		case mouse.ButtonLeft:
 			if t.col.win != nil {
 				defer func() { t.col.setBounds(t.col.bounds()) }()
-				return slideDown(t.col, 0, minFrameSize)
+				return slideDown(t.col, 0, minHeight(t.text.opts))
 			}
 			if w.addColumn(float64(t.Min.X)/float64(w.Dx()), t.col) {
 				return true
@@ -772,4 +778,11 @@ func (t *columnTag) mouse(w *window, event mouse.Event) bool {
 		}
 	}
 	return t.text.mouse(w, event)
+}
+
+// MinHeight returns the minimum height
+// for a single line of text in the default style
+// plus padding and a border.
+func minHeight(opts text.Options) int {
+	return int(opts.DefaultStyle.Face.Metrics().Height>>6) + opts.Padding*2 + borderWidth
 }

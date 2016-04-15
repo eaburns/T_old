@@ -110,12 +110,16 @@ func (s *sheet) close() {
 	s.win = nil
 }
 
+func (s *sheet) minHeight() int { return minHeight(s.tag.opts) }
+
 func (s *sheet) bounds() image.Rectangle { return s.Rectangle }
 
 func (s *sheet) setBounds(b image.Rectangle) {
+	// TODO(eaburns): base tag height on the size of its full text, not just one line of text.
+	tagHeight := s.minHeight() - borderWidth
 	s.sep = image.Rectangle{
-		Min: image.Pt(b.Min.X, b.Min.Y+minFrameSize),
-		Max: image.Pt(b.Max.X, b.Min.Y+minFrameSize+borderWidth),
+		Min: image.Pt(b.Min.X, b.Min.Y+tagHeight),
+		Max: image.Pt(b.Max.X, b.Min.Y+tagHeight+borderWidth),
 	}
 	s.tag.setBounds(image.Rectangle{
 		Min: image.Pt(b.Min.X, b.Min.Y),
@@ -142,8 +146,8 @@ func (s *sheet) focus(p image.Point) handler {
 
 func (s *sheet) draw(scr screen.Screen, win screen.Window) {
 	s.tag.draw(scr, win)
-	win.Fill(s.sep, separatorColor, draw.Over)
 	s.body.draw(scr, win)
+	win.Fill(s.sep, separatorColor, draw.Over)
 }
 
 // DrawLast is called if the sheet is in focus, after the entire window has been drawn.
