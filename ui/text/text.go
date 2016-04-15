@@ -124,7 +124,7 @@ func (s *Setter) AddStyle(sty *Style, text []byte) {
 		return
 	}
 
-	ymax := fixed.I(s.opts.Size.Y)
+	ymax := fixed.I(s.opts.Size.Y - 2*s.opts.Padding)
 	var h fixed.Int26_6
 	for _, l := range s.lines {
 		h += l.h
@@ -262,6 +262,8 @@ func (s *Setter) Set() *Text {
 }
 
 // A Text is a type-set text.
+// BUG(eaburns): The text often reaches into the setter's opts.
+// If the opts change, the Text will be broken.
 type Text struct {
 	setter *Setter
 	lines  []*line
@@ -287,7 +289,16 @@ func (t *Text) Release() {
 
 // Index returns the byte index into the text
 // corresponding to the glyph at the given point.
-// 0,0 is the top left of the text.
+// The point 0,0 is the top left of the text.
+//
+// This method is designed with text selection in mind.
+// As such, points outside follow these rules:
+// If the point is above the start of the text, 0 is returned.
+// If the point is below the end of the text, the length of the text is returned.
+// If the point is to the left of a line, the first rune in that line is returned.
+// If the point is to the right of the last rune in a line,
+// the last rune in the line is returned, unless it is \n,
+// in which case the second to last rune in the line is returned.
 func (t *Text) Index(p image.Point) int {
 	px, py := fixed.I(p.X), fixed.I(p.Y)
 	pad := t.setter.opts.Padding
@@ -331,6 +342,13 @@ func (t *Text) Index(p image.Point) int {
 			}
 			j += w
 			i += w
+
+			// If clicking beyond the end of the line,
+			// select the last rune unless that rune is \n.
+			// \n is only selected if clicking before the next line.
+			if r != '\n' {
+				w = 0
+			}
 		}
 	}
 	return i - w
@@ -345,11 +363,63 @@ func (l *line) len() int {
 	return n
 }
 
-// Draw draws the text to the Window.
+// Draw draws the Text to the Window.
+// The entire size is filled even if the lines of text do not occupy the entire space.
 func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
+	y0 := t.DrawLines(at, scr, win)
+	bg := t.setter.opts.DefaultStyle.BG
+	x0, x1, y1 := at.X, at.X+t.size.X, at.Y+t.size.Y
+	win.Fill(image.Rect(x0, y0, x1, y1), bg, draw.Src)
+}
+
+// LinesHeight returns the height of the lines of text.
+// This may differ from Size().Y,
+// because the lines may not occupy the entire vertical space
+// allowed by the text.
+func (t *Text) LinesHeight() int {
+	pad := t.setter.opts.Padding
+	if t.size.Y < 0 {
+		return 0
+	}
+	if t.size.Y-2*pad < 0 {
+		return t.size.Y
+	}
+	y := pad
+	for _, l := range t.lines {
+		h := int(l.h >> 6)
+		if y+h > t.size.Y-pad {
+			break
+		}
+		y += h
+	}
+	if h := trailingNewlineHeight(t); h > 0 && y+h <= t.size.Y-pad {
+		y += h
+	}
+	return y + pad
+}
+
+// DrawLines draws the lines of text and padding.
+// If the lines stop short of the maximum height,
+// bottom padding is drawn, but the full height is not filled.
+// However, the entire width of each line is filled
+// even if the line does not use the full width.
+//
+// The return value is the first y pixel after the bottom padding.
+func (t *Text) DrawLines(at image.Point, scr screen.Screen, win screen.Window) int {
 	pad := t.setter.opts.Padding
 	bg := t.setter.opts.DefaultStyle.BG
 	x0, y0, x1, y1 := at.X, at.Y, at.X+t.size.X, at.Y+t.size.Y
+	if y1 < y0 {
+		y1 = y0
+	}
+	if x1 < x0 {
+		x1 = x0
+	}
+	if t.size.X < pad*2 || t.size.Y < pad*2 {
+		// Too small, just fill what's there with background.
+		win.Fill(image.Rect(x0, y0, x1, y1), bg, draw.Src)
+		return y1
+	}
 
 	var y int
 	x, ynext := at.X+pad, at.Y+pad
@@ -381,19 +451,44 @@ func (t *Text) Draw(at image.Point, scr screen.Screen, win screen.Window) {
 		}
 		if dx < textWidth {
 			lineBG := bg
-			if len(l.spans) > 0 {
-				lineBG = l.spans[len(l.spans)-1].BG
+			if r, ok := lastRune(l); ok && r == '\n' {
+				s := l.spans[len(l.spans)-1]
+				// If the last rune in the line is a \n, fill with the last span BG.
+				lineBG = s.BG
 			}
-			win.Fill(image.Rect(x+dx, y, x1-pad, y1), lineBG, draw.Src)
+			win.Fill(image.Rect(x+dx, y, x1-pad, ynext), lineBG, draw.Src)
 		}
 	}
-	if ynext < y1 {
-		win.Fill(image.Rect(x0+pad, ynext, x1-pad, y1), bg, draw.Src)
+	if h := trailingNewlineHeight(t); h > 0 && ynext+h <= y1-pad {
+		win.Fill(image.Rect(x, ynext, x1-pad, ynext+h), bg, draw.Src)
+		ynext += h
 	}
-	win.Fill(image.Rect(x0, y0, x1, y0+pad), bg, draw.Src)         // top
-	win.Fill(image.Rect(x0, y1-pad, x1, y1), bg, draw.Src)         // bottom
-	win.Fill(image.Rect(x0, y0+pad, x0+pad, y1-pad), bg, draw.Src) // left
-	win.Fill(image.Rect(x1-pad, y0+pad, x1, y1-pad), bg, draw.Src) // right
+	y1 = ynext
+	win.Fill(image.Rect(x0, y0, x1, y0+pad), bg, draw.Src)     // top
+	win.Fill(image.Rect(x0, y0+pad, x0+pad, y1), bg, draw.Src) // left
+	win.Fill(image.Rect(x1-pad, y0+pad, x1, y1), bg, draw.Src) // right
+	win.Fill(image.Rect(x0, y1, x1, y1+pad), bg, draw.Src)     // bottom
+	return y1 + pad
+}
+
+func trailingNewlineHeight(t *Text) int {
+	// If the last line ends with a newline,
+	// add the height of one more empty line if it fits.
+	if len(t.lines) > 0 {
+		if r, ok := lastRune(t.lines[len(t.lines)-1]); ok && r == '\n' {
+			return int(t.setter.opts.DefaultStyle.Face.Metrics().Height >> 6)
+		}
+	}
+	return 0
+}
+
+func lastRune(l *line) (rune, bool) {
+	if len(l.spans) == 0 {
+		return 0, false
+	}
+	s := l.spans[len(l.spans)-1]
+	r, _ := utf8.DecodeLastRuneInString(s.text)
+	return r, true
 }
 
 func drawLine(t *Text, l *line, img draw.Image) {

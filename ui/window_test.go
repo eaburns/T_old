@@ -222,7 +222,8 @@ func TestMove_DoesNotFit(t *testing.T) {
 	defer s.close()
 
 	// Shrink the window height such that each column can only fit two sheets.
-	h := minFrameSize*2 + minFrameSize/2
+	minHeight := w.columns[0].frames[1].minHeight()
+	h := minHeight*2 + minHeight/2
 	w.Send(size.Event{WidthPx: 800, HeightPx: h})
 
 	// Wait for resize before using sheet dimensions.

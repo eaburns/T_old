@@ -26,7 +26,6 @@ type textBox struct {
 	opts      text.Options
 	setter    *text.Setter
 	text      *text.Text
-	image.Rectangle
 
 	mu    sync.RWMutex
 	reset bool
@@ -99,33 +98,31 @@ func (t *textBox) close() {
 	editor.Close(t.bufferURL)
 }
 
-func (t *textBox) bounds() image.Rectangle { return t.Rectangle }
-
-func (t *textBox) setBounds(b image.Rectangle) {
-	if t.Size() != b.Size() {
-		h := t.opts.DefaultStyle.Face.Metrics().Height
-		t.view.Resize(b.Dy() / int(h>>6))
-		t.setText(b.Size())
+// SetSize resets the text if either the size changed or the text changed.
+func (t *textBox) setSize(size image.Point) {
+	t.mu.Lock()
+	if !t.reset && t.opts.Size == size {
+		t.mu.Unlock()
+		return
 	}
-	t.Rectangle = b
-}
+	t.reset = false
+	t.mu.Unlock()
 
-func (t *textBox) draw(scr screen.Screen, win screen.Window) {
-	t.mu.RLock()
-	if t.reset {
-		t.reset = false
-		t.setText(t.Size())
-	}
-	t.mu.RUnlock()
-	t.text.Draw(t.Min, scr, win)
-}
-
-func (t *textBox) setText(size image.Point) {
+	h := t.opts.DefaultStyle.Face.Metrics().Height
+	t.view.Resize(size.Y / int(h>>6))
 	t.text.Release()
 	t.opts.Size = size
 	t.setter.Reset(t.opts)
 	t.view.View(func(text []byte, _ []view.Mark) { t.setter.Add(text) })
 	t.text = t.setter.Set()
+}
+
+func (t *textBox) draw(pt image.Point, scr screen.Screen, win screen.Window) {
+	t.text.Draw(pt, scr, win)
+}
+
+func (t *textBox) drawLines(pt image.Point, scr screen.Screen, win screen.Window) {
+	t.text.DrawLines(pt, scr, win)
 }
 
 var (

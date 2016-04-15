@@ -169,15 +169,21 @@ func (v *View) View(f func(text []byte, marks []Mark)) {
 	v.mu.RUnlock()
 }
 
-// Resize resizes the View to track the given number of lines.
-func (v *View) Resize(nLines int) {
+// Resize resizes the View to track the given number of lines,
+// and returns whether the size actually changed.
+func (v *View) Resize(nLines int) bool {
 	if nLines < 0 {
 		nLines = 0
 	}
 	v.mu.Lock()
+	if v.n == nLines {
+		v.mu.Unlock()
+		return false
+	}
 	v.n = nLines
 	v.mu.Unlock()
 	v.do <- viewDo{}
+	return true
 }
 
 // Scroll scrolls the View by the given delta.
