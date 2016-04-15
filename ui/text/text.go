@@ -451,8 +451,10 @@ func (t *Text) DrawLines(at image.Point, scr screen.Screen, win screen.Window) i
 		}
 		if dx < textWidth {
 			lineBG := bg
-			if len(l.spans) > 0 {
-				lineBG = l.spans[len(l.spans)-1].BG
+			if r, ok := lastRune(l); ok && r == '\n' {
+				s := l.spans[len(l.spans)-1]
+				// If the last rune in the line is a \n, fill with the last span BG.
+				lineBG = s.BG
 			}
 			win.Fill(image.Rect(x+dx, y, x1-pad, ynext), lineBG, draw.Src)
 		}
@@ -473,16 +475,20 @@ func trailingNewlineHeight(t *Text) int {
 	// If the last line ends with a newline,
 	// add the height of one more empty line if it fits.
 	if len(t.lines) > 0 {
-		l := t.lines[len(t.lines)-1]
-		if len(l.spans) > 0 {
-			s := l.spans[len(l.spans)-1]
-			r, _ := utf8.DecodeLastRuneInString(s.text)
-			if r == '\n' {
-				return int(t.setter.opts.DefaultStyle.Face.Metrics().Height >> 6)
-			}
+		if r, ok := lastRune(t.lines[len(t.lines)-1]); ok && r == '\n' {
+			return int(t.setter.opts.DefaultStyle.Face.Metrics().Height >> 6)
 		}
 	}
 	return 0
+}
+
+func lastRune(l *line) (rune, bool) {
+	if len(l.spans) == 0 {
+		return 0, false
+	}
+	s := l.spans[len(l.spans)-1]
+	r, _ := utf8.DecodeLastRuneInString(s.text)
+	return r, true
 }
 
 func drawLine(t *Text, l *line, img draw.Image) {
