@@ -196,6 +196,78 @@ func TestAddVerticalMetrics(t *testing.T) {
 	}
 }
 
+func TestLinesHeight(t *testing.T) {
+	const (
+		pad = 3
+		// Height fits 10 unit-height lines plus 2*pad.
+		height = 16
+	)
+	s := NewSetter(Options{
+		DefaultStyle: Style{Face: &unitFace{}},
+		Size:         image.Pt(1000, height),
+		Padding:      pad,
+	})
+
+	// Lines less than size.
+	s.Add([]byte("1\n2\n3"))
+	txt := s.Set()
+	if txt.Size().Y != height {
+		t.Errorf("txt.Size().Y=%d, want %d", txt.Size().Y, height)
+	}
+	if h := txt.LinesHeight(); h != len(txt.lines)+2*pad {
+		t.Errorf("without trailing newline txt.LinesHeight()=%d, want %d",
+			h, len(txt.lines)+2*pad)
+	}
+
+	// Lines less than size, trailing newline
+	s.Add([]byte("1\n2\n3\n"))
+	txt = s.Set()
+	if txt.Size().Y != height {
+		t.Errorf("txt.Size().Y=%d, want %d", txt.Size().Y, height)
+	}
+	if h := txt.LinesHeight(); h != len(txt.lines)+1+2*pad {
+		t.Errorf("with trailing newline txt.LinesHeight()=%d, want %d",
+			h, len(txt.lines)+1+2*pad)
+	}
+
+	// Size less than line height.
+	s.Add([]byte("1\n2\n3\n4\n5\n6\n7\n8\n9\n0\nX\nY\nZ"))
+	txt = s.Set()
+	if txt.Size().Y != height {
+		t.Errorf("txt.Size().Y=%d, want %d", txt.Size().Y, height)
+	}
+	const maxLines = 10 // Only 10 lines fit the height.
+	if h := txt.LinesHeight(); h != maxLines+2*pad {
+		t.Errorf("size less than height txt.LinesHeight()=%d, want %d",
+			h, maxLines+2*pad)
+	}
+
+	// Height less than padding
+	s0 := NewSetter(Options{
+		DefaultStyle: Style{Face: &unitFace{}},
+		Size:         image.Pt(5, pad/2),
+		Padding:      pad,
+	})
+	s0.Add([]byte("1\n2\n3\n"))
+	txt = s0.Set()
+	if h := txt.LinesHeight(); h != s0.opts.Size.Y {
+		t.Errorf("height less than padding txt.LinesHeight()=%d, want %d",
+			h, s0.opts.Size.Y)
+	}
+
+	// Negative height.
+	s1 := NewSetter(Options{
+		DefaultStyle: Style{Face: &unitFace{}},
+		Size:         image.Pt(5, -1),
+		Padding:      pad,
+	})
+	s1.Add([]byte("1\n2\n3\n"))
+	txt = s1.Set()
+	if h := txt.LinesHeight(); h != 0 {
+		t.Errorf("negative height txt.LinesHeight()=%d, want %d", h, 0)
+	}
+}
+
 func TestReset(t *testing.T) {
 	s := NewSetter(Options{
 		DefaultStyle: Style{Face: &unitFace{}},
