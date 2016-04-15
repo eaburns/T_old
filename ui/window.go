@@ -29,12 +29,28 @@ import (
 // the handler maintains focus
 // even if the pointer moves off of the handler.
 type handler interface {
+	// ChangeFocus is called when the focus of the handler changes.
+	// If the handler is coming into focus,
+	// then the bool argument is true,
+	// otherwise it is false.
+	// The window always redraws on a focus change event.
+	changeFocus(*window, bool)
+
+	// Tick is called whenever the window considers redrawing.
+	// This occurs at almost-regular intervals/
+	// deponding on how long the window required
+	// to draw its previous frame.
+	// The return value is whether to redraw the window.
+	tick(*window) bool
+
 	// Key is called if the handler is in forcus
 	// and the window receives a keyboard event.
+	// The return value is whether to redraw the window.
 	key(*window, key.Event) bool
 
 	// Mouse is called if the handler is in focus
 	// and the window receives a mouse event.
+	// The return value is whether to redraw the window.
 	mouse(*window, mouse.Event) bool
 
 	// DrawLast is called if the handler is in focus
@@ -116,6 +132,9 @@ func (w *window) events() {
 	for {
 		select {
 		case <-timer.C:
+			if w.inFocus != nil && w.inFocus.tick(w) {
+				redraw = true
+			}
 			if !redraw {
 				timer.Reset(drawTime)
 				break
@@ -174,6 +193,12 @@ func (w *window) events() {
 					prev := w.inFocus
 					w.inFocus = w.focus(w.p)
 					if prev != w.inFocus {
+						if prev != nil {
+							prev.changeFocus(w, false)
+						}
+						if w.inFocus != nil {
+							w.inFocus.changeFocus(w, true)
+						}
 						redraw = true
 					}
 				}
@@ -188,6 +213,12 @@ func (w *window) events() {
 					prev := w.inFocus
 					w.inFocus = w.focus(w.p)
 					if prev != w.inFocus {
+						if prev != nil {
+							prev.changeFocus(w, false)
+						}
+						if w.inFocus != nil {
+							w.inFocus.changeFocus(w, true)
+						}
 						redraw = true
 					}
 				}
@@ -690,6 +721,14 @@ func drawBorder(b image.Rectangle, win screen.Window) {
 	win.Fill(image.Rect(x0-borderWidth, y0, x0, y1), borderColor, draw.Over)
 	win.Fill(image.Rect(x0, y1, x1, y1+borderWidth), borderColor, draw.Over)
 	win.Fill(image.Rect(x1, y0, x1+borderWidth, y1), borderColor, draw.Over)
+}
+
+func (t *columnTag) changeFocus(win *window, inFocus bool) {
+	t.text.changeFocus(win, inFocus)
+}
+
+func (t *columnTag) tick(win *window) bool {
+	return t.text.tick(win)
 }
 
 func (t *columnTag) key(w *window, event key.Event) bool {
