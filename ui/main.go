@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"runtime"
 
 	"github.com/eaburns/T/editor"
 	"github.com/eaburns/T/editor/editortest"
@@ -21,8 +20,6 @@ import (
 	"golang.org/x/exp/shiny/driver"
 	"golang.org/x/exp/shiny/screen"
 )
-
-func init() { runtime.LockOSThread() }
 
 func main() { driver.Main(Main) }
 
