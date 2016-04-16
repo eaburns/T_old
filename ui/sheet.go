@@ -15,6 +15,7 @@ import (
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/mobile/event/key"
 	"golang.org/x/mobile/event/mouse"
+	"golang.org/x/mobile/event/paint"
 )
 
 var (
@@ -139,11 +140,21 @@ func (s *sheet) setBounds(b image.Rectangle) {
 func (s *sheet) setColumn(c *column) { s.col = c }
 
 func (s *sheet) focus(p image.Point) handler {
-	s.subFocus = nil
+	prev := s.subFocus
 	if p.Y < s.sep.Min.Y {
 		s.subFocus = s.tag
 	} else if p.Y >= s.sep.Max.Y {
 		s.subFocus = s.body
+	}
+	if s.subFocus != prev {
+		if prev != nil {
+			prev.changeFocus(s.win, false)
+		}
+		if s.subFocus != nil {
+			s.subFocus.changeFocus(s.win, true)
+		}
+		// Always redraw on focus change.
+		s.win.Send(paint.Event{})
 	}
 	return s
 }
@@ -163,6 +174,19 @@ func (s *sheet) drawLast(scr screen.Screen, win screen.Window) {
 		s.draw(scr, win)
 		drawBorder(s.bounds(), win)
 	}
+}
+
+func (s *sheet) changeFocus(win *window, inFocus bool) {
+	if s.subFocus != nil {
+		s.subFocus.changeFocus(win, inFocus)
+	}
+}
+
+func (s *sheet) tick(win *window) bool {
+	if s.subFocus != nil {
+		return s.subFocus.tick(win)
+	}
+	return false
 }
 
 func (s *sheet) key(w *window, event key.Event) bool {

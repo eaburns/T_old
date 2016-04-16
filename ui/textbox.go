@@ -5,9 +5,12 @@ package ui
 import (
 	"errors"
 	"image"
+	"image/color"
+	"image/draw"
 	"net/url"
 	"path"
 	"sync"
+	"time"
 
 	"github.com/eaburns/T/edit"
 	"github.com/eaburns/T/editor"
@@ -19,6 +22,12 @@ import (
 	"golang.org/x/mobile/event/paint"
 )
 
+const (
+	// TODO(eaburns): use points, not pixels.
+	cursorWidth   = 1 // px
+	blinkDuration = 500 * time.Millisecond
+)
+
 // A textBox is an editable text box.
 type textBox struct {
 	bufferURL *url.URL
@@ -26,6 +35,12 @@ type textBox struct {
 	opts      text.Options
 	setter    *text.Setter
 	text      *text.Text
+
+	textLen  int
+	l0, dot0 int64
+
+	lastBlink        time.Time
+	inFocus, blinkOn bool
 
 	mu    sync.RWMutex
 	reset bool
@@ -113,16 +128,62 @@ func (t *textBox) setSize(size image.Point) {
 	t.text.Release()
 	t.opts.Size = size
 	t.setter.Reset(t.opts)
-	t.view.View(func(text []byte, _ []view.Mark) { t.setter.Add(text) })
+
+	t.view.View(func(text []byte, marks []view.Mark) {
+		t.textLen = len(text)
+		t.setter.Add(text)
+		for _, m := range marks {
+			switch m.Name {
+			case view.ViewMark:
+				t.l0 = m.Where[0]
+			case '.':
+				t.dot0 = m.Where[0]
+			}
+		}
+	})
+
 	t.text = t.setter.Set()
+
+	if t.inFocus {
+		t.blinkOn = true
+		t.lastBlink = time.Now()
+	}
 }
 
 func (t *textBox) draw(pt image.Point, scr screen.Screen, win screen.Window) {
 	t.text.Draw(pt, scr, win)
+	t.drawDot(pt, win)
 }
 
 func (t *textBox) drawLines(pt image.Point, scr screen.Screen, win screen.Window) {
 	t.text.DrawLines(pt, scr, win)
+	t.drawDot(pt, win)
+}
+
+func (t *textBox) drawDot(pt image.Point, win screen.Window) {
+	l, d := t.l0, t.dot0
+	if !t.blinkOn || d < t.l0 || d > l+int64(t.textLen) || t.opts.Size.X < cursorWidth {
+		return
+	}
+	i := int(d - l)
+	r := t.text.GlyphBox(i).Add(pt)
+	r.Max.X = r.Min.X + cursorWidth
+	win.Fill(r, color.Black, draw.Src)
+}
+
+func (t *textBox) changeFocus(_ *window, inFocus bool) {
+	t.inFocus = inFocus
+	t.blinkOn = inFocus
+	t.lastBlink = time.Now()
+}
+
+func (t *textBox) tick(win *window) bool {
+	if s := time.Since(t.lastBlink); s < blinkDuration {
+		return false
+	}
+	t.lastBlink = time.Now()
+	t.blinkOn = !t.blinkOn
+	return true
 }
 
 var (
