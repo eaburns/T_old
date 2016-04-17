@@ -64,10 +64,8 @@ type handler interface {
 }
 
 const (
-	// TODO(eaburns): change to minFrameWidth=20,
-	// make minFrameHeight a per-frame value based on font height.
-	minFrameSize = 20 // px
-	borderWidth  = 1  // px
+	minFrameWidth = 20 // px
+	borderWidth   = 1  // px
 )
 
 var borderColor = color.Black
@@ -376,23 +374,23 @@ func (w *window) addColumn(xfrac float64, c *column) bool {
 	i, splitCol := columnAt(w, x)
 
 	// Push away from the window edges.
-	if x < minFrameSize {
-		x = minFrameSize
+	if x < minFrameWidth {
+		x = minFrameWidth
 		xfrac = float64(x) / float64(w.Dx())
 	}
-	if max := w.Dx() - minFrameSize - borderWidth; x > max {
+	if max := w.Dx() - minFrameWidth - borderWidth; x > max {
 		x = max
 		xfrac = float64(x) / float64(w.Dx())
 	}
 
-	if leftSize := x - splitCol.Min.X; leftSize < minFrameSize {
-		if !slideLeft(w, i, minFrameSize-leftSize) {
-			x += minFrameSize - leftSize
+	if leftSize := x - splitCol.Min.X; leftSize < minFrameWidth {
+		if !slideLeft(w, i, minFrameWidth-leftSize) {
+			x += minFrameWidth - leftSize
 			xfrac = float64(x) / float64(w.Dx())
 		}
 	}
-	if rightSize := splitCol.Max.X - x - borderWidth; rightSize < minFrameSize {
-		if !slideRight(w, i, minFrameSize-rightSize) {
+	if rightSize := splitCol.Max.X - x - borderWidth; rightSize < minFrameWidth {
+		if !slideRight(w, i, minFrameWidth-rightSize) {
 			return false
 		}
 	}
@@ -437,8 +435,8 @@ func slideLeft(w *window, i int, delta int) bool {
 		return false
 	}
 	x := w.columns[i].Min.X - delta
-	if sz := x - w.columns[i-1].Min.X; sz < minFrameSize {
-		if !slideLeft(w, i-1, minFrameSize-sz) {
+	if sz := x - w.columns[i-1].Min.X; sz < minFrameWidth {
+		if !slideLeft(w, i-1, minFrameWidth-sz) {
 			return false
 		}
 	}
@@ -451,8 +449,8 @@ func slideRight(w *window, i int, delta int) bool {
 		return false
 	}
 	x := w.columns[i].Max.X + delta
-	if sz := w.columns[i+1].Max.X - borderWidth - x; sz < minFrameSize {
-		if !slideRight(w, i+1, minFrameSize-sz) {
+	if sz := w.columns[i+1].Max.X - borderWidth - x; sz < minFrameWidth {
+		if !slideRight(w, i+1, minFrameWidth-sz) {
 			return false
 		}
 	}

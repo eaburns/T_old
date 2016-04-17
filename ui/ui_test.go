@@ -203,7 +203,7 @@ func TestNewColumn_WindowEdges(t *testing.T) {
 	wait(w)
 
 	min := 0.0
-	max := float64(w.Dx()-minFrameSize) / float64(w.Dx())
+	max := float64(w.Dx()-minFrameWidth) / float64(w.Dx())
 
 	// 1 original, plus 6 added.
 	const N = 7
@@ -226,7 +226,7 @@ func TestNewColumn_DoesNotFit(t *testing.T) {
 
 	winsURL := urlWithPath(s.url, "/", "windows")
 	// MinFrameSize only fits one column.
-	win, err := NewWindow(winsURL, image.Pt(minFrameSize, 600))
+	win, err := NewWindow(winsURL, image.Pt(minFrameWidth, 600))
 	if err != nil {
 		t.Fatalf("NewWindow(%q)=%v,%v, want _,nil", winsURL, win, err)
 	}
@@ -343,7 +343,7 @@ func TestNewSheet_DoesNotFit(t *testing.T) {
 
 	winsURL := urlWithPath(s.url, "/", "windows")
 	// MinFrameSize can only fit 1 sheet.
-	win, err := NewWindow(winsURL, image.Pt(800, minFrameSize))
+	win, err := NewWindow(winsURL, image.Pt(800, minFrameWidth))
 	if err != nil {
 		t.Fatalf("NewWindow(%q)=%v,%v, want _,nil", winsURL, win, err)
 	}
