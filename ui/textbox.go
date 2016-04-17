@@ -187,10 +187,12 @@ func (t *textBox) tick(win *window) bool {
 }
 
 var (
-	advanceDot = edit.Set(edit.Dot.Plus(edit.Clamp(edit.Rune(1))), '.')
-	backspace  = edit.Delete(edit.Dot.Minus(edit.Clamp(edit.Rune(1))).To(edit.Dot))
-	newline    = []edit.Edit{edit.Change(edit.Dot, "\n"), advanceDot}
-	tab        = []edit.Edit{edit.Change(edit.Dot, "\t"), advanceDot}
+	moveDotRight = edit.Set(edit.Dot.Plus(edit.Clamp(edit.Rune(1))), '.')
+	moveDotLeft  = edit.Set(edit.Dot.Minus(edit.Clamp(edit.Rune(1))), '.')
+	zeroDot      = edit.Set(edit.Dot.Plus(edit.Clamp(edit.Rune(0))), '.')
+	backspace    = edit.Delete(edit.Dot.Minus(edit.Clamp(edit.Rune(1))).To(edit.Dot))
+	newline      = []edit.Edit{edit.Change(edit.Dot, "\n"), zeroDot}
+	tab          = []edit.Edit{edit.Change(edit.Dot, "\t"), zeroDot}
 )
 
 func (t *textBox) key(w *window, event key.Event) bool {
@@ -198,6 +200,10 @@ func (t *textBox) key(w *window, event key.Event) bool {
 		return false
 	}
 	switch event.Code {
+	case key.CodeRightArrow:
+		t.view.Do(nil, moveDotRight)
+	case key.CodeLeftArrow:
+		t.view.Do(nil, moveDotLeft)
 	case key.CodeDeleteBackspace:
 		t.view.Do(nil, backspace)
 	case key.CodeReturnEnter:
@@ -206,7 +212,7 @@ func (t *textBox) key(w *window, event key.Event) bool {
 		t.view.Do(nil, tab...)
 	default:
 		if event.Rune >= 0 {
-			t.view.Do(nil, edit.Change(edit.Dot, string(event.Rune)), advanceDot)
+			t.view.Do(nil, edit.Change(edit.Dot, string(event.Rune)), zeroDot)
 		}
 	}
 	return false
