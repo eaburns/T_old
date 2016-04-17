@@ -414,10 +414,17 @@ func errMatch(re string, err error) bool {
 // split across blocks of sizes: 8, 4, 3, 4, 8.
 func makeTestBytes(t *testing.T) *Buffer {
 	b := NewBuffer(testBlockSize)
-	// Add 3 full blocks.
-	if err := b.Insert([]rune("01234567abcdefghSTUVWXYZ"), 0); err != nil {
+	// Insert 2 full blocks one rune at a time.
+	for _, r := range "01234567abcdefgh" {
+		if err := b.Insert([]rune{r}, b.Size()); err != nil {
+			b.Close()
+			t.Fatalf(`insert("%c", %d)=%v, want nil`, r, b.Size(), err)
+		}
+	}
+	// Add 1 full block.
+	if err := b.Insert([]rune("STUVWXYZ"), b.Size()); err != nil {
 		b.Close()
-		t.Fatalf(`insert("01234567abcdefghSTUVWXYZ", 0)=%v, want nil`, err)
+		t.Fatalf(`insert("STUVWXYZ", %d)=%v, want nil`, b.Size(), err)
 	}
 	// Split block 1 in the middle.
 	if err := b.Insert([]rune("!@#"), 12); err != nil {
