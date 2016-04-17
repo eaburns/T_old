@@ -1046,6 +1046,18 @@ var plusTests = []editTest{
 		do:    address(Rune(0).Plus(Rune(1)).Between(Rune(0))),
 		want:  "{..a}a{a}bcde",
 	},
+	{
+		name:  "plus 0 from mid line",
+		given: "abc{..}def",
+		do:    address(Dot.Plus(Line(0))),
+		want:  "abc{..a}def{a}",
+	},
+	{
+		name:  "plus 0 from start of line",
+		given: "abc\n{..}def",
+		do:    address(Dot.Plus(Line(0))),
+		want:  "abc\n{..aa}def",
+	},
 }
 
 func TestAddressPlus(t *testing.T) {
@@ -1156,6 +1168,18 @@ var minusTests = []editTest{
 		given: "{..}abcde",
 		do:    address(Rune(2).Minus(Rune(1)).Between(Rune(0))),
 		want:  "{..a}a{a}bcde",
+	},
+	{
+		name:  "minus 0 from mid line",
+		given: "abc{..}def",
+		do:    address(Dot.Minus(Line(0))),
+		want:  "{a}abc{..a}def",
+	},
+	{
+		name:  "minus 0 from start of line",
+		given: "abc\n{..}def",
+		do:    address(Dot.Minus(Line(0))),
+		want:  "abc\n{..aa}def",
 	},
 }
 
