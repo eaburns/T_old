@@ -976,6 +976,32 @@ var regexpTests = []editTest{
 		do:    address(Regexp("(?:abc)")),
 		want:  "{..a}abc{a}",
 	},
+
+	// BUG(eaburns): Buggy cases with ^ and $. Issue #274.
+	//	{
+	//		name:  "next ^",
+	//		given: "a{..}bc\nxyz",
+	//		do:    address(Dot.Plus(Regexp(`^`))),
+	//		want:  "a{..}bc\n{aa}xyz",
+	//	},
+	{
+		name:  "next $",
+		given: "a{..}bc\nxyz",
+		do:    address(Dot.Plus(Regexp(`$`))),
+		want:  "a{..}bc{aa}\nxyz",
+	},
+	//	{
+	//		name:  "previous ^",
+	//		given: "abc\nxy{..}z",
+	//		do:    address(Dot.Minus(Regexp(`^`))),
+	//		want:  "abc\n{aa}xy{..}z",
+	//	},
+	//	{
+	//		name:  "previous $",
+	//		given: "abc\nxy{..}z",
+	//		do:    address(Dot.Minus(Regexp(`$`))),
+	//		want:  "abc{aa}\nxy{..}z",
+	//	},
 }
 
 func TestAddressRegexp(t *testing.T) {
