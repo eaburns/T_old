@@ -11,7 +11,7 @@ import (
 	"github.com/eaburns/T/edit"
 	"github.com/eaburns/T/ui/text"
 	"golang.org/x/exp/shiny/screen"
-	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/font"
 	"golang.org/x/mobile/event/key"
 	"golang.org/x/mobile/event/lifecycle"
 	"golang.org/x/mobile/event/mouse"
@@ -73,15 +73,23 @@ const (
 
 var borderColor = color.Black
 
+const (
+	ptPerInch  = 72
+	defaultDPI = 96
+)
+
 type window struct {
 	id     string
 	server *Server
 	screen.Window
+	face font.Face
 	image.Rectangle
 	columns []*column
 	xs      []float64
 	inFocus handler
 	p       image.Point
+
+	dpi float64
 }
 
 func newWindow(id string, s *Server, size image.Point) (*window, error) {
@@ -97,15 +105,38 @@ func newWindow(id string, s *Server, size image.Point) (*window, error) {
 		server:    s,
 		Window:    win,
 		Rectangle: image.Rect(0, 0, size.X, size.Y),
+
+		// dpi is set to the true value by a size.Event.
+		dpi: defaultDPI,
 	}
+	w.getDPI()
 	c, err := newColumn(w)
 	if err != nil {
 		win.Release()
+		w.face.Close()
 		return nil, err
 	}
 	w.addColumn(0.0, c)
 	go w.events()
 	return w, nil
+}
+
+// GetDPI reads and discards events until a size.Event, from which the DPI is read.
+func (w *window) getDPI() {
+	for {
+		switch e := w.NextEvent().(type) {
+		case size.Event:
+			w.dpi = float64(e.PixelsPerPt * ptPerInch)
+			if w.dpi < defaultDPI {
+				// TODO(eaburns): remove this once x11driver correctly computes DPI.
+				// The x11driver currently assumes 1px/pt, so DPI=72.
+				// This is almost always wrong, so just use 96.
+				w.dpi = defaultDPI
+			}
+			w.face = newFace(w.dpi)
+			return
+		}
+	}
 }
 
 type closeEvent struct{}
@@ -156,6 +187,7 @@ func (w *window) events() {
 				if f, ok := w.inFocus.(frame); ok {
 					f.close()
 				}
+				w.face.Close()
 				w.Release()
 				return
 			}
@@ -663,7 +695,7 @@ type columnTag struct {
 
 func newColumnTag(w *window) (*columnTag, error) {
 	text, err := newTextBox(w, *w.server.editorURL, text.Style{
-		Face: basicfont.Face7x13,
+		Face: w.face,
 		FG:   color.Black,
 		BG:   color.Gray16{0xF5F5},
 	})
