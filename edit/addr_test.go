@@ -801,6 +801,30 @@ var regexpTests = []editTest{
 		want:  "{a}aaaa{..a}aaaaa",
 	},
 	{
+		name:  "reverse with preceeding full and empty matches",
+		given: "hello world   {..}",
+		do:    address(Dot.Minus(Regexp(`\W*`))),
+		want:  "hello world{a}   {..a}",
+	},
+	{
+		name:  "previous word, with one regexp",
+		given: "hello world   {..}",
+		do:    address(Dot.Minus(Regexp(`\w*\W*`))),
+		want:  "hello {a}world   {..a}",
+	},
+	{
+		name:  "previous previous word, with one regexp",
+		given: "hello world   {..}",
+		do:    address(Dot.Minus(Regexp(`\w*\W*`)).Minus(Regexp(`\w*\W*`))),
+		want:  "{a}hello {a}world   {..}",
+	},
+	{
+		name:  "previous word, with two regexps",
+		given: "hello world   {..}",
+		do:    address(Dot.Minus(Regexp(`\W*`)).Minus(Regexp(`\w*`)).To(Dot.Plus(Rune(0)))),
+		want:  "hello {a}world   {..a}",
+	},
+	{
 		name:  "^ starting from beginning of line",
 		given: "abc\n{..}def",
 		do:    address(Regexp("^def")),
@@ -952,6 +976,32 @@ var regexpTests = []editTest{
 		do:    address(Regexp("(?:abc)")),
 		want:  "{..a}abc{a}",
 	},
+
+	// BUG(eaburns): Buggy cases with ^ and $. Issue #274.
+	//	{
+	//		name:  "next ^",
+	//		given: "a{..}bc\nxyz",
+	//		do:    address(Dot.Plus(Regexp(`^`))),
+	//		want:  "a{..}bc\n{aa}xyz",
+	//	},
+	{
+		name:  "next $",
+		given: "a{..}bc\nxyz",
+		do:    address(Dot.Plus(Regexp(`$`))),
+		want:  "a{..}bc{aa}\nxyz",
+	},
+	//	{
+	//		name:  "previous ^",
+	//		given: "abc\nxy{..}z",
+	//		do:    address(Dot.Minus(Regexp(`^`))),
+	//		want:  "abc\n{aa}xy{..}z",
+	//	},
+	//	{
+	//		name:  "previous $",
+	//		given: "abc\nxy{..}z",
+	//		do:    address(Dot.Minus(Regexp(`$`))),
+	//		want:  "abc{aa}\nxy{..}z",
+	//	},
 }
 
 func TestAddressRegexp(t *testing.T) {
@@ -1045,6 +1095,18 @@ var plusTests = []editTest{
 		given: "{..}abcde",
 		do:    address(Rune(0).Plus(Rune(1)).Between(Rune(0))),
 		want:  "{..a}a{a}bcde",
+	},
+	{
+		name:  "plus 0 from mid line",
+		given: "abc{..}def",
+		do:    address(Dot.Plus(Line(0))),
+		want:  "abc{..a}def{a}",
+	},
+	{
+		name:  "plus 0 from start of line",
+		given: "abc\n{..}def",
+		do:    address(Dot.Plus(Line(0))),
+		want:  "abc\n{..aa}def",
 	},
 }
 
@@ -1156,6 +1218,18 @@ var minusTests = []editTest{
 		given: "{..}abcde",
 		do:    address(Rune(2).Minus(Rune(1)).Between(Rune(0))),
 		want:  "{..a}a{a}bcde",
+	},
+	{
+		name:  "minus 0 from mid line",
+		given: "abc{..}def",
+		do:    address(Dot.Minus(Line(0))),
+		want:  "{a}abc{..a}def",
+	},
+	{
+		name:  "minus 0 from start of line",
+		given: "abc\n{..}def",
+		do:    address(Dot.Minus(Line(0))),
+		want:  "abc\n{..aa}def",
 	},
 }
 

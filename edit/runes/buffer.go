@@ -96,10 +96,10 @@ func (b *Buffer) Size() int64 { return b.size }
 // Rune returns the rune at the given offset.
 // If the rune is out of range it panics.
 func (b *Buffer) Rune(offs int64) (rune, error) {
-	if offs < 0 || offs > b.Size() {
+	if offs < 0 || offs >= b.Size() {
 		panic("rune index out of bounds")
 	}
-	if q0 := b.cached0; q0 <= offs && offs < q0+int64(b.blocks[b.cached].n) {
+	if q0 := b.cached0; b.cached >= 0 && q0 <= offs && offs < q0+int64(b.blocks[b.cached].n) {
 		return b.cache[offs-q0], nil
 	}
 	i, q0 := b.blockAt(offs)
@@ -262,7 +262,25 @@ func readLen(r Reader) (int64, bool) {
 // and returns a slice of the cache
 // corresponding to the space.
 func (b *Buffer) makeSpace(n, at int64) ([]rune, error) {
-	i, blkStart := b.blockAt(at)
+	var i int
+	var blkStart int64
+	switch {
+	case len(b.blocks) == 0:
+		// Insert the initial block.
+		var err error
+		i, err = b.insertAt(at)
+		if err != nil {
+			return nil, err
+		}
+	case at == b.Size():
+		// Try to extend the last block if we are inserting on the end.
+		for _, blk := range b.blocks[:len(b.blocks)-1] {
+			blkStart += int64(blk.n)
+		}
+		i = len(b.blocks) - 1
+	default:
+		i, blkStart = b.blockAt(at)
+	}
 	blk, err := b.get(i)
 	if err != nil {
 		return nil, err
@@ -313,6 +331,7 @@ func (b *Buffer) Delete(n, offs int64) error {
 			// Remove the entire block.
 			b.freeBlock(*blk)
 			b.blocks = append(b.blocks[:i], b.blocks[i+1:]...)
+			b.cached0 = -1
 			b.cached = -1
 		} else {
 			// Remove a portion of the block.
@@ -352,17 +371,10 @@ func (b *Buffer) freeBlock(blk block) {
 }
 
 // BlockAt returns the index and start address of the block containing the address.
-// If the address is one beyond the end of the file, a new block is allocated.
-// BlockAt panics if the address is negative or more than one past the end.
+// BlockAt panics if the address is not within the range of the buffer.
 func (b *Buffer) blockAt(at int64) (int, int64) {
-	if at < 0 || at > b.Size() {
+	if at < 0 || at >= b.Size() {
 		panic("invalid offset: " + strconv.FormatInt(at, 10))
-	}
-	if at == b.Size() {
-		i := len(b.blocks)
-		blk := b.allocBlock()
-		b.blocks = append(b.blocks[:i], append([]block{blk}, b.blocks[i:]...)...)
-		return i, at
 	}
 	var q0 int64
 	for i, blk := range b.blocks {
@@ -377,6 +389,11 @@ func (b *Buffer) blockAt(at int64) (int, int64) {
 // insertAt inserts a block at the address and returns the new block's index.
 // If a block contains the address then it is split.
 func (b *Buffer) insertAt(at int64) (int, error) {
+	if at == b.Size() {
+		b.blocks = append(b.blocks, b.allocBlock())
+		return len(b.blocks) - 1, nil
+	}
+
 	i, q0 := b.blockAt(at)
 	o := int(at - q0)
 	blk := b.blocks[i]

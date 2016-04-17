@@ -253,32 +253,40 @@ func (a end) where(from int64, text Text) (Span, error) {
 	return Span{size, size}, nil
 }
 
-type line int
+type line struct {
+	n   int
+	rev bool
+}
 
 // Line returns the Address of the nth full line.
 // A negative n is interpreted as n=0.
 func Line(n int) SimpleAddress {
 	if n < 0 {
-		return line(0)
+		return line{}
 	}
-	return line(n)
+	return line{n: n}
 }
 
-func (a line) String() string                    { return strconv.Itoa(int(a)) }
+func (a line) String() string                    { return strconv.Itoa(int(a.n)) }
 func (a line) To(b AdditiveAddress) Address      { return to{left: a, right: b} }
 func (a line) Then(b AdditiveAddress) Address    { return then{left: a, right: b} }
 func (a line) Between(b AdditiveAddress) Address { return between{left: a, right: b} }
 
 func (a line) Plus(b SimpleAddress) AdditiveAddress  { return plus{left: a, right: b} }
 func (a line) Minus(b SimpleAddress) AdditiveAddress { return minus{left: a, right: b} }
-func (a line) reverse() SimpleAddress                { return line(int(-a)) }
-func (a line) Where(text Text) (Span, error)         { return a.where(0, text) }
+
+func (a line) reverse() SimpleAddress {
+	a.rev = !a.rev
+	return a
+}
+
+func (a line) Where(text Text) (Span, error) { return a.where(0, text) }
 
 func (a line) where(from int64, text Text) (Span, error) {
-	if a < 0 {
-		return lineBackward(int(-a), from, text)
+	if a.rev {
+		return lineBackward(a.n, from, text)
 	}
-	return lineForward(int(a), from, text)
+	return lineForward(a.n, from, text)
 }
 
 func lineForward(n int, from int64, text Text) (Span, error) {
@@ -351,7 +359,6 @@ func lineBackward(n int, from int64, text Text) (Span, error) {
 				s[0] -= int64(w)
 			}
 		}
-		s[1] = s[0]
 	}
 	rr := text.RuneReader(Span{s[0], 0})
 	for n > 0 {
@@ -510,7 +517,7 @@ func prevMatch(re *regexp.Regexp, from int64, text Text, wrap bool) []int {
 			break
 		}
 		cur := match(re, span, text)
-		if len(cur) < 2 || len(prev) >= 2 && prev[1] == cur[1] {
+		if len(cur) < 2 || len(prev) >= 2 && prev[1] == cur[1] && int64(cur[1]) == from {
 			break
 		}
 		prev = cur
