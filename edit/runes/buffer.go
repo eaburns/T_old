@@ -99,7 +99,7 @@ func (b *Buffer) Rune(offs int64) (rune, error) {
 	if offs < 0 || offs > b.Size() {
 		panic("rune index out of bounds")
 	}
-	if q0 := b.cached0; q0 <= offs && offs < q0+int64(b.blocks[b.cached].n) {
+	if q0 := b.cached0; b.cached >= 0 && q0 <= offs && offs < q0+int64(b.blocks[b.cached].n) {
 		return b.cache[offs-q0], nil
 	}
 	i, q0 := b.blockAt(offs)
@@ -313,6 +313,7 @@ func (b *Buffer) Delete(n, offs int64) error {
 			// Remove the entire block.
 			b.freeBlock(*blk)
 			b.blocks = append(b.blocks[:i], b.blocks[i+1:]...)
+			b.cached0 = -1
 			b.cached = -1
 		} else {
 			// Remove a portion of the block.
