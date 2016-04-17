@@ -12,6 +12,8 @@ fail() {
 	exit 1
 }
 
+trap fail INT TERM
+
 echo Formatting
 gofmt -l $(find . -name '*.go') 2>&1 > $o
 test $(wc -l $o | awk '{ print $1 }') = "0" || fail
