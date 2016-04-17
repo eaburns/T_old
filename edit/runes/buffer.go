@@ -96,7 +96,7 @@ func (b *Buffer) Size() int64 { return b.size }
 // Rune returns the rune at the given offset.
 // If the rune is out of range it panics.
 func (b *Buffer) Rune(offs int64) (rune, error) {
-	if offs < 0 || offs > b.Size() {
+	if offs < 0 || offs >= b.Size() {
 		panic("rune index out of bounds")
 	}
 	if q0 := b.cached0; b.cached >= 0 && q0 <= offs && offs < q0+int64(b.blocks[b.cached].n) {
