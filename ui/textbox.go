@@ -187,12 +187,16 @@ func (t *textBox) tick(win *window) bool {
 }
 
 var (
-	moveDotRight = edit.Set(edit.Dot.Plus(edit.Clamp(edit.Rune(1))), '.')
-	moveDotLeft  = edit.Set(edit.Dot.Minus(edit.Clamp(edit.Rune(1))), '.')
-	zeroDot      = edit.Set(edit.Dot.Plus(edit.Clamp(edit.Rune(0))), '.')
-	backspace    = edit.Delete(edit.Dot.Minus(edit.Clamp(edit.Rune(1))).To(edit.Dot))
-	newline      = []edit.Edit{edit.Change(edit.Dot, "\n"), zeroDot}
-	tab          = []edit.Edit{edit.Change(edit.Dot, "\t"), zeroDot}
+	dot          = edit.Dot
+	zero         = edit.Clamp(edit.Rune(0))
+	one          = edit.Clamp(edit.Rune(1))
+	moveDotRight = edit.Set(dot.Plus(one), '.')
+	moveDotLeft  = edit.Set(dot.Minus(one), '.')
+	backspace    = edit.Delete(dot.Minus(one).To(dot))
+	backline     = edit.Delete(dot.Plus(zero).Minus(edit.Line(0)))
+	backword     = edit.Delete(dot.Plus(zero).Minus(edit.Regexp(`\w*\W*`)))
+	newline      = []edit.Edit{edit.Change(dot, "\n"), edit.Set(dot.Plus(zero), '.')}
+	tab          = []edit.Edit{edit.Change(dot, "\t"), edit.Set(dot.Plus(zero), '.')}
 )
 
 func (t *textBox) key(w *window, event key.Event) bool {
@@ -211,8 +215,25 @@ func (t *textBox) key(w *window, event key.Event) bool {
 	case key.CodeTab:
 		t.view.Do(nil, tab...)
 	default:
-		if event.Rune >= 0 {
-			t.view.Do(nil, edit.Change(edit.Dot, string(event.Rune)), zeroDot)
+		switch event.Modifiers {
+		case 0, key.ModShift:
+			if event.Rune >= 0 {
+				r := string(event.Rune)
+				t.view.Do(nil, edit.Change(dot, r), edit.Set(dot.Plus(zero), '.'))
+			}
+		case key.ModControl:
+			switch event.Rune {
+			case 'a':
+				t.view.Do(nil, edit.Set(dot.Minus(edit.Line(0)).Minus(zero), '.'))
+			case 'e':
+				t.view.Do(nil, edit.Set(dot.Plus(edit.Regexp("$")), '.'))
+			case 'h':
+				t.view.Do(nil, backspace)
+			case 'u':
+				t.view.Do(nil, backline)
+			case 'w':
+				t.view.Do(nil, backword)
+			}
 		}
 	}
 	return false
