@@ -9,6 +9,8 @@ import (
 
 	"golang.org/x/exp/shiny/screen"
 	"golang.org/x/image/math/f64"
+	"golang.org/x/mobile/event/size"
+	"golang.org/x/mobile/geom"
 )
 
 type stubScreen struct{}
@@ -22,7 +24,16 @@ func (*stubScreen) NewTexture(size image.Point) (screen.Texture, error) {
 }
 
 func (*stubScreen) NewWindow(opts *screen.NewWindowOptions) (screen.Window, error) {
-	return newTestWindow(opts), nil
+	w := newTestWindow(opts)
+	const pxPerPt = defaultDPI / ptPerInch
+	w.Send(size.Event{
+		WidthPx:     opts.Width,
+		HeightPx:    opts.Height,
+		WidthPt:     geom.Pt(opts.Width) * pxPerPt,
+		HeightPt:    geom.Pt(opts.Height) * pxPerPt,
+		PixelsPerPt: pxPerPt,
+	})
+	return w, nil
 }
 
 type stubBuffer struct{ img *image.RGBA }

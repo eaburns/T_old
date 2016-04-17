@@ -12,7 +12,6 @@ import (
 	"github.com/eaburns/T/edit"
 	"github.com/eaburns/T/ui/text"
 	"golang.org/x/exp/shiny/screen"
-	"golang.org/x/image/font/basicfont"
 	"golang.org/x/mobile/event/key"
 	"golang.org/x/mobile/event/mouse"
 	"golang.org/x/mobile/event/paint"
@@ -73,7 +72,7 @@ func newSheet(id string, URL *url.URL, w *window) (*sheet, error) {
 	mu.Unlock()
 
 	tag, err := newTextBox(w, *w.server.editorURL, text.Style{
-		Face: basicfont.Face7x13,
+		Face: w.face,
 		FG:   color.Black,
 		BG:   tagBG,
 	})
@@ -86,7 +85,7 @@ func newSheet(id string, URL *url.URL, w *window) (*sheet, error) {
 	s.tag = tag
 
 	body, err := newTextBox(w, *URL, text.Style{
-		Face: basicfont.Face7x13,
+		Face: w.face,
 		FG:   color.Black,
 		BG:   color.NRGBA{R: 0xFA, G: 0xF0, B: 0xE6, A: 0xFF},
 	})
