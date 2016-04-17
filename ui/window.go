@@ -63,7 +63,6 @@ type handler interface {
 	drawLast(scr screen.Screen, win screen.Window)
 }
 
-// TODO(eaburns): use points, not pixels.
 const (
 	// TODO(eaburns): change to minFrameWidth=20,
 	// make minFrameHeight a per-frame value based on font height.
