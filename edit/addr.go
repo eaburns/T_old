@@ -517,7 +517,7 @@ func prevMatch(re *regexp.Regexp, from int64, text Text, wrap bool) []int {
 			break
 		}
 		cur := match(re, span, text)
-		if len(cur) < 2 || len(prev) >= 2 && prev[1] == cur[1] {
+		if len(cur) < 2 || len(prev) >= 2 && prev[1] == cur[1] && int64(cur[1]) == from {
 			break
 		}
 		prev = cur

@@ -801,6 +801,30 @@ var regexpTests = []editTest{
 		want:  "{a}aaaa{..a}aaaaa",
 	},
 	{
+		name:  "reverse with preceeding full and empty matches",
+		given: "hello world   {..}",
+		do:    address(Dot.Minus(Regexp(`\W*`))),
+		want:  "hello world{a}   {..a}",
+	},
+	{
+		name:  "previous word, with one regexp",
+		given: "hello world   {..}",
+		do:    address(Dot.Minus(Regexp(`\w*\W*`))),
+		want:  "hello {a}world   {..a}",
+	},
+	{
+		name:  "previous previous word, with one regexp",
+		given: "hello world   {..}",
+		do:    address(Dot.Minus(Regexp(`\w*\W*`)).Minus(Regexp(`\w*\W*`))),
+		want:  "{a}hello {a}world   {..}",
+	},
+	{
+		name:  "previous word, with two regexps",
+		given: "hello world   {..}",
+		do:    address(Dot.Minus(Regexp(`\W*`)).Minus(Regexp(`\w*`)).To(Dot.Plus(Rune(0)))),
+		want:  "hello {a}world   {..a}",
+	},
+	{
 		name:  "^ starting from beginning of line",
 		given: "abc\n{..}def",
 		do:    address(Regexp("^def")),
