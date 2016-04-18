@@ -23,7 +23,6 @@ import (
 )
 
 const (
-	// TODO(eaburns): use points, not pixels.
 	cursorWidth   = 1 // px
 	blinkDuration = 500 * time.Millisecond
 )

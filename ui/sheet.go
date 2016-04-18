@@ -236,10 +236,10 @@ func (s *sheet) mouse(w *window, event mouse.Event) bool {
 			if s.col != nil {
 				defer func() { s.col.setBounds(s.col.bounds()) }()
 				i := frameIndex(s.col, s)
-				if slideUp(s.col, i, minFrameSize) {
+				if slideUp(s.col, i, s.minHeight()) {
 					return true
 				}
-				return slideDown(s.col, i, minFrameSize)
+				return slideDown(s.col, i, s.minHeight())
 			}
 			_, c := columnAt(w, p.X)
 			yfrac := float64(s.Min.Y) / float64(c.Dy())
