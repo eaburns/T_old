@@ -124,12 +124,6 @@ func (w *window) getDPI() {
 		switch e := w.NextEvent().(type) {
 		case size.Event:
 			w.dpi = float64(e.PixelsPerPt * ptPerInch)
-			if w.dpi < defaultDPI {
-				// TODO(eaburns): remove this once x11driver correctly computes DPI.
-				// The x11driver currently assumes 1px/pt, so DPI=72.
-				// This is almost always wrong, so just use 96.
-				w.dpi = defaultDPI
-			}
 			w.face = newFace(w.dpi)
 			return
 		}
