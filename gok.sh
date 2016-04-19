@@ -22,7 +22,7 @@ echo Vetting
 go vet ./... 2>&1 > $o || fail
 
 echo Testing
-go test -test.timeout=1s ./... 2>&1 > $o || fail
+go test -test.timeout=10s ./... 2>&1 > $o || fail
 
 echo Linting
 golint .\
