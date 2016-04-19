@@ -53,4 +53,10 @@ type Sheet struct {
 
 	// WindowPath is the path to the sheet's window's resource.
 	WindowPath string `json:"windowPath"`
+
+	// TagURL is the URL of the tag's buffer.
+	TagURL string `json:"tagUrl"`
+
+	// BodyURL is the URL of the body's buffer.
+	BodyURL string `json:"bodyUrl"`
 }

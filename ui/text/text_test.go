@@ -442,7 +442,7 @@ func TestTextGlyphBox(t *testing.T) {
 			opts:  opts,
 			text:  "a\tb\tc",
 			index: 1,
-			want:  image.Rect(pad+1, pad, pad+3, pad+1),
+			want:  image.Rect(pad+1, pad, pad+2, pad+1),
 		},
 		{
 			name:  "trailing newline",

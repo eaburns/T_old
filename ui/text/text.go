@@ -300,9 +300,9 @@ func (t *Text) Release() {
 // the last rune in the line is returned, unless it is \n,
 // in which case the second to last rune in the line is returned.
 func (t *Text) Index(p image.Point) int {
-	px, py := fixed.I(p.X), fixed.I(p.Y)
 	pad := t.setter.opts.Padding
-	y := fixed.I(pad)
+	px, py := fixed.I(p.X-pad), fixed.I(p.Y-pad)
+	var y fixed.Int26_6
 	if len(t.lines) == 0 || py < y {
 		return 0
 	}
@@ -323,7 +323,7 @@ func (t *Text) Index(p image.Point) int {
 	var w int
 	line := t.lines[l]
 	for _, sp := range line.spans {
-		x := sp.x0 + fixed.I(pad)
+		x := sp.x0
 		var j int
 		for j < len(sp.text) {
 			var r rune
@@ -385,14 +385,14 @@ func (t *Text) GlyphBox(index int) image.Rectangle {
 			return image.ZR
 		}
 		for _, s := range l.spans {
-			x0 = s.x0 + fixed.I(pad)
+			x0 = s.x0
 			if index >= len(s.text) {
 				index -= len(s.text)
 				// If this is the last span of the last line
 				// and we still don't have it,
 				// the index is beyond the end.
 				// We will return the empty rectangle at this x0.
-				x0 = fixed.I(pad) + s.x1
+				x0 = s.x1
 				continue
 			}
 			for j, r := range s.text {
@@ -407,7 +407,7 @@ func (t *Text) GlyphBox(index int) image.Rectangle {
 					}
 				}
 				if j == index {
-					return image.Rect(int(x0>>6), y, int(x1>>6), y+h)
+					return image.Rect(int(x0>>6)+pad, y, int(x1>>6)+pad, y+h)
 				}
 				x0 = x1
 			}
@@ -419,13 +419,12 @@ func (t *Text) GlyphBox(index int) image.Rectangle {
 
 	if h := trailingNewlineHeight(t); h > 0 && y+h <= t.size.Y-pad {
 		// The text ends with a newline.
-		// Return the empty box
-		// of default line height
+		// Return the empty box of default line height
 		// at the beginning of the next line.
-		x0 = fixed.I(pad)
+		x0 = 0
 		y += h
 	}
-	return image.Rect(int(x0>>6), y-h, int(x0>>6), y)
+	return image.Rect(int(x0>>6)+pad, y-h, int(x0>>6)+pad, y)
 }
 
 // Len returns the length of the line in bytes.

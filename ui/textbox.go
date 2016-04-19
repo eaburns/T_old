@@ -4,9 +4,11 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
+	"math"
 	"net/url"
 	"path"
 	"sync"
@@ -37,6 +39,9 @@ type textBox struct {
 
 	textLen  int
 	l0, dot0 int64
+
+	// Col is the column number of the cursor, or -1 if unknown.
+	col int
 
 	lastBlink        time.Time
 	inFocus, blinkOn bool
@@ -86,6 +91,7 @@ func newTextBox(w *window, URL url.URL, style text.Style) (t *textBox, err error
 		opts:      opts,
 		setter:    setter,
 		text:      setter.Set(),
+		col:       -1,
 		win:       w,
 	}
 	go func() {
@@ -185,58 +191,124 @@ func (t *textBox) tick(win *window) bool {
 	return true
 }
 
-var (
-	dot          = edit.Dot
-	zero         = edit.Clamp(edit.Rune(0))
-	one          = edit.Clamp(edit.Rune(1))
-	moveDotRight = edit.Set(dot.Plus(one), '.')
-	moveDotLeft  = edit.Set(dot.Minus(one), '.')
-	backspace    = edit.Delete(dot.Minus(one).To(dot))
-	backline     = edit.Delete(dot.Plus(zero).Minus(edit.Line(0)))
-	backword     = edit.Delete(dot.Plus(zero).Minus(edit.Regexp(`\w*\W*`)))
-	newline      = []edit.Edit{edit.Change(dot, "\n"), edit.Set(dot.Plus(zero), '.')}
-	tab          = []edit.Edit{edit.Change(dot, "\t"), edit.Set(dot.Plus(zero), '.')}
-)
-
 func (t *textBox) key(w *window, event key.Event) bool {
-	if event.Direction == key.DirRelease {
-		return false
-	}
-	switch event.Code {
-	case key.CodeRightArrow:
-		t.view.Do(nil, moveDotRight)
-	case key.CodeLeftArrow:
-		t.view.Do(nil, moveDotLeft)
-	case key.CodeDeleteBackspace:
-		t.view.Do(nil, backspace)
-	case key.CodeReturnEnter:
-		t.view.Do(nil, newline...)
-	case key.CodeTab:
-		t.view.Do(nil, tab...)
-	default:
-		switch event.Modifiers {
-		case 0, key.ModShift:
-			if event.Rune >= 0 {
-				r := string(event.Rune)
-				t.view.Do(nil, edit.Change(dot, r), edit.Set(dot.Plus(zero), '.'))
-			}
-		case key.ModControl:
-			switch event.Rune {
-			case 'a':
-				t.view.Do(nil, edit.Set(dot.Minus(edit.Line(0)).Minus(zero), '.'))
-			case 'e':
-				t.view.Do(nil, edit.Set(dot.Plus(edit.Regexp("$")), '.'))
-			case 'h':
-				t.view.Do(nil, backspace)
-			case 'u':
-				t.view.Do(nil, backline)
-			case 'w':
-				t.view.Do(nil, backword)
-			}
-		}
-	}
+	handleKey(t, event)
 	return false
 }
 
 func (t *textBox) mouse(*window, mouse.Event) bool               { return false }
 func (t *textBox) drawLast(scr screen.Screen, win screen.Window) {}
+
+func (t *textBox) setColumn(c int) { t.col = c }
+func (t *textBox) column() int     { return t.col }
+func (t *textBox) do(res chan<- []editor.EditResult, eds ...edit.Edit) {
+	t.col = -1
+	t.view.Do(res, eds...)
+}
+
+type keyHandler interface {
+	column() int
+	setColumn(int)
+	// Do clears the column marker and performs the edit,
+	// sending the result on the channel.
+	// If the channel is nil, the edit is performed asynchronously.
+	do(chan<- []editor.EditResult, ...edit.Edit)
+}
+
+var (
+	dot          = edit.Dot
+	zero         = edit.Clamp(edit.Rune(0))
+	one          = edit.Clamp(edit.Rune(1))
+	oneLine      = edit.Clamp(edit.Line(1))
+	twoLines     = edit.Clamp(edit.Line(2))
+	moveDotRight = edit.Set(dot.Plus(one), '.')
+	moveDotLeft  = edit.Set(dot.Minus(one), '.')
+	backspace    = edit.Delete(dot.Minus(one).To(dot))
+	backline     = edit.Delete(dot.Minus(edit.Line(0)).To(dot.Plus(zero)))
+	backword     = edit.Delete(dot.Plus(zero).Minus(edit.Regexp(`\w*\W*`)))
+	newline      = []edit.Edit{edit.Change(dot, "\n"), edit.Set(dot.Plus(zero), '.')}
+	tab          = []edit.Edit{edit.Change(dot, "\t"), edit.Set(dot.Plus(zero), '.')}
+)
+
+// HandleKey encapsulates the keyboard editing logic for a textBox.
+func handleKey(h keyHandler, event key.Event) {
+	if event.Direction == key.DirRelease {
+		return
+	}
+	switch event.Code {
+	case key.CodeUpArrow:
+		col := getColumn(h)
+		re := fmt.Sprintf("(?:.?){%d}", col)
+		up := dot.Minus(oneLine).Minus(zero).Plus(edit.Regexp(re)).Plus(zero)
+		h.do(nil, edit.Set(up, '.'))
+		h.setColumn(col)
+	case key.CodeDownArrow:
+		col := getColumn(h)
+		re := fmt.Sprintf("(?:.?){%d}", col)
+		// We use .-1+2, because .+1 does not move dot
+		// if it is at the beginning of an empty line.
+		up := dot.Minus(oneLine).Plus(twoLines).Minus(zero).Plus(edit.Regexp(re)).Plus(zero)
+		h.do(nil, edit.Set(up, '.'))
+		h.setColumn(col)
+	case key.CodeRightArrow:
+		h.do(nil, moveDotRight)
+	case key.CodeLeftArrow:
+		h.do(nil, moveDotLeft)
+	case key.CodeDeleteBackspace:
+		h.do(nil, backspace)
+	case key.CodeReturnEnter:
+		h.do(nil, newline...)
+	case key.CodeTab:
+		h.do(nil, tab...)
+	default:
+		switch event.Modifiers {
+		case 0, key.ModShift:
+			if event.Rune >= 0 {
+				r := string(event.Rune)
+				h.do(nil, edit.Change(dot, r), edit.Set(dot.Plus(zero), '.'))
+			}
+		case key.ModControl:
+			switch event.Rune {
+			case 'a':
+				h.do(nil, edit.Set(dot.Minus(edit.Line(0)).Minus(zero), '.'))
+			case 'e':
+				h.do(nil, edit.Set(dot.Minus(zero).Plus(edit.Regexp("$")), '.'))
+			case 'h':
+				h.do(nil, backspace)
+			case 'u':
+				h.do(nil, backline)
+			case 'w':
+				h.do(nil, backword)
+			}
+		}
+	}
+}
+
+// Column returns the desired column number of the keyHandler.
+func getColumn(h keyHandler) int {
+	if c := h.column(); c >= 0 {
+		return c
+	}
+
+	resultCh := make(chan []editor.EditResult)
+	h.do(resultCh, edit.Where(dot.Minus(edit.Line(0))))
+	res := <-resultCh
+	if res[0].Error != "" {
+		panic("bad result: " + res[0].Error)
+	}
+	var w [2]int64
+	if n, err := fmt.Sscanf(res[0].Print, "#%d,#%d", &w[0], &w[1]); n == 1 {
+		w[1] = w[0]
+	} else if n != 2 || err != nil {
+		panic("failed to scan address: " + res[0].Print)
+	}
+
+	var c int
+	if d := w[1] - w[0]; d > math.MaxInt32 {
+		c = 0
+	} else {
+		c = int(d)
+	}
+	h.setColumn(c)
+	return c
+}

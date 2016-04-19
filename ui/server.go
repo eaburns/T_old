@@ -277,6 +277,8 @@ func makeSheet(h *sheet) Sheet {
 		ID:         h.id,
 		Path:       path.Join("/", "sheet", h.id),
 		WindowPath: path.Join("/", "window", h.win.id),
+		TagURL:     h.tag.bufferURL.String(),
+		BodyURL:    h.body.bufferURL.String(),
 	}
 }
 
