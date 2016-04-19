@@ -4,16 +4,16 @@ package edit
 
 import (
 	"bytes"
-	"fmt"
 	"io/ioutil"
 	"math"
 	"os"
 	"reflect"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/eaburns/T/edit/edittest"
 )
 
 var escTests = []struct {
@@ -2198,25 +2198,12 @@ func TestUpdateMarks(t *testing.T) {
 
 type editTest struct {
 	name string
-	// Given describes the editor state before the edits,
-	// and want describes the desired editor state after the edits.
-	//
-	// The editor state descriptions describe
-	// the contents of the buffer and the editor's marks.
-	// Runes that are not between { and } represent the buffer contents.
-	// Each rune between { and } represent
-	// the beginning (first occurrence)
-	// or end (second occurrence)
-	// of a mark region with the name of the rune.
-	//
-	// For example:
-	// 	"{mm}abc{.}xyz{.n}123{n}αβξ"
-	// Is a buffer with the contents:
-	// 	"abcxyz123αβξ"
-	// The mark m is the empty string at the beginning of the buffer.
-	// The mark . contains the text "xyz".
-	// The mark n contains the text "123".
-	given, want string
+	// Given is the initial editor state description,
+	// in the format of edittest.ParseState.
+	given string
+	// Want is the desired final editor state description,
+	// in the format of edittest.ParseState.
+	want string
 	// Print is the desired text printed to the io.Writer passed to Editor.Do
 	// after all edits are performed.
 	print string
@@ -2244,8 +2231,8 @@ func (test editTest) run(t *testing.T) {
 			break
 		}
 	}
-	if !buf.hasState(test.want) {
-		t.Errorf("%s: %#v got %q, want %q", test.do, test.name, buf.stateString(), test.want)
+	if !hasState(buf, test.want) {
+		t.Errorf("%s: %#v got %q, want %q", test.do, test.name, stateString(buf), test.want)
 	}
 	if got := print.String(); got != test.print {
 		t.Errorf("%s: printed %q, want %q", test.name, got, test.print)
@@ -2284,7 +2271,7 @@ func (test editTest) runFromString(t *testing.T) {
 }
 
 func newTestBuffer(str string) *Buffer {
-	contents, marks := parseState(str)
+	contents, marks := edittest.ParseState(str)
 	buf := NewBuffer()
 	if _, err := buf.Change(Span{}, strings.NewReader(contents)); err != nil {
 		buf.Close()
@@ -2294,44 +2281,27 @@ func newTestBuffer(str string) *Buffer {
 		buf.Close()
 		panic(err)
 	}
-	buf.marks = marks
+	buf.marks = make(map[rune]Span, len(marks))
+	for k, v := range marks {
+		buf.marks[k] = Span(v)
+	}
 	return buf
 }
 
-func (buf *Buffer) hasState(want string) bool {
-	want, marks := parseState(want)
-	if got := buf.String(); got != want {
-		return false
+func hasState(buf *Buffer, want string) bool {
+	marks := make(map[rune][2]int64)
+	for k, v := range buf.marks {
+		marks[k] = v
 	}
-	for m, a := range buf.marks {
-		if marks[m] != a {
-			return false
-		}
-		delete(marks, m)
-	}
-	return len(marks) == 0
+	return edittest.StateEquals(buf.String(), marks, want)
 }
 
-func (buf *Buffer) stateString() string {
-	marks := make(map[int64]RuneSlice)
-	for m, a := range buf.marks {
-		marks[a[0]] = append(marks[a[0]], m)
-		marks[a[1]] = append(marks[a[1]], m)
+func stateString(buf *Buffer) string {
+	marks := make(map[rune][2]int64)
+	for k, v := range buf.marks {
+		marks[k] = v
 	}
-	var c []rune
-	str := []rune(buf.String())
-	for i := 0; i < len(str)+1; i++ {
-		if ms := marks[int64(i)]; len(ms) > 0 {
-			sort.Sort(ms)
-			c = append(c, '{')
-			c = append(c, ms...)
-			c = append(c, '}')
-		}
-		if i < len(str) {
-			c = append(c, str[i])
-		}
-	}
-	return string(c)
+	return edittest.StateString(buf.String(), marks)
 }
 
 type RuneSlice []rune
@@ -2339,37 +2309,6 @@ type RuneSlice []rune
 func (rs RuneSlice) Len() int           { return len(rs) }
 func (rs RuneSlice) Less(i, j int) bool { return rs[i] < rs[j] }
 func (rs RuneSlice) Swap(i, j int)      { rs[i], rs[j] = rs[j], rs[i] }
-
-func parseState(str string) (string, map[rune]Span) {
-	var mark bool
-	var contents []rune
-	marks := make(map[rune]Span)
-	count := make(map[rune]int)
-	for _, r := range str {
-		switch {
-		case !mark && r == '{':
-			mark = true
-		case mark && r == '}':
-			mark = false
-		case mark:
-			count[r]++
-			at := int64(len(contents))
-			if s, ok := marks[r]; !ok {
-				marks[r] = Span{at}
-			} else {
-				marks[r] = Span{s[0], at}
-			}
-		default:
-			contents = append(contents, r)
-		}
-	}
-	for m, c := range count {
-		if c != 2 {
-			panic(fmt.Sprintf("%q, mark %c appears %d times", str, m, c))
-		}
-	}
-	return string(contents), marks
-}
 
 // MatchesError returns whether the regexp matches the error string.
 // If re is the empty string, matchesError returns whether err is nil.
