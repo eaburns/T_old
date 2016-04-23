@@ -36,6 +36,7 @@ type textBox struct {
 	opts      text.Options
 	setter    *text.Setter
 	text      *text.Text
+	topLeft   image.Point
 
 	textLen  int
 	l0, dot0 int64
@@ -155,14 +156,14 @@ func (t *textBox) setSize(size image.Point) {
 	}
 }
 
-func (t *textBox) draw(pt image.Point, scr screen.Screen, win screen.Window) {
-	t.text.Draw(pt, scr, win)
-	t.drawDot(pt, win)
+func (t *textBox) draw(scr screen.Screen, win screen.Window) {
+	t.text.Draw(t.topLeft, scr, win)
+	t.drawDot(t.topLeft, win)
 }
 
-func (t *textBox) drawLines(pt image.Point, scr screen.Screen, win screen.Window) {
-	t.text.DrawLines(pt, scr, win)
-	t.drawDot(pt, win)
+func (t *textBox) drawLines(scr screen.Screen, win screen.Window) {
+	t.text.DrawLines(t.topLeft, scr, win)
+	t.drawDot(t.topLeft, win)
 }
 
 func (t *textBox) drawDot(pt image.Point, win screen.Window) {
@@ -191,29 +192,29 @@ func (t *textBox) tick(win *window) bool {
 	return true
 }
 
-func (t *textBox) key(w *window, event key.Event) bool {
+func (t *textBox) key(_ *window, event key.Event) bool {
 	handleKey(t, event)
 	return false
 }
 
-func (t *textBox) mouse(*window, mouse.Event) bool               { return false }
+func (t *textBox) mouse(_ *window, event mouse.Event) bool {
+	handleMouse(t, event)
+	return false
+}
+
 func (t *textBox) drawLast(scr screen.Screen, win screen.Window) {}
 
-func (t *textBox) setColumn(c int) { t.col = c }
-func (t *textBox) column() int     { return t.col }
 func (t *textBox) do(res chan<- []editor.EditResult, eds ...edit.Edit) {
 	t.col = -1
 	t.view.Do(res, eds...)
 }
 
-type keyHandler interface {
-	column() int
-	setColumn(int)
-	// Do clears the column marker and performs the edit,
-	// sending the result on the channel.
-	// If the channel is nil, the edit is performed asynchronously.
-	do(chan<- []editor.EditResult, ...edit.Edit)
+func (t *textBox) where(p image.Point) int64 {
+	return int64(t.text.Index(p.Sub(t.topLeft))) + t.l0
 }
+
+func (t *textBox) setColumn(c int) { t.col = c }
+func (t *textBox) column() int     { return t.col }
 
 var (
 	dot          = edit.Dot
@@ -229,6 +230,41 @@ var (
 	newline      = []edit.Edit{edit.Change(dot, "\n"), edit.Set(dot.Plus(zero), '.')}
 	tab          = []edit.Edit{edit.Change(dot, "\t"), edit.Set(dot.Plus(zero), '.')}
 )
+
+type doer interface {
+	// Do clears the column marker and performs the edit,
+	// sending the result on the channel.
+	// If the channel is nil, the edit is performed asynchronously.
+	do(chan<- []editor.EditResult, ...edit.Edit)
+}
+
+type mouseHandler interface {
+	doer
+	// Where returns the rune address
+	// corresponding to the glyph at the given point.
+	where(image.Point) int64
+}
+
+func handleMouse(h mouseHandler, event mouse.Event) {
+	if event.Modifiers != 0 {
+		return
+	}
+
+	p := image.Pt(int(event.X), int(event.Y))
+
+	switch event.Direction {
+	case mouse.DirPress:
+		if event.Button == mouse.ButtonLeft {
+			h.do(nil, edit.Set(edit.Rune(h.where(p)), '.'))
+		}
+	}
+}
+
+type keyHandler interface {
+	doer
+	column() int
+	setColumn(int)
+}
 
 // HandleKey encapsulates the keyboard editing logic for a textBox.
 func handleKey(h keyHandler, event key.Event) {
