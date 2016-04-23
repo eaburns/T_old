@@ -196,7 +196,7 @@ func (w *window) events() {
 				redraw = true
 
 			case size.Event:
-				w.setBounds(image.Rectangle{Max: e.Size()})
+				w.setBoundsAfterResize(image.Rectangle{Max: e.Size()})
 
 			case key.Event:
 				if w.inFocus != nil && w.inFocus.key(w, e) {
@@ -269,6 +269,22 @@ func (w *window) setBounds(bounds image.Rectangle) {
 			b.Max.X = w.columns[i+1].bounds().Min.X - borderWidth
 		}
 		c.setBounds(b)
+	}
+}
+
+func (w *window) setBoundsAfterResize(bounds image.Rectangle) {
+	w.Rectangle = bounds
+	width := float64(bounds.Dx())
+	for i := len(w.columns) - 1; i >= 0; i-- {
+		c := w.columns[i]
+		b := bounds
+		if i > 0 {
+			b.Min.X = bounds.Min.X + int(width*w.xs[i])
+		}
+		if i < len(w.columns)-1 {
+			b.Max.X = w.columns[i+1].bounds().Min.X - borderWidth
+		}
+		c.setAfterResizeBounds(b)
 	}
 }
 
@@ -457,7 +473,7 @@ type frame interface {
 	// Bounds returns the current bounds of the frame.
 	bounds() image.Rectangle
 
-	// SetBounds sets the bounds of the frame to the given rectangle.
+	// SetBounds sets the bounds of the frame to the given rectangle
 	setBounds(image.Rectangle)
 
 	// SetColumn sets the frame's column.
@@ -519,6 +535,26 @@ func (c *column) setBounds(bounds image.Rectangle) {
 		b := bounds
 		if i > 0 {
 			b.Min.Y = bounds.Min.Y + int(height*c.ys[i])
+		}
+		if i < len(c.frames)-1 {
+			b.Max.Y = c.frames[i+1].bounds().Min.Y - borderWidth
+		}
+		f.setBounds(b)
+	}
+}
+
+func (c *column) setAfterResizeBounds(bounds image.Rectangle) {
+	c.Rectangle = bounds
+	height := float64(bounds.Dy())
+	for i := len(c.frames) - 1; i >= 0; i-- {
+		f := c.frames[i]
+		b := bounds
+		if i > 0 {
+			if i == 1 {
+				b.Min.Y = c.frames[0].bounds().Max.Y + borderWidth
+			} else {
+				b.Min.Y = bounds.Min.Y + int(height*c.ys[i])
+			}
 		}
 		if i < len(c.frames)-1 {
 			b.Max.Y = c.frames[i+1].bounds().Min.Y - borderWidth

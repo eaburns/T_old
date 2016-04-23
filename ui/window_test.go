@@ -49,8 +49,6 @@ func TestDraw(t *testing.T) {
 func TestResize(t *testing.T) {
 	s, w := makeTestUI()
 	defer s.close()
-	done := make(chan struct{})
-	s.uiServer.SetDoneHandler(func() { close(done) })
 	const width, height = 100, 50
 	w.Send(size.Event{WidthPx: width, HeightPx: height})
 	wait(w)
@@ -66,6 +64,32 @@ func TestResize(t *testing.T) {
 			if !f.bounds().In(c.bounds()) {
 				t.Errorf("columns[%d].frames[%d].bounds()=%v, not in column %v",
 					i, j, f.bounds(), c.bounds())
+			}
+		}
+	}
+}
+
+func TestFixedColumnTagHeight(t *testing.T) {
+	s, w := makeTestUI()
+	defer s.close()
+	oldTagHeights := make([]int, len(w.columns))
+	for i, c := range w.columns {
+		if len(c.frames) > 0 {
+			height := c.frames[0].bounds().Max.Y - c.frames[0].bounds().Min.Y
+			oldTagHeights[i] = height
+		}
+	}
+	const width, height = 100, 50
+	w.Send(size.Event{WidthPx: width, HeightPx: height})
+	wait(w)
+	if sz := w.bounds().Size(); sz.X != width || sz.Y != height {
+		t.Errorf("sz=%v, want {%d,%d}", sz, width, height)
+	}
+	for i, c := range w.columns {
+		if len(c.frames) > 0 {
+			height := c.frames[0].bounds().Max.Y - c.frames[0].bounds().Min.Y
+			if oldTagHeights[i] != height {
+				t.Errorf("height=%d, want %d", height, oldTagHeights[i])
 			}
 		}
 	}
