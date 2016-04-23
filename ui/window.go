@@ -714,6 +714,7 @@ func (t *columnTag) close() {
 func (t *columnTag) bounds() image.Rectangle { return t.Rectangle }
 
 func (t *columnTag) setBounds(b image.Rectangle) {
+	t.text.topLeft = b.Min
 	t.text.setSize(b.Size())
 	t.Rectangle = b
 }
@@ -726,7 +727,7 @@ func (t *columnTag) focus(image.Point) handler { return t }
 
 func (t *columnTag) draw(scr screen.Screen, win screen.Window) {
 	t.text.setSize(t.Size()) // Reset the text in case it changed.
-	t.text.draw(t.bounds().Min, scr, win)
+	t.text.draw(scr, win)
 }
 
 func (t *columnTag) drawLast(scr screen.Screen, win screen.Window) {

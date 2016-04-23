@@ -4,6 +4,7 @@ package ui
 
 import (
 	"bytes"
+	"image"
 	"io/ioutil"
 	"testing"
 	"unicode"
@@ -12,7 +13,113 @@ import (
 	"github.com/eaburns/T/edit/edittest"
 	"github.com/eaburns/T/editor"
 	"golang.org/x/mobile/event/key"
+	"golang.org/x/mobile/event/mouse"
 )
+
+func TestMouseHandler(t *testing.T) {
+	tests := []struct {
+		name string
+		// Given is the initial state of a sheet body editor.
+		// It is in the format of edittest.ParseState,
+		// but only the . mark is considered.
+		given string
+		// Want is the desired final state of the sheet body editor
+		// after handling all events.
+		// It is in the format of edittest.ParseState,
+		// but only the . mark is considered.
+		want string
+
+		// Events is a slice of mouse events under test.
+		// Event locations correspond to locations in the text as follows:
+		// The Y location is the line number
+		// and the X location is the positive rune offset
+		// from the beginning of the line.
+		events []mouse.Event
+
+		// If Skip is true the test is not run.
+		Skip bool
+	}{
+		{
+			name:   "click empty text",
+			given:  "{..}",
+			events: leftClick(image.Pt(0, 0)),
+			want:   "{..}",
+		},
+		{
+			name:   "click before text",
+			given:  "abc{..}",
+			events: leftClick(image.Pt(-1, -1)),
+			want:   "{..}abc",
+		},
+		{
+			name:   "click after text",
+			given:  "{..}abc",
+			events: leftClick(image.Pt(100, 100)),
+			want:   "abc{..}",
+		},
+		{
+			name:   "click ^",
+			given:  "abc{..}",
+			events: leftClick(image.Pt(0, 1)),
+			want:   "{..}abc",
+		},
+		{
+			name:   "click $",
+			given:  "{..}abc",
+			events: leftClick(image.Pt(3, 1)),
+			want:   "abc{..}",
+		},
+		{
+			name:   "click midline",
+			given:  "{..}abc",
+			events: leftClick(image.Pt(1, 1)),
+			want:   "a{..}bc",
+		},
+		{
+			name:   "click multiple lines",
+			given:  "{..}abc\ndef\nghi",
+			events: leftClick(image.Pt(1, 2)),
+			want:   "abc\nd{..}ef\nghi",
+		},
+	}
+
+	for _, test := range tests {
+		if test.Skip {
+			continue
+		}
+
+		buf := edit.NewBuffer()
+		defer buf.Close()
+
+		initText, initMarks := edittest.ParseState(test.given)
+		if err := edit.Change(edit.All, initText).Do(buf, ioutil.Discard); err != nil {
+			t.Fatalf("%s failed to init buffer text: %v", test.name, err)
+		}
+		for m, at := range initMarks {
+			if err := buf.SetMark(m, edit.Span(at)); err != nil {
+				t.Fatalf("%s failed to init mark %c to %v: %v", test.name, m, at, err)
+			}
+		}
+
+		h := testHandler{buf: buf, col: -1}
+		for _, e := range test.events {
+			handleMouse(&h, e)
+		}
+
+		// Read the buffer directly so as to not disturb the . mark.
+		d, err := ioutil.ReadAll(buf.Reader(edit.Span{0: 0, 1: buf.Size()}))
+		if err != nil {
+			t.Fatalf("%s failed to read buffer: %v", test.name, err)
+		}
+		gotText := string(d)
+		gotMarks := map[rune][2]int64{'.': buf.Mark('.')}
+
+		if !edittest.StateEquals(gotText, gotMarks, test.want) {
+			got := edittest.StateString(gotText, gotMarks)
+			t.Errorf("%s, got %q want %q", test.name, got, test.want)
+		}
+	}
+}
 
 func TestKeyHandler(t *testing.T) {
 	tests := []struct {
@@ -590,7 +697,7 @@ func TestKeyHandler(t *testing.T) {
 			}
 		}
 
-		h := testKeyHandler{buf: buf, col: -1}
+		h := testHandler{buf: buf, col: -1}
 		for _, e := range test.events {
 			handleKey(&h, e)
 		}
@@ -656,17 +763,38 @@ func typeRunes(str string) []key.Event {
 	return events
 }
 
-type testKeyHandler struct {
+func leftClick(p image.Point) []mouse.Event {
+	x, y := float32(p.X), float32(p.Y)
+	return []mouse.Event{
+		{X: x, Y: y, Button: mouse.ButtonLeft, Direction: mouse.DirPress},
+		{X: x, Y: y, Button: mouse.ButtonLeft, Direction: mouse.DirRelease},
+	}
+}
+
+type testHandler struct {
 	buf *edit.Buffer
 	col int
 	seq int
 }
 
-func (h *testKeyHandler) column() int { return h.col }
+func (h *testHandler) column() int { return h.col }
 
-func (h *testKeyHandler) setColumn(c int) { h.col = c }
+func (h *testHandler) setColumn(c int) { h.col = c }
 
-func (h *testKeyHandler) do(res chan<- []editor.EditResult, eds ...edit.Edit) {
+func (h *testHandler) where(p image.Point) int64 {
+	line := edit.Clamp(edit.Line(p.Y)).Minus(edit.Rune(0))
+	addr := line.Plus(edit.Clamp(edit.Rune(int64(p.X))))
+	s, err := addr.Where(h.buf)
+	if err != nil {
+		panic(err)
+	}
+	if s[0] != s[1] {
+		panic("range address")
+	}
+	return s[0]
+}
+
+func (h *testHandler) do(res chan<- []editor.EditResult, eds ...edit.Edit) {
 	h.col = -1
 	print := bytes.NewBuffer(nil)
 	var results []editor.EditResult

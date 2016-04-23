@@ -111,20 +111,25 @@ func (s *sheet) close() {
 }
 
 func (s *sheet) updateText() {
-	b := s.Rectangle
+	b := &s.Rectangle
+
 	tagMax := b.Dy()
 	if min := s.minHeight(); tagMax < min {
 		tagMax = min
 	}
+	// TODO(eaburns): This is awful; it's too easy to forget to set topLeft,
+	// it's too unintuitive that setSize needs to be called to update the text.
+	s.tag.topLeft = b.Min
 	s.tag.setSize(image.Pt(b.Dx(), tagMax))
 	tagHeight := s.tag.text.LinesHeight()
+
+	s.body.topLeft = image.Pt(b.Min.X, b.Min.Y+tagHeight+borderWidth)
+	s.body.setSize(image.Pt(b.Dx(), b.Dy()-tagHeight-borderWidth))
 
 	s.sep = image.Rectangle{
 		Min: image.Pt(b.Min.X, b.Min.Y+tagHeight),
 		Max: image.Pt(b.Max.X, b.Min.Y+tagHeight+borderWidth),
 	}
-
-	s.body.setSize(image.Pt(b.Dx(), b.Dy()-tagHeight-borderWidth))
 }
 
 func (s *sheet) minHeight() int { return minHeight(s.tag.opts) }
@@ -161,9 +166,9 @@ func (s *sheet) focus(p image.Point) handler {
 func (s *sheet) draw(scr screen.Screen, win screen.Window) {
 	s.updateText()
 
-	s.tag.drawLines(s.Min, scr, win)
+	s.tag.drawLines(scr, win)
 	win.Fill(s.sep, separatorColor, draw.Over)
-	s.body.draw(image.Pt(s.Min.X, s.sep.Max.Y), scr, win)
+	s.body.draw(scr, win)
 }
 
 // DrawLast is called if the sheet is in focus, after the entire window has been drawn.
