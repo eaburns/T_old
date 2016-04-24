@@ -28,6 +28,8 @@ func Main(scr screen.Screen) {
 	profiler := profile.Start(profile.CPUProfile)
 	es := editortest.NewServer(editor.NewServer())
 
+	os.Setenv("T_INTERFACE_URL", es.PathURL("/").String())
+
 	r := mux.NewRouter()
 	s := ui.NewServer(scr, es.PathURL("/"))
 	s.SetDoneHandler(func() {

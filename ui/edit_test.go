@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"image"
 	"io/ioutil"
+	"reflect"
 	"testing"
 	"unicode"
 
@@ -35,6 +36,9 @@ func TestMouseHandler(t *testing.T) {
 		// and the X location is the positive rune offset
 		// from the beginning of the line.
 		events []mouse.Event
+
+		// Cmds are commands expected to be executed.
+		cmds []string
 
 		// If Skip is true the test is not run.
 		Skip bool
@@ -81,6 +85,14 @@ func TestMouseHandler(t *testing.T) {
 			events: leftClick(image.Pt(1, 2)),
 			want:   "abc\nd{..}ef\nghi",
 		},
+
+		{
+			name:   "2-click",
+			given:  "{..}abc\nenv\nxyz",
+			events: middleClick(image.Pt(1, 2)),
+			want:   "abc\ne{..}nv\nxyz",
+			cmds:   []string{"env"},
+		},
 	}
 
 	for _, test := range tests {
@@ -101,9 +113,9 @@ func TestMouseHandler(t *testing.T) {
 			}
 		}
 
-		h := testHandler{buf: buf, col: -1}
+		h := newTestHandler(buf)
 		for _, e := range test.events {
-			handleMouse(&h, e)
+			handleMouse(h, e)
 		}
 
 		// Read the buffer directly so as to not disturb the . mark.
@@ -117,6 +129,10 @@ func TestMouseHandler(t *testing.T) {
 		if !edittest.StateEquals(gotText, gotMarks, test.want) {
 			got := edittest.StateString(gotText, gotMarks)
 			t.Errorf("%s, got %q want %q", test.name, got, test.want)
+		}
+
+		if !reflect.DeepEqual(h.cmds, test.cmds) {
+			t.Errorf("%s, executed %v, want %v", test.name, h.cmds, test.cmds)
 		}
 	}
 }
@@ -697,9 +713,9 @@ func TestKeyHandler(t *testing.T) {
 			}
 		}
 
-		h := testHandler{buf: buf, col: -1}
+		h := newTestHandler(buf)
 		for _, e := range test.events {
-			handleKey(&h, e)
+			handleKey(h, e)
 		}
 
 		// Read the buffer directly so as to not disturb the . mark.
@@ -713,6 +729,10 @@ func TestKeyHandler(t *testing.T) {
 		if !edittest.StateEquals(gotText, gotMarks, test.want) {
 			got := edittest.StateString(gotText, gotMarks)
 			t.Errorf("%s, got %q want %q", test.name, got, test.want)
+		}
+
+		if h.cmds != nil {
+			t.Errorf("%s, executed %v, want []", test.name, h.cmds)
 		}
 	}
 }
@@ -771,11 +791,29 @@ func leftClick(p image.Point) []mouse.Event {
 	}
 }
 
-type testHandler struct {
-	buf *edit.Buffer
-	col int
-	seq int
+func middleClick(p image.Point) []mouse.Event {
+	x, y := float32(p.X), float32(p.Y)
+	return []mouse.Event{
+		{X: x, Y: y, Button: mouse.ButtonMiddle, Direction: mouse.DirPress},
+		{X: x, Y: y, Button: mouse.ButtonMiddle, Direction: mouse.DirRelease},
+	}
 }
+
+type testHandler struct {
+	buf  *edit.Buffer
+	col  int
+	seq  int
+	cmds []string
+}
+
+func newTestHandler(buf *edit.Buffer) *testHandler {
+	return &testHandler{
+		buf: buf,
+		col: -1,
+	}
+}
+
+func (h *testHandler) exec(cmd string) { h.cmds = append(h.cmds, cmd) }
 
 func (h *testHandler) column() int { return h.col }
 
