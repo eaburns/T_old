@@ -210,18 +210,8 @@ func (w *window) events() {
 				case mouse.DirRelease:
 					click--
 				}
-				if dir == mouse.DirNone && click == 0 {
-					prev := w.inFocus
-					w.inFocus = w.focus(w.p)
-					if prev != w.inFocus {
-						if prev != nil {
-							prev.changeFocus(w, false)
-						}
-						if w.inFocus != nil {
-							w.inFocus.changeFocus(w, true)
-						}
-						redraw = true
-					}
+				if dir == mouse.DirNone && click == 0 && w.refocus() {
+					redraw = true
 				}
 				if w.inFocus != nil {
 					if w.inFocus.mouse(w, e) {
@@ -230,18 +220,8 @@ func (w *window) events() {
 				}
 				// After sending a press or release to the focus,
 				// check whether it's still in focus.
-				if dir != mouse.DirNone {
-					prev := w.inFocus
-					w.inFocus = w.focus(w.p)
-					if prev != w.inFocus {
-						if prev != nil {
-							prev.changeFocus(w, false)
-						}
-						if w.inFocus != nil {
-							w.inFocus.changeFocus(w, true)
-						}
-						redraw = true
-					}
+				if dir != mouse.DirNone && w.refocus() {
+					redraw = true
 				}
 			}
 		}
@@ -250,6 +230,26 @@ func (w *window) events() {
 
 func (w *window) close() {
 	w.Send(closeEvent{})
+}
+
+func (w *window) refocus() bool {
+	prev := w.inFocus
+	for _, c := range w.columns {
+		if w.p.In(c.bounds()) {
+			w.inFocus = c.focus(w.p)
+			break
+		}
+	}
+	if prev == w.inFocus {
+		return false
+	}
+	if prev != nil {
+		prev.changeFocus(w, false)
+	}
+	if w.inFocus != nil {
+		w.inFocus.changeFocus(w, true)
+	}
+	return true
 }
 
 func (w *window) bounds() image.Rectangle { return w.Rectangle }
@@ -284,15 +284,6 @@ func (w *window) setBoundsAfterResize(bounds image.Rectangle) {
 		}
 		c.setAfterResizeBounds(b)
 	}
-}
-
-func (w *window) focus(p image.Point) handler {
-	for _, c := range w.columns {
-		if p.In(c.bounds()) {
-			return c.focus(p)
-		}
-	}
-	return nil
 }
 
 func (w *window) draw(scr screen.Screen, win screen.Window) {
@@ -333,7 +324,7 @@ func (w *window) deleteFrame(f frame) {
 		}
 	}
 	if h := f.(handler); h == w.inFocus {
-		w.inFocus = w.focus(w.p)
+		w.refocus()
 	}
 	f.close()
 }
