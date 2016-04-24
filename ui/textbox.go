@@ -326,6 +326,8 @@ func getColumn(h keyHandler) int {
 		return c
 	}
 
+	// TODO(eaburns): This makes a blocking RPC, but it's called from the key handler.
+	// We should find a way to avoid blocking in the key handler.
 	resultCh := make(chan []editor.EditResult)
 	h.do(resultCh, edit.Where(dot.Minus(edit.Line(0))))
 	res := <-resultCh
