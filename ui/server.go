@@ -125,13 +125,13 @@ func (s *Server) Close() error {
 //
 // Unless otherwise stated, the body of all error responses is the error message.
 func (s *Server) RegisterHandlers(r *mux.Router) {
-	r.HandleFunc("/windows", s.listWindows).Methods(http.MethodGet)
-	r.HandleFunc("/windows", s.newWindow).Methods(http.MethodPut)
-	r.HandleFunc("/window/{id}", s.deleteWindow).Methods(http.MethodDelete)
-	r.HandleFunc("/window/{id}/columns", s.newColumn).Methods(http.MethodPut)
-	r.HandleFunc("/window/{id}/sheets", s.newSheet).Methods(http.MethodPut)
-	r.HandleFunc("/sheets", s.listSheets).Methods(http.MethodGet)
-	r.HandleFunc("/sheet/{id}", s.deleteSheet).Methods(http.MethodDelete)
+	r.HandleFunc("/windows", s.listWindowsHandler).Methods(http.MethodGet)
+	r.HandleFunc("/windows", s.newWindowHandler).Methods(http.MethodPut)
+	r.HandleFunc("/window/{id}", s.deleteWindowHandler).Methods(http.MethodDelete)
+	r.HandleFunc("/window/{id}/columns", s.newColumnHandler).Methods(http.MethodPut)
+	r.HandleFunc("/window/{id}/sheets", s.newSheetHandler).Methods(http.MethodPut)
+	r.HandleFunc("/sheets", s.listSheetsHandler).Methods(http.MethodGet)
+	r.HandleFunc("/sheet/{id}", s.deleteSheetHandler).Methods(http.MethodDelete)
 }
 
 // respond JSON encodes resp to w, and sends an Internal Server Error on failure.
@@ -150,7 +150,7 @@ func makeWindow(w *window) Window {
 	}
 }
 
-func (s *Server) listWindows(w http.ResponseWriter, req *http.Request) {
+func (s *Server) listWindowsHandler(w http.ResponseWriter, req *http.Request) {
 	s.RLock()
 	var wins []Window
 	for _, w := range s.windows {
@@ -160,7 +160,7 @@ func (s *Server) listWindows(w http.ResponseWriter, req *http.Request) {
 	respond(w, wins)
 }
 
-func (s *Server) newWindow(w http.ResponseWriter, req *http.Request) {
+func (s *Server) newWindowHandler(w http.ResponseWriter, req *http.Request) {
 	var wreq NewWindowRequest
 	if err := json.NewDecoder(req.Body).Decode(&wreq); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -182,7 +182,7 @@ func (s *Server) newWindow(w http.ResponseWriter, req *http.Request) {
 	respond(w, resp)
 }
 
-func (s *Server) deleteWindow(w http.ResponseWriter, req *http.Request) {
+func (s *Server) deleteWindowHandler(w http.ResponseWriter, req *http.Request) {
 	if !s.delWin(mux.Vars(req)["id"]) {
 		http.NotFound(w, req)
 	}
@@ -203,7 +203,7 @@ func (s *Server) delWin(winID string) bool {
 	return true
 }
 
-func (s *Server) newColumn(w http.ResponseWriter, req *http.Request) {
+func (s *Server) newColumnHandler(w http.ResponseWriter, req *http.Request) {
 	var creq NewColumnRequest
 	if err := json.NewDecoder(req.Body).Decode(&creq); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -232,7 +232,7 @@ func (s *Server) newColumn(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (s *Server) newSheet(w http.ResponseWriter, req *http.Request) {
+func (s *Server) newSheetHandler(w http.ResponseWriter, req *http.Request) {
 	var sreq NewSheetRequest
 	if err := json.NewDecoder(req.Body).Decode(&sreq); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -282,7 +282,7 @@ func makeSheet(h *sheet) Sheet {
 	}
 }
 
-func (s *Server) listSheets(w http.ResponseWriter, req *http.Request) {
+func (s *Server) listSheetsHandler(w http.ResponseWriter, req *http.Request) {
 	s.RLock()
 	var sheets []Sheet
 	for _, h := range s.sheets {
@@ -292,13 +292,13 @@ func (s *Server) listSheets(w http.ResponseWriter, req *http.Request) {
 	respond(w, sheets)
 }
 
-func (s *Server) deleteSheet(w http.ResponseWriter, req *http.Request) {
-	if !s.delSheet(mux.Vars(req)["id"]) {
+func (s *Server) deleteSheetHandler(w http.ResponseWriter, req *http.Request) {
+	if !s.deleteSheet(mux.Vars(req)["id"]) {
 		http.NotFound(w, req)
 	}
 }
 
-func (s *Server) delSheet(sheetID string) bool {
+func (s *Server) deleteSheet(sheetID string) bool {
 	s.Lock()
 	defer s.Unlock()
 	f, ok := s.sheets[sheetID]

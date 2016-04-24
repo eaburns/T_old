@@ -256,7 +256,7 @@ func (s *sheet) mouse(w *window, event mouse.Event) bool {
 			}
 			return true
 		case mouse.ButtonMiddle:
-			s.win.server.delSheet(s.id)
+			s.win.server.deleteSheet(s.id)
 			return false
 		}
 
