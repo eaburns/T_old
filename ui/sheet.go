@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/eaburns/T/edit"
+	"github.com/eaburns/T/editor"
 	"github.com/eaburns/T/ui/text"
 	"golang.org/x/exp/shiny/screen"
 	"golang.org/x/mobile/event/key"
@@ -108,6 +109,23 @@ func (s *sheet) close() {
 	s.tag.close()
 	s.body.close()
 	s.win = nil
+}
+
+var tagFileAddr = edit.Rune(0).To(edit.Rune(0).Plus(edit.Regexp(`\S*`)))
+
+func (s *sheet) tagFileName() string {
+	// TODO(eaburns): This is a blocking RPC, but it's called in the window handler go routine. Don't do that. Use a view to update this asynchronously.
+	res := make(chan []editor.EditResult)
+	s.tag.do(res, edit.Print(tagFileAddr))
+	r := (<-res)[0]
+	if r.Error != "" {
+		panic("failed to get tag file name: " + r.Error)
+	}
+	return r.Print
+}
+
+func (s *sheet) setTagFileName(str string) {
+	s.tag.do(nil, edit.Change(tagFileAddr, str))
 }
 
 func (s *sheet) updateText() {

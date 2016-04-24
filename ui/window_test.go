@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"fmt"
 	"image"
 	"path"
 	"testing"
@@ -635,6 +636,131 @@ func TestSheetBodyText(t *testing.T) {
 	}
 }
 
+// Test_WindowOutput_NewOutputSheet simply tests that a new sheet opens on output.
+func Test_WindowOutput_NewOutputSheet(t *testing.T) {
+	s, w := makeTestUI()
+	defer s.close()
+
+	var sheets []*sheet
+	for _, h := range s.uiServer.sheets {
+		sheets = append(sheets, h)
+	}
+
+	outSheet := output(w, "Hello, World\n")
+	if outSheet == nil {
+		t.Errorf("output(w, ·)=%v, want non-nil", outSheet)
+	}
+
+	var newSheets []*sheet
+	for _, h := range s.uiServer.sheets {
+		newSheets = append(newSheets, h)
+	}
+
+	if len(newSheets) != len(sheets)+1 {
+		t.Errorf("got %d sheets, want %d", len(newSheets), len(sheets)+1)
+	}
+}
+func Test_WindowOutput(t *testing.T) {
+	s, w := makeTestUI()
+	defer s.close()
+
+	outSheet := output(w, "Hello, World\n")
+	if outSheet == nil {
+		t.Errorf("output(w, ·)=%v, want non-nil", outSheet)
+	}
+
+	ch := nextBodyChangeText(outSheet)
+	wantText := "αβξδεφ"[:editor.MaxInline]
+	outSheet2 := output(w, wantText)
+
+	if outSheet2 != outSheet {
+		t.Fatalf("output(w, %q)=%p, want to reuse %p", wantText, outSheet2, outSheet)
+	}
+
+	tick := time.NewTicker(10 * time.Second)
+	defer tick.Stop()
+	select {
+	case text := <-ch:
+		tick.Stop()
+		if text != wantText {
+			t.Errorf("output text=%q want %q", text, wantText)
+		}
+	case <-tick.C:
+		t.Errorf("timed out waiting for output")
+	}
+}
+
+func output(w *window, str string) *sheet {
+	ch := make(chan *sheet)
+	w.Send(func() { ch <- w.output(str) })
+	return <-ch
+}
+
+func TestExec(t *testing.T) {
+	s, w := makeTestUI()
+	defer s.close()
+
+	sheet0 := w.columns[0].frames[1].(*sheet)
+	res := make(chan []editor.EditResult)
+	const cmdOutput = "\n" // echo with no args prints a \n.
+	sheet0.body.do(res, edit.Change(edit.End, "echo"))
+	if r := (<-res)[0]; r.Error != "" {
+		t.Fatalf("r.Error=%q", r.Error)
+	}
+
+	// Create an output sheet so that we can read its upcoming changes.
+	outSheet := output(w, "")
+	if outSheet == nil {
+		t.Errorf("output(w, ·)=%v, want non-nil", outSheet)
+	}
+	ch := nextBodyChangeText(outSheet)
+
+	// 2-click "echo"
+	mouseTo(w, center(sheet0))
+	click(w, center(sheet0), mouse.ButtonMiddle)
+
+	tick := time.NewTicker(10 * time.Second)
+	defer tick.Stop()
+	select {
+	case text := <-ch:
+		tick.Stop()
+		if text != cmdOutput {
+			t.Errorf("output text=%q want %q", text, cmdOutput)
+		}
+	case <-tick.C:
+		t.Errorf("timed out waiting for output")
+	}
+}
+
+// NextBodyChangeText starts reading changes on the body of the sheet,
+// it returns the Text of the next change that does not have an empty Text,
+// or the Error text if there is an error reading the next change.
+func nextBodyChangeText(s *sheet) <-chan string {
+	changesURL := *s.body.bufferURL
+	changesURL.Scheme = "ws"
+	changesURL.Path = path.Join(s.body.bufferURL.Path, "changes")
+	changes, err := editor.Changes(&changesURL)
+	if err != nil {
+		panic(fmt.Sprintf("editor.Changes(%q)=_,%v", changesURL, err))
+	}
+	ch := make(chan string)
+	go func() {
+		for {
+			cl, err := changes.Next()
+			if err != nil {
+				ch <- err.Error()
+				break
+			} else if len(cl.Changes[0].Text) > 0 {
+				ch <- string(cl.Changes[0].Text)
+				break
+			}
+		}
+		close(ch)
+		changes.Close()
+	}()
+	return ch
+}
+
 // MakeTestUI returns a Server that has:
 // 	1 window
 // 	3 column, at 0.0, 0.33, and 0.66, respectively.
@@ -719,6 +845,21 @@ func shiftDrag(w *window, from, to image.Point, b mouse.Button) {
 	w.Send(key.Event{
 		Code:      key.CodeLeftShift,
 		Direction: key.DirRelease,
+	})
+}
+
+func click(w *window, p image.Point, b mouse.Button) {
+	w.Send(mouse.Event{
+		X:         float32(p.X),
+		Y:         float32(p.Y),
+		Button:    b,
+		Direction: mouse.DirPress,
+	})
+	w.Send(mouse.Event{
+		X:         float32(p.X),
+		Y:         float32(p.Y),
+		Button:    b,
+		Direction: mouse.DirRelease,
 	})
 }
 

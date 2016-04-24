@@ -146,8 +146,12 @@ func respond(w http.ResponseWriter, resp interface{}) {
 func makeWindow(w *window) Window {
 	return Window{
 		ID:   w.id,
-		Path: path.Join("/", "window", w.id),
+		Path: windowPath(w),
 	}
+}
+
+func windowPath(w *window) string {
+	return path.Join("/", "window", w.id)
 }
 
 func (s *Server) listWindowsHandler(w http.ResponseWriter, req *http.Request) {
@@ -252,8 +256,7 @@ func (s *Server) newSheetHandler(w http.ResponseWriter, req *http.Request) {
 		http.NotFound(w, req)
 		return
 	}
-
-	f, err := newSheet(strconv.Itoa(s.nextID), URL, win)
+	f, err := s.newSheet(win, URL)
 	if err != nil {
 		s.Unlock()
 		// TODO(eaburns): This may be an http response error.
@@ -261,13 +264,24 @@ func (s *Server) newSheetHandler(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	s.nextID++
-	s.sheets[f.id] = f
 	resp := makeSheet(f)
-	win.Send(func() { win.addFrame(f) })
 	s.Unlock()
 	respond(w, resp)
+}
+
+// NewSheet creates a new sheet, adds it to the server's sheet list
+// and asynchronously adds it to the window.
+//
+// This method must be called with the server lock held.
+func (s *Server) newSheet(win *window, URL *url.URL) (*sheet, error) {
+	f, err := newSheet(strconv.Itoa(s.nextID), URL, win)
+	if err != nil {
+		return nil, err
+	}
+	s.nextID++
+	s.sheets[f.id] = f
+	win.Send(func() { win.addFrame(f) })
+	return f, nil
 }
 
 // MakeSheet returns a Sheet for the corresponding sheet.

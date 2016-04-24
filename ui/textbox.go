@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"log"
 	"math"
 	"net/url"
 	"path"
@@ -197,7 +198,7 @@ func (t *textBox) key(_ *window, event key.Event) bool {
 	return false
 }
 
-func (t *textBox) mouse(_ *window, event mouse.Event) bool {
+func (t *textBox) mouse(w *window, event mouse.Event) bool {
 	handleMouse(t, event)
 	return false
 }
@@ -211,6 +212,13 @@ func (t *textBox) do(res chan<- []editor.EditResult, eds ...edit.Edit) {
 
 func (t *textBox) where(p image.Point) int64 {
 	return int64(t.text.Index(p.Sub(t.topLeft))) + t.l0
+}
+
+func (t *textBox) exec(c string) {
+	t.mu.RLock()
+	w := t.win
+	t.mu.RUnlock()
+	go w.exec(c)
 }
 
 func (t *textBox) setColumn(c int) { t.col = c }
@@ -243,6 +251,8 @@ type mouseHandler interface {
 	// Where returns the rune address
 	// corresponding to the glyph at the given point.
 	where(image.Point) int64
+	// Exec executes a command.
+	exec(string)
 }
 
 func handleMouse(h mouseHandler, event mouse.Event) {
@@ -254,9 +264,27 @@ func handleMouse(h mouseHandler, event mouse.Event) {
 
 	switch event.Direction {
 	case mouse.DirPress:
-		if event.Button == mouse.ButtonLeft {
+		switch event.Button {
+		case mouse.ButtonLeft:
 			h.do(nil, edit.Set(edit.Rune(h.where(p)), '.'))
+		case mouse.ButtonMiddle:
+			// TODO(eaburns): This makes a blocking RPC,
+			// but it's called from the mouse handler.
+			// We should find a way to avoid blocking in the mouse handler.
+			rune := edit.Rune(h.where(p))
+			re := edit.Regexp("[a-zA-Z0-9_. -+/]*") // file name characters
+			res := make(chan []editor.EditResult)
+			h.do(res,
+				edit.Print(rune.Minus(re).To(rune.Plus(re))),
+				edit.Set(rune, '.'))
+			r := (<-res)[0]
+			if r.Error != "" {
+				log.Println(r.Error)
+				return
+			}
+			h.exec(r.Print)
 		}
+
 	}
 }
 

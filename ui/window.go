@@ -3,11 +3,18 @@
 package ui
 
 import (
+	"bufio"
 	"image"
 	"image/color"
 	"image/draw"
+	"io"
+	"log"
+	"os"
+	"os/exec"
+	"strings"
 	"time"
 
+	"github.com/eaburns/T/edit"
 	"golang.org/x/exp/shiny/screen"
 	"golang.org/x/image/font"
 	"golang.org/x/mobile/event/key"
@@ -78,13 +85,14 @@ type window struct {
 	server *Server
 	screen.Window
 	face font.Face
+	dpi  float64
 	image.Rectangle
+
 	columns []*column
 	xs      []float64
+
 	inFocus handler
 	p       image.Point
-
-	dpi float64
 }
 
 func newWindow(id string, s *Server, size image.Point) (*window, error) {
@@ -455,4 +463,79 @@ func slideRight(w *window, i int, delta int) bool {
 	}
 	w.xs[i+1] = float64(x) / float64(w.Dx())
 	return true
+}
+
+// TODO(eaburns): take a *sheet as an optional argument for setting T_SHEET.
+func (w *window) exec(commandLine string) {
+	scanner := bufio.NewScanner(strings.NewReader(commandLine))
+	scanner.Split(bufio.ScanWords)
+	var words []string
+	for scanner.Scan() {
+		words = append(words, scanner.Text())
+	}
+	if len(words) == 0 {
+		return
+	}
+
+	out, in, err := os.Pipe()
+	if err != nil {
+		log.Println("failed to open pipe:", err)
+		return
+	}
+	go pipeOutput(w, out)
+
+	cmd := exec.Command(words[0], words[1:]...)
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "T_WINDOW_PATH="+windowPath(w))
+	cmd.Stdout = in
+	cmd.Stderr = in
+	cmd.Run()
+	in.Close()
+}
+
+func pipeOutput(w *window, out io.ReadCloser) {
+	defer out.Close()
+	var buf [4096]byte
+	for {
+		switch n, err := out.Read(buf[:]); {
+		case err == io.EOF:
+			return
+		case err != nil:
+			log.Println("read error:", err)
+			return
+		default:
+			str := string(buf[:n])
+			w.Send(func() { w.output(str) })
+		}
+	}
+}
+
+// Output writes the string to the window's output sheet.
+//
+// Output must be called in the window's UI goroutine.
+func (w *window) output(str string) *sheet {
+	const outSheetName = "+output"
+	var out *sheet
+	w.server.Lock()
+	for _, s := range w.server.sheets {
+		if s.win == w && s.tagFileName() == outSheetName {
+			out = s
+			break
+		}
+	}
+	if out != nil {
+		w.server.Unlock()
+	} else {
+		var err error
+		out, err = w.server.newSheet(w, w.server.editorURL)
+		w.server.Unlock()
+		if err != nil {
+			log.Printf("failed to create %s sheet: %v", outSheetName, err)
+			return nil
+		}
+		out.setTagFileName(outSheetName)
+		w.refocus()
+	}
+	out.body.do(nil, edit.Append(edit.End, str))
+	return out
 }
