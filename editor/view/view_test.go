@@ -292,7 +292,7 @@ func TestConcurrentChange(t *testing.T) {
 
 		v.View(func(text []byte, marks []Mark) {
 			if str := string(text); str != test.want {
-				t.Errorf("%s: v.View(·)=_,%q, want _,%q", test.name, str, test.want)
+				t.Errorf("%s: v.View(·)=%q,%v, want %q,_", test.name, str, marks, test.want)
 			}
 		})
 
