@@ -280,7 +280,8 @@ func (v *View) edit(vd viewDo, Notify chan<- struct{}) error {
 		}
 		prints = append(prints, edit.Where(edit.Mark(n)))
 	}
-	start := edit.Mark(ViewMark).Minus(edit.Rune(0))
+	// Use the start of the mark's line, regardless of where it ends up in the line.
+	start := edit.Mark(ViewMark).Minus(edit.Line(0)).Minus(edit.Rune(0))
 	end := start.Plus(edit.Clamp(edit.Line(v.n)))
 	win := start.To(end)
 	prints = append(prints, edit.Print(win))
