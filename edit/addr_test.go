@@ -1220,16 +1220,22 @@ var minusTests = []editTest{
 		want:  "{..a}a{a}bcde",
 	},
 	{
-		name:  "minus 0 from mid line",
-		given: "abc{..}def",
+		name:  "minus 0 from start of file",
+		given: "{..}abc\ndef\n",
 		do:    address(Dot.Minus(Line(0))),
-		want:  "{a}abc{..a}def",
+		want:  "{..aa}abc\ndef\n",
 	},
 	{
 		name:  "minus 0 from start of line",
-		given: "abc\n{..}def",
+		given: "abc\n{..}def\n",
 		do:    address(Dot.Minus(Line(0))),
-		want:  "abc\n{..aa}def",
+		want:  "abc\n{..aa}def\n",
+	},
+	{
+		name:  "minus 0 from mid line",
+		given: "abc{..}def\n",
+		do:    address(Dot.Minus(Line(0))),
+		want:  "{a}abc{..a}def\n",
 	},
 }
 
