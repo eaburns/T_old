@@ -197,6 +197,14 @@ var doTests = []doTest{
 		do:     edit.Delete(edit.Line(1)),
 		want:   "2\n",
 	},
+	{
+		name:   "delete preceding newline",
+		init:   "1\n2\n3\n4\n5\n6\n7\n8\n9\n0\n",
+		size:   3,
+		scroll: 1,
+		do:     edit.Change(edit.Regexp(`1\n`), "1"),
+		want:   "12\n3\n4\n",
+	},
 }
 
 func TestDo(t *testing.T) {
@@ -300,50 +308,6 @@ func TestConcurrentChange(t *testing.T) {
 			t.Fatalf("v.Close()=%v\n", err)
 		}
 	}
-}
-
-// TestDeleteNewlineBeforeView tests that deleting
-// the newline exactly before the view
-// does not leave the view starting mid-line,
-// but instead moves its start to the new beginning of line.
-func TestDeleteNewlineBeforeView(t *testing.T) {
-	bufferURL, close := testBuffer()
-	defer close()
-
-	setText(bufferURL, "abc\ndef\nuvw\nxyz\n")
-
-	v, err := New(bufferURL)
-	if err != nil {
-		t.Fatalf("New(%q)=_,%v, want _,nil", bufferURL, err)
-	}
-	defer v.Close()
-
-	if v.Resize(2) {
-		wait(v)
-	}
-	v.Scroll(1)
-	wait(v)
-	v.View(func(text []byte, _ []Mark) {
-		want := "def\nuvw\n"
-		if str := string(text); str != want {
-			t.Fatalf("v.View(·)=_,%q, want _,%q", str, want)
-		}
-	})
-
-	// At this point, we have:
-	// "abc\n[def\nuvw\n]xyz\n"
-	// where [] denotes the view.
-	// We delete the newline after abc.
-
-	do(bufferURL, edit.Change(edit.Regexp(`abc\n`), "123"))
-	wait(v)
-
-	v.View(func(text []byte, _ []Mark) {
-		want := "123def\nuvw\n"
-		if str := string(text); str != want {
-			t.Errorf("v.View(·)=_,%q, want _,%q", str, want)
-		}
-	})
 }
 
 func TestTrackMarks(t *testing.T) {
