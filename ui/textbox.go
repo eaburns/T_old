@@ -272,19 +272,18 @@ func handleMouse(h mouseHandler, event mouse.Event) {
 			// but it's called from the mouse handler.
 			// We should find a way to avoid blocking in the mouse handler.
 			rune := edit.Rune(h.where(p))
-			re := edit.Regexp("[a-zA-Z0-9_. -+/]*") // file name characters
+			re := edit.Regexp(`[a-zA-Z0-9_.\-+/]*`) // file name characters
 			res := make(chan []editor.EditResult)
 			h.do(res,
 				edit.Print(rune.Minus(re).To(rune.Plus(re))),
 				edit.Set(rune, '.'))
 			r := (<-res)[0]
 			if r.Error != "" {
-				log.Println(r.Error)
+				log.Println("command error: ", r.Error)
 				return
 			}
 			h.exec(r.Print)
 		}
-
 	}
 }
 

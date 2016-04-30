@@ -289,7 +289,12 @@ func (v *View) edit(vd viewDo, Notify chan<- struct{}) error {
 
 	edits := append(vd.edits, saveDot, edit.Block(edit.All, prints...), restoreDot)
 	res, err := editor.Do(v.textURL, edits...)
+	// TODO(eaburns): If there is an error parsing the edit,
+	// we have no way to signal it back to the original doer.
 	if err != nil {
+		if vd.result != nil {
+			go func() { vd.result <- nil }()
+		}
 		return err
 	}
 	if vd.result != nil {
