@@ -1237,6 +1237,18 @@ var minusTests = []editTest{
 		do:    address(Dot.Minus(Line(0))),
 		want:  "{a}abc{..a}def\n",
 	},
+	{
+		name:  "minus 0 from address range",
+		given: "abc\n{.}def\n{.}ghi\n",
+		do:    address(Dot.Minus(Line(0))),
+		want:  "abc\n{.aa}def\n{.}ghi\n",
+	},
+	{
+		name:  "minus 0 from whole-buffer address range",
+		given: "{.}Hello, World\n{.}",
+		do:    address(Dot.Minus(Line(0))),
+		want:  "{.aa}Hello, World\n{.}",
+	},
 }
 
 func TestAddressMinus(t *testing.T) {
