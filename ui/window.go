@@ -536,6 +536,6 @@ func (w *window) output(str string) *sheet {
 		out.setTagFileName(outSheetName)
 		w.refocus()
 	}
-	out.body.do(nil, edit.Append(edit.End, str))
+	out.body.doAsync(edit.Append(edit.End, str))
 	return out
 }

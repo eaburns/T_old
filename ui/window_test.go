@@ -660,6 +660,7 @@ func Test_WindowOutput_NewOutputSheet(t *testing.T) {
 		t.Errorf("got %d sheets, want %d", len(newSheets), len(sheets)+1)
 	}
 }
+
 func Test_WindowOutput(t *testing.T) {
 	s, w := makeTestUI()
 	defer s.close()
@@ -701,11 +702,13 @@ func TestExec(t *testing.T) {
 	defer s.close()
 
 	sheet0 := w.columns[0].frames[1].(*sheet)
-	res := make(chan []editor.EditResult)
 	const cmdOutput = "\n" // echo with no args prints a \n.
-	sheet0.body.do(res, edit.Change(edit.End, "echo"))
-	if r := (<-res)[0]; r.Error != "" {
-		t.Fatalf("r.Error=%q", r.Error)
+	res, err := sheet0.body.doSync(edit.Change(edit.End, "echo"))
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if res[0].Error != "" {
+		t.Fatalf("r.Error=%q", res[0].Error)
 	}
 
 	// Create an output sheet so that we can read its upcoming changes.

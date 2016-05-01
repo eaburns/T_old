@@ -246,22 +246,26 @@ func TestDo(t *testing.T) {
 			wait(v)
 		}
 
-		ch := make(chan []editor.EditResult)
-		v.Do(ch, test.do)
-		wait(v)
+		result, err := v.Do(test.do)
+		if err != nil {
+			t.Fatalf("%s: v.Do(%q)=%v,%v, want _,nil", test.name, test.do, result, err)
+		}
 
+		wait(v)
 		v.View(func(text []byte, marks []Mark) {
 			if str := string(text); str != test.want {
 				t.Errorf("%s: v.View(·)=%q,%v, want %q,_", test.name, str, marks, test.want)
 			}
 		})
-
-		result := (<-ch)[0]
-		if result.Print != test.print {
-			t.Errorf("%s: result.Print=%q, want %q", test.name, result.Print, test.print)
+		if len(result) != 1 {
+			t.Fatalf("%s: len(result)=%d, want 1", test.name, len(result))
 		}
-		if result.Error != test.error {
-			t.Errorf("%s: result.Error=%q, want %q", test.name, result.Error, test.error)
+		r := result[0]
+		if r.Print != test.print {
+			t.Errorf("%s: r.Print=%q, want %q", test.name, r.Print, test.print)
+		}
+		if r.Error != test.error {
+			t.Errorf("%s: r.Error=%q, want %q", test.name, r.Error, test.error)
 		}
 		if err := v.Close(); err != nil {
 			t.Fatalf("v.Close()=%v\n", err)
@@ -296,8 +300,8 @@ func TestConcurrentChange(t *testing.T) {
 
 		// Make a change using a different editor.
 		do(bufferURL, test.do)
-		wait(v)
 
+		wait(v)
 		v.View(func(text []byte, marks []Mark) {
 			if str := string(text); str != test.want {
 				t.Errorf("%s: v.View(·)=%q,%v, want %q,_", test.name, str, marks, test.want)
@@ -327,7 +331,7 @@ func TestTrackMarks(t *testing.T) {
 		wait(v)
 	}
 
-	v.Do(nil, edit.Set(edit.Rune(5), 'm'), edit.Set(edit.Rune(10), '.'))
+	v.DoAsync(edit.Set(edit.Rune(5), 'm'), edit.Set(edit.Rune(10), '.'))
 	wait(v)
 
 	want := [2]int64{5, 5}
@@ -340,7 +344,7 @@ func TestTrackMarks(t *testing.T) {
 		t.Errorf("mark['.']=%v,%v, want %v,true", got, ok, want)
 	}
 
-	v.Do(nil, edit.Delete(edit.Rune(1).To(edit.Rune(2))))
+	v.DoAsync(edit.Delete(edit.Rune(1).To(edit.Rune(2))))
 	wait(v)
 
 	want = [2]int64{4, 4}
@@ -370,15 +374,31 @@ func TestMaintainDot(t *testing.T) {
 	}
 
 	str := "Hello, 世界\n"
-	v.Do(nil, edit.Change(edit.All, str))
+	v.DoAsync(edit.Change(edit.All, str))
 	wait(v)
 
-	result := make(chan []editor.EditResult)
-	v.Do(result, edit.Print(edit.Dot))
-	wait(v)
+	e := edit.Print(edit.Dot)
+	result, err := v.Do(e)
+	if err != nil || len(result) != 1 || result[0].Print != str {
+		t.Errorf("v.Do(%q)=%v,%v, want []EditResult{{Print: %q}}, nil", e, result, err, str)
+	}
+}
 
-	if r := (<-result)[0]; r.Print != str {
-		t.Errorf("got %q, want %q", r.Print, str)
+func TestMalformedEditError(t *testing.T) {
+	bufferURL, close := testBuffer()
+	defer close()
+
+	v, err := New(bufferURL, 'm')
+	if err != nil {
+		t.Fatalf("New(%q, 'm')=_,%v, want _,nil", bufferURL, err)
+	}
+	defer v.Close()
+
+	// The regexp is malformed.
+	badEdit := edit.Print(edit.Regexp(`][`))
+	res, err := v.Do(badEdit)
+	if err == nil {
+		t.Errorf("v.Do(%q)=%v,%v, want _,non-nil", badEdit, res, err)
 	}
 }
 

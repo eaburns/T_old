@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/eaburns/T/edit"
-	"github.com/eaburns/T/editor"
 	"github.com/eaburns/T/ui/text"
 	"golang.org/x/exp/shiny/screen"
 	"golang.org/x/mobile/event/key"
@@ -80,8 +79,7 @@ func newSheet(id string, URL *url.URL, w *window) (*sheet, error) {
 	if err != nil {
 		return nil, err
 	}
-	tag.view.Do(nil,
-		edit.Change(edit.All, "/sheet/"+id+" "+sheetTagText+" "),
+	tag.view.DoAsync(edit.Change(edit.All, "/sheet/"+id+" "+sheetTagText+" "),
 		edit.Set(edit.End, '.'))
 	s.tag = tag
 
@@ -115,17 +113,18 @@ var tagFileAddr = edit.Rune(0).To(edit.Rune(0).Plus(edit.Regexp(`\S*`)))
 
 func (s *sheet) tagFileName() string {
 	// TODO(eaburns): This is a blocking RPC, but it's called in the window handler go routine. Don't do that. Use a view to update this asynchronously.
-	res := make(chan []editor.EditResult)
-	s.tag.do(res, edit.Print(tagFileAddr))
-	r := (<-res)[0]
-	if r.Error != "" {
-		panic("failed to get tag file name: " + r.Error)
+	res, err := s.tag.doSync(edit.Print(tagFileAddr))
+	if err != nil {
+		panic("failed to read tag: " + err.Error())
 	}
-	return r.Print
+	if res[0].Error != "" {
+		panic("failed to read tag: " + res[0].Error)
+	}
+	return res[0].Print
 }
 
 func (s *sheet) setTagFileName(str string) {
-	s.tag.do(nil, edit.Change(tagFileAddr, str))
+	s.tag.doAsync(edit.Change(tagFileAddr, str))
 }
 
 func (s *sheet) updateText() {

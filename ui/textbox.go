@@ -205,9 +205,14 @@ func (t *textBox) mouse(w *window, event mouse.Event) bool {
 
 func (t *textBox) drawLast(scr screen.Screen, win screen.Window) {}
 
-func (t *textBox) do(res chan<- []editor.EditResult, eds ...edit.Edit) {
+func (t *textBox) doSync(eds ...edit.Edit) ([]editor.EditResult, error) {
 	t.col = -1
-	t.view.Do(res, eds...)
+	return t.view.Do(eds...)
+}
+
+func (t *textBox) doAsync(eds ...edit.Edit) {
+	t.col = -1
+	t.view.DoAsync(eds...)
 }
 
 func (t *textBox) where(p image.Point) int64 {
@@ -240,10 +245,15 @@ var (
 )
 
 type doer interface {
-	// Do clears the column marker and performs the edit,
-	// sending the result on the channel.
-	// If the channel is nil, the edit is performed asynchronously.
-	do(chan<- []editor.EditResult, ...edit.Edit)
+	// DoSync clears the column marker
+	// and performs the edit,
+	// and returns the result.
+	doSync(...edit.Edit) ([]editor.EditResult, error)
+
+	// DoAsync clears the column marker
+	// and performs the edit asynchronously,
+	// discarding the result.
+	doAsync(...edit.Edit)
 }
 
 type mouseHandler interface {
@@ -266,23 +276,24 @@ func handleMouse(h mouseHandler, event mouse.Event) {
 	case mouse.DirPress:
 		switch event.Button {
 		case mouse.ButtonLeft:
-			h.do(nil, edit.Set(edit.Rune(h.where(p)), '.'))
+			h.doAsync(edit.Set(edit.Rune(h.where(p)), '.'))
 		case mouse.ButtonMiddle:
 			// TODO(eaburns): This makes a blocking RPC,
 			// but it's called from the mouse handler.
 			// We should find a way to avoid blocking in the mouse handler.
 			rune := edit.Rune(h.where(p))
 			re := edit.Regexp(`[a-zA-Z0-9_.\-+/]*`) // file name characters
-			res := make(chan []editor.EditResult)
-			h.do(res,
-				edit.Print(rune.Minus(re).To(rune.Plus(re))),
+			res, err := h.doSync(edit.Print(rune.Minus(re).To(rune.Plus(re))),
 				edit.Set(rune, '.'))
-			r := (<-res)[0]
-			if r.Error != "" {
-				log.Println("command error: ", r.Error)
+			if err != nil {
+				log.Println("failed to read command: ", err)
 				return
 			}
-			h.exec(r.Print)
+			if res[0].Error != "" {
+				log.Println("failed to read command: ", res[0].Error)
+				return
+			}
+			h.exec(res[0].Print)
 		}
 	}
 }
@@ -303,7 +314,7 @@ func handleKey(h keyHandler, event key.Event) {
 		col := getColumn(h)
 		re := fmt.Sprintf("(?:.?){%d}", col)
 		up := dot.Minus(oneLine).Minus(zero).Plus(edit.Regexp(re)).Plus(zero)
-		h.do(nil, edit.Set(up, '.'))
+		h.doAsync(edit.Set(up, '.'))
 		h.setColumn(col)
 	case key.CodeDownArrow:
 		col := getColumn(h)
@@ -311,37 +322,37 @@ func handleKey(h keyHandler, event key.Event) {
 		// We use .-1+2, because .+1 does not move dot
 		// if it is at the beginning of an empty line.
 		up := dot.Minus(oneLine).Plus(twoLines).Minus(zero).Plus(edit.Regexp(re)).Plus(zero)
-		h.do(nil, edit.Set(up, '.'))
+		h.doAsync(edit.Set(up, '.'))
 		h.setColumn(col)
 	case key.CodeRightArrow:
-		h.do(nil, moveDotRight)
+		h.doAsync(moveDotRight)
 	case key.CodeLeftArrow:
-		h.do(nil, moveDotLeft)
+		h.doAsync(moveDotLeft)
 	case key.CodeDeleteBackspace:
-		h.do(nil, backspace)
+		h.doAsync(backspace)
 	case key.CodeReturnEnter:
-		h.do(nil, newline...)
+		h.doAsync(newline...)
 	case key.CodeTab:
-		h.do(nil, tab...)
+		h.doAsync(tab...)
 	default:
 		switch event.Modifiers {
 		case 0, key.ModShift:
 			if event.Rune >= 0 {
 				r := string(event.Rune)
-				h.do(nil, edit.Change(dot, r), edit.Set(dot.Plus(zero), '.'))
+				h.doAsync(edit.Change(dot, r), edit.Set(dot.Plus(zero), '.'))
 			}
 		case key.ModControl:
 			switch event.Rune {
 			case 'a':
-				h.do(nil, edit.Set(dot.Minus(edit.Line(0)).Minus(zero), '.'))
+				h.doAsync(edit.Set(dot.Minus(edit.Line(0)).Minus(zero), '.'))
 			case 'e':
-				h.do(nil, edit.Set(dot.Minus(zero).Plus(edit.Regexp("$")), '.'))
+				h.doAsync(edit.Set(dot.Minus(zero).Plus(edit.Regexp("$")), '.'))
 			case 'h':
-				h.do(nil, backspace)
+				h.doAsync(backspace)
 			case 'u':
-				h.do(nil, backline)
+				h.doAsync(backline)
 			case 'w':
-				h.do(nil, backword)
+				h.doAsync(backword)
 			}
 		}
 	}
@@ -355,11 +366,12 @@ func getColumn(h keyHandler) int {
 
 	// TODO(eaburns): This makes a blocking RPC, but it's called from the key handler.
 	// We should find a way to avoid blocking in the key handler.
-	resultCh := make(chan []editor.EditResult)
-	h.do(resultCh, edit.Where(dot.Minus(edit.Line(0))))
-	res := <-resultCh
+	res, err := h.doSync(edit.Where(dot.Minus(edit.Line(0))))
+	if err != nil {
+		panic("failed to get column number: " + err.Error())
+	}
 	if res[0].Error != "" {
-		panic("bad result: " + res[0].Error)
+		panic("failed to get column number: " + res[0].Error)
 	}
 	var w [2]int64
 	if n, err := fmt.Sscanf(res[0].Print, "#%d,#%d", &w[0], &w[1]); n == 1 {
