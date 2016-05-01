@@ -222,6 +222,12 @@ const (
 	Delimited Flags = 1 << iota
 	// Literal indicates that the regular expression
 	// should be compiled for a literal match.
+	// When compiling for a literal match, meta characters
+	// except for \ and the delimiter
+	// are interpreted literally.
+	// The escape character \ is interpreted as as usual,
+	// as literal of the following character;
+	// and an unescaped delimiter is interpreted as a delimiter.
 	Literal
 	// Reverse indicates that the regular expression
 	// should be compiled for a reverse match.

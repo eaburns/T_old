@@ -76,7 +76,9 @@ func TestEmpty(t *testing.T) {
 	}
 }
 
-func TestLiteral(t *testing.T) {
+// TestLiterals tests regular expression literals.
+// For tests with the Literal flag set, see TestLiteralFlag.
+func TestLiterals(t *testing.T) {
 	tests := []regexpTest{
 		{
 			name:   "single rune",
@@ -138,18 +140,6 @@ func TestLiteral(t *testing.T) {
 		{name: `escaped meta \`, regexp: `\\`, text: []string{`{0}\{0}`}},
 		{name: `escaped meta ^`, regexp: `\^`, text: []string{`{0}^{0}`}},
 		{name: `escaped meta $`, regexp: `\$`, text: []string{`{0}${0}`}},
-		{name: `literal .`, regexp: `.`, flags: Literal, text: []string{`{0}.{0}`}},
-		{name: `literal *`, regexp: `*`, flags: Literal, text: []string{`{0}*{0}`}},
-		{name: `literal +`, regexp: `+`, flags: Literal, text: []string{`{0}+{0}`}},
-		{name: `literal ?`, regexp: `?`, flags: Literal, text: []string{`{0}?{0}`}},
-		{name: `literal [`, regexp: `[`, flags: Literal, text: []string{`{0}[{0}`}},
-		{name: `literal ]`, regexp: `]`, flags: Literal, text: []string{`{0}]{0}`}},
-		{name: `literal (`, regexp: `(`, flags: Literal, text: []string{`{0}({0}`}},
-		{name: `literal )`, regexp: `)`, flags: Literal, text: []string{`{0}){0}`}},
-		{name: `literal |`, regexp: `|`, flags: Literal, text: []string{`{0}|{0}`}},
-		{name: `literal \`, regexp: `\`, flags: Literal, text: []string{`{0}\{0}`}},
-		{name: `literal ^`, regexp: `^`, flags: Literal, text: []string{`{0}^{0}`}},
-		{name: `literal $`, regexp: `$`, flags: Literal, text: []string{`{0}${0}`}},
 	}
 	for _, test := range tests {
 		test.run(t)
@@ -2538,10 +2528,62 @@ func TestDelimter(t *testing.T) {
 	}
 }
 
-func TestLiteralFlagDelimter(t *testing.T) {
+func TestLiteralFlag(t *testing.T) {
 	tests := []regexpTest{
 		{
-			name:   "terminates on delimiter",
+			name:   "single rune",
+			regexp: "a",
+			flags:  Literal,
+			text: []string{
+				"",
+				"x",
+				"{0}a{0}",
+				"{0}a{0}def",
+				"{0}a{0}aaa",
+				"xyz{0}a{0}bc",
+				"zzz{0}a{0}aa",
+				"αβξ{0}a{0}αβξ",
+			},
+		},
+		{
+			name:   "non-ASCII",
+			regexp: "☺",
+			flags:  Literal,
+			text: []string{
+				"",
+				"x",
+				"{0}☺{0}",
+				"{0}☺{0}def",
+				"{0}☺{0}aaa",
+				"xyz{0}☺{0}bc",
+				"zzz{0}☺{0}aa",
+				"αβξ{0}☺{0}αβξ",
+			},
+		},
+		{
+			name:   "newline",
+			regexp: "\n",
+			flags:  Literal,
+			text: []string{
+				"",
+				"x",
+				`\n`,
+				"{0}\n{0}",
+			},
+		},
+		{
+			name:   "literal newline",
+			regexp: `\n`,
+			flags:  Literal,
+			text: []string{
+				"",
+				"x",
+				`\n`,
+				"{0}\n{0}",
+			},
+		},
+		{
+			name:   "delimiter",
 			regexp: "/abc/def",
 			flags:  Literal | Delimited,
 			text: []string{
@@ -2559,6 +2601,30 @@ func TestLiteralFlagDelimter(t *testing.T) {
 				"{0}abc/def{0}",
 			},
 		},
+		{name: `escaped meta .`, regexp: `\.`, flags: Literal, text: []string{`{0}.{0}`}},
+		{name: `escaped meta *`, regexp: `\*`, flags: Literal, text: []string{`{0}*{0}`}},
+		{name: `escaped meta +`, regexp: `\+`, flags: Literal, text: []string{`{0}+{0}`}},
+		{name: `escaped meta ?`, regexp: `\?`, flags: Literal, text: []string{`{0}?{0}`}},
+		{name: `escaped meta [`, regexp: `\[`, flags: Literal, text: []string{`{0}[{0}`}},
+		{name: `escaped meta ]`, regexp: `\]`, flags: Literal, text: []string{`{0}]{0}`}},
+		{name: `escaped meta (`, regexp: `\(`, flags: Literal, text: []string{`{0}({0}`}},
+		{name: `escaped meta )`, regexp: `\)`, flags: Literal, text: []string{`{0}){0}`}},
+		{name: `escaped meta |`, regexp: `\|`, flags: Literal, text: []string{`{0}|{0}`}},
+		{name: `escaped meta \`, regexp: `\\`, flags: Literal, text: []string{`{0}\{0}`}},
+		{name: `escaped meta ^`, regexp: `\^`, flags: Literal, text: []string{`{0}^{0}`}},
+		{name: `escaped meta $`, regexp: `\$`, flags: Literal, text: []string{`{0}${0}`}},
+		{name: `literal .`, regexp: `.`, flags: Literal, text: []string{`{0}.{0}`}},
+		{name: `literal *`, regexp: `*`, flags: Literal, text: []string{`{0}*{0}`}},
+		{name: `literal +`, regexp: `+`, flags: Literal, text: []string{`{0}+{0}`}},
+		{name: `literal ?`, regexp: `?`, flags: Literal, text: []string{`{0}?{0}`}},
+		{name: `literal [`, regexp: `[`, flags: Literal, text: []string{`{0}[{0}`}},
+		{name: `literal ]`, regexp: `]`, flags: Literal, text: []string{`{0}]{0}`}},
+		{name: `literal (`, regexp: `(`, flags: Literal, text: []string{`{0}({0}`}},
+		{name: `literal )`, regexp: `)`, flags: Literal, text: []string{`{0}){0}`}},
+		{name: `literal |`, regexp: `|`, flags: Literal, text: []string{`{0}|{0}`}},
+		{name: `literal \`, regexp: `\`, flags: Literal, text: []string{`{0}\{0}`}},
+		{name: `literal ^`, regexp: `^`, flags: Literal, text: []string{`{0}^{0}`}},
+		{name: `literal $`, regexp: `$`, flags: Literal, text: []string{`{0}${0}`}},
 	}
 	for _, test := range tests {
 		test.run(t)
