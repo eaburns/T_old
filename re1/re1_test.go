@@ -1253,6 +1253,69 @@ func TestGroup(t *testing.T) {
 	}
 }
 
+func TestNonCapturingGroup(t *testing.T) {
+	tests := []regexpTest{
+		{name: "unsupported group", regexp: "(?abc)", error: "unsupported"},
+		{name: "missing operand", regexp: "(?:)", error: "missing operand"},
+		{name: "unclosed", regexp: "(?:abc", error: "unclosed"},
+		{name: "nested error", regexp: "(?:(?:(?:*)))", error: "missing operand"},
+		{name: ": escaped", regexp: `(?\:a)`, error: "unsupported"},
+		{name: "? escaped", regexp: `(\?:a)`, text: []string{"{01}?:a{01}"}},
+		{
+			name:   "group",
+			regexp: "(?:abc)",
+			text: []string{
+				"",
+				"ab",
+				"αβξ{0}abc{0}",
+				"ab{0}abc{0}",
+				"{0}abc{0}abc",
+				"αβξ{0}abc{0}abc",
+			},
+		},
+		{
+			name:   "same nested groups",
+			regexp: "(?:(?:(?:abc)))",
+			text: []string{
+				"",
+				"ab",
+				"αβξ{0}abc{0}",
+				"ab{0}abc{0}",
+				"{0}abc{0}abc",
+				"αβξ{0}abc{0}abc",
+			},
+		},
+		{
+			name:   "nested groups",
+			regexp: "(?:(?:a)(?:(?:b)(?:c)))",
+			text: []string{
+				"",
+				"ab",
+				"αβξ{0}abc{0}",
+				"ab{0}abc{0}",
+				"{0}abc{0}abc",
+				"αβξ{0}abc{0}abc",
+			},
+		},
+		{
+			name:   "capturing groups",
+			regexp: "a(?:b(c))",
+			text: []string{
+				"",
+				"ab",
+				"{0}ab{1}c{01}",
+				"αβξ{0}ab{1}c{01}",
+				"ab{0}ab{1}c{01}",
+				"{0}ab{1}c{01}abc",
+				"αβξ{0}ab{1}c{01}abc",
+			},
+		},
+	}
+	for _, test := range tests {
+		test.run(t)
+	}
+}
+
 func TestStar(t *testing.T) {
 	aStarText := []string{
 		"{00}",

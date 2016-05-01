@@ -18,7 +18,7 @@ means any unicode character but newline.
 Language
 
 The syntax for a regular expression e0 is
-	e3:    literal | charclass | '.' | '^' | '$' | '\' PERL | '(' e0 ')'
+	e3:    literal | charclass | '.' | '^' | '$' | '\' PERL | '(' e0 ')' | '(' '?' ':' e0 ')'
 	PERL: 'd' | 'D' | 's' | 'S' | 'w' | 'W' | 'A' | 'z'
 	e2:    e3 | e2 REP
 	REP:   '*' | '+' | '?'
@@ -37,7 +37,6 @@ A literal delimiter can always be matched using a charclass (see below).
 \n is a literal newline.
 A non-PERL-character-class character preceded by a \
 is the character itself, without the \.
-
 
 A charclass is a nonempty string s bracketed [s] (or [^s]);
 it matches any character in (or not in) s.
@@ -76,6 +75,11 @@ Caputring groups are numbered from 1 in the order of their (, left-to-right.
 The indices of the e0 match within the outter expression are "captured"
 and returned by the Regexp.Match method according to their number.
 
+A parenthesized subexpression, (?:e0), is a non-capturing group.
+Non-capturing groups group their inner expression,
+but do not have a corresponding number,
+and do not capture a match.
+
 A concatenated regular expression, e1e2,
 matches a match to e1 followed by a match to e2.
 
@@ -106,7 +110,18 @@ const None = -1
 
 const (
 	// Meta contains the re1 metacharacters.
+	// These are runes that have a non-literal meaning
+	// when they appear unescaped in a regular expression.
+	//
+	// The runes ^, -, and : also can have a non-literal meanings.
+	// However, we do not consider them metacharacters,
+	// as they are not generally interpreted as meta,
+	// but only in these constructs:
+	// 	^ is meta when it appears as the first rune of a character class: [^abc].
+	// 	- is meta when it appears between two runes in a character class: [a-b].
+	// 	: is meta when it appears after ? in a non-capturing group: (?:re).
 	Meta = `.*+?[]()|\^$`
+
 	// Perl are characters used in perl-style character classes.
 	Perl = "dDsSwWbBAz"
 )
@@ -505,8 +520,22 @@ func e3(p *parser) (*Regexp, error) {
 		if err := p.next(); err != nil {
 			return nil, err
 		}
-		nSubexprs := p.nSubexprs
-		p.nSubexprs++
+		var nSubexprs int
+		if p.current == question {
+			// Non-capturing group (?: re).
+			if r, err := p.read(); err != nil {
+				return nil, err
+			} else if r != ':' {
+				return nil, errors.New("unsupported group (?" + string(p.current))
+			}
+			if err := p.next(); err != nil {
+				return nil, err
+			}
+		} else {
+			// Capturing group (re).
+			nSubexprs = p.nSubexprs
+			p.nSubexprs++
+		}
 		switch e, err := e0(p); {
 		case err != nil:
 			return nil, err
@@ -517,7 +546,11 @@ func e3(p *parser) (*Regexp, error) {
 		case e == nil:
 			return nil, errors.New("missing operand for (")
 		default:
-			re = subexpr(e, nSubexprs)
+			if nSubexprs == 0 {
+				re = e // non-capturing
+			} else {
+				re = subexpr(e, nSubexprs) // capturing
+			}
 		}
 	case cparen:
 		if p.nest == 0 {
