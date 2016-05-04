@@ -275,7 +275,7 @@ func newColumnTag(w *window) (*columnTag, error) {
 	if err != nil {
 		return nil, err
 	}
-	text.view.Do(nil, edit.Change(edit.All, columnTagText+" "), edit.Set(edit.End, '.'))
+	text.view.DoAsync(edit.Change(edit.All, columnTagText+" "), edit.Set(edit.End, '.'))
 	return &columnTag{text: text}, nil
 }
 

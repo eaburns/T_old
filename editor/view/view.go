@@ -66,7 +66,7 @@ type View struct {
 	editorURL *url.URL
 	textURL   *url.URL
 	changes   *editor.ChangeStream
-	do        chan<- viewDo
+	do        chan<- doRequest
 
 	seq int
 
@@ -84,9 +84,14 @@ type Mark struct {
 	Where [2]int64
 }
 
-type viewDo struct {
+type doRequest struct {
 	edits  []edit.Edit
-	result chan<- []editor.EditResult
+	result chan<- doResponse
+}
+
+type doResponse struct {
+	error   error
+	results []editor.EditResult
 }
 
 // New returns a new View for a buffer.
@@ -131,7 +136,7 @@ func New(bufferURL *url.URL, markRunes ...rune) (*View, error) {
 	// the notification is dropped;
 	// the next receiver will get the one sitting in the channel.
 	Notify := make(chan struct{}, 1)
-	do := make(chan viewDo)
+	do := make(chan doRequest)
 
 	v := &View{
 		Notify:    Notify,
@@ -144,7 +149,7 @@ func New(bufferURL *url.URL, markRunes ...rune) (*View, error) {
 
 	go v.run(do, Notify)
 
-	v.do <- viewDo{}
+	v.do <- doRequest{}
 	<-Notify
 
 	return v, nil
@@ -182,7 +187,7 @@ func (v *View) Resize(nLines int) bool {
 	}
 	v.n = nLines
 	v.mu.Unlock()
-	v.do <- viewDo{}
+	v.do <- doRequest{}
 	return true
 }
 
@@ -206,17 +211,24 @@ func (v *View) Scroll(deltaLines int) {
 
 // Warp moves the first line of  the view
 // to the line containin the beginning of an Address.
-func (v *View) Warp(addr edit.Address) { v.Do(nil, edit.Set(addr, ViewMark)) }
+func (v *View) Warp(addr edit.Address) { v.DoAsync(edit.Set(addr, ViewMark)) }
 
-// Do performs edits using the View's editor
-// and sends the result on the given channel.
-// If the result channel is nil, the result is discarded.
-func (v *View) Do(result chan<- []editor.EditResult, edits ...edit.Edit) {
-	vd := viewDo{edits: edits, result: result}
-	v.do <- vd
+// Do performs edits using the View's Editor and returns the results.
+// If there is an error requesting the edits, it is returned through the error return.
+// If there is an error performing any of the individual edits, it is reported in the EditResult.
+func (v *View) Do(edits ...edit.Edit) ([]editor.EditResult, error) {
+	result := make(chan doResponse)
+	v.do <- doRequest{edits: edits, result: result}
+	r := <-result
+	return r.results, r.error
 }
 
-func (v *View) run(do <-chan viewDo, Notify chan<- struct{}) {
+// DoAsync performs edits asynchronously using the View's Editor.
+// If there is an error requesting the edits, it is logged, and discarded.
+// The EditResults are silently discarded.
+func (v *View) DoAsync(edits ...edit.Edit) { v.do <- doRequest{edits: edits} }
+
+func (v *View) run(do <-chan doRequest, Notify chan<- struct{}) {
 	changes := make(chan editor.ChangeList)
 	go func(changes chan<- editor.ChangeList) {
 		defer close(changes)
@@ -258,7 +270,7 @@ func (v *View) run(do <-chan viewDo, Notify chan<- struct{}) {
 			}
 			// TODO(eaburns): this does a complete, blocking refresh.
 			// Don't require a complete refresh with every change.
-			if err := v.edit(viewDo{}, Notify); err != nil {
+			if err := v.edit(doRequest{}, Notify); err != nil {
 				return
 			}
 		}
@@ -270,7 +282,7 @@ var (
 	restoreDot = edit.Set(edit.Mark('1'), '.')
 )
 
-func (v *View) edit(vd viewDo, Notify chan<- struct{}) error {
+func (v *View) edit(vd doRequest, Notify chan<- struct{}) error {
 	v.mu.RLock()
 	var prints []edit.Edit
 	for _, m := range v.marks {
@@ -289,16 +301,14 @@ func (v *View) edit(vd viewDo, Notify chan<- struct{}) error {
 
 	edits := append(vd.edits, saveDot, edit.Block(edit.All, prints...), restoreDot)
 	res, err := editor.Do(v.textURL, edits...)
-	// TODO(eaburns): If there is an error parsing the edit,
-	// we have no way to signal it back to the original doer.
 	if err != nil {
 		if vd.result != nil {
-			go func() { vd.result <- nil }()
+			go func() { vd.result <- doResponse{error: err} }()
 		}
 		return err
 	}
 	if vd.result != nil {
-		go func() { vd.result <- res[:len(res)-3] }()
+		go func() { vd.result <- doResponse{results: res[:len(res)-3]} }()
 	}
 
 	v.mu.Lock()

@@ -832,8 +832,17 @@ func (h *testHandler) where(p image.Point) int64 {
 	return s[0]
 }
 
-func (h *testHandler) do(res chan<- []editor.EditResult, eds ...edit.Edit) {
+func (h *testHandler) doSync(eds ...edit.Edit) ([]editor.EditResult, error) {
 	h.col = -1
+	return h.do(eds...)
+}
+
+func (h *testHandler) doAsync(eds ...edit.Edit) {
+	h.col = -1
+	h.do(eds...)
+}
+
+func (h *testHandler) do(eds ...edit.Edit) ([]editor.EditResult, error) {
 	print := bytes.NewBuffer(nil)
 	var results []editor.EditResult
 	for _, e := range eds {
@@ -849,7 +858,5 @@ func (h *testHandler) do(res chan<- []editor.EditResult, eds ...edit.Edit) {
 		results = append(results, r)
 		h.seq++
 	}
-	if res != nil {
-		go func() { res <- results }()
-	}
+	return results, nil
 }
