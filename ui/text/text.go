@@ -247,7 +247,7 @@ func (s *Setter) Set() *Text {
 				break
 			}
 		}
-		h1 += int(line.h >> 6)
+		h1 += line.h.Round()
 	}
 	t := &Text{setter: s, lines: s.lines, size: s.opts.Size}
 	for _, l := range s.reuseLines {
@@ -368,7 +368,7 @@ func (t *Text) GlyphBox(index int) image.Rectangle {
 	}
 
 	if len(t.lines) == 0 {
-		h := int(t.setter.opts.DefaultStyle.Face.Metrics().Height >> 6)
+		h := t.setter.opts.DefaultStyle.Face.Metrics().Height.Round()
 		return image.Rect(pad, pad, pad, pad+h)
 	}
 
@@ -380,7 +380,7 @@ func (t *Text) GlyphBox(index int) image.Rectangle {
 	y := pad
 	var x0 fixed.Int26_6
 	for _, l := range t.lines {
-		h = int(l.h >> 6)
+		h = l.h.Round()
 		if y+h > t.size.Y-pad {
 			return image.ZR
 		}
@@ -407,7 +407,7 @@ func (t *Text) GlyphBox(index int) image.Rectangle {
 					}
 				}
 				if j == index {
-					return image.Rect(int(x0>>6)+pad, y, int(x1>>6)+pad, y+h)
+					return image.Rect(x0.Round()+pad, y, x1.Round()+pad, y+h)
 				}
 				x0 = x1
 			}
@@ -424,7 +424,7 @@ func (t *Text) GlyphBox(index int) image.Rectangle {
 		x0 = 0
 		y += h
 	}
-	return image.Rect(int(x0>>6)+pad, y-h, int(x0>>6)+pad, y)
+	return image.Rect(x0.Round()+pad, y-h, x0.Round()+pad, y)
 }
 
 // Len returns the length of the line in bytes.
@@ -459,7 +459,7 @@ func (t *Text) LinesHeight() int {
 	}
 	y := pad
 	for _, l := range t.lines {
-		h := int(l.h >> 6)
+		h := l.h.Round()
 		if y+h > t.size.Y-pad {
 			break
 		}
@@ -499,14 +499,14 @@ func (t *Text) DrawLines(at image.Point, scr screen.Screen, win screen.Window) i
 	textWidth := (x1 - x0) - 2*pad
 	for _, l := range t.lines {
 		y = ynext
-		ynext = y + int(l.h>>6)
+		ynext = y + l.h.Round()
 		if ynext > y1-pad {
 			ynext = y
 			break
 		}
-		if l.buf == nil && int(l.w>>6) > 0 {
+		if l.buf == nil && l.w.Round() > 0 {
 			var err error
-			size := image.Pt(int(l.w>>6), int(l.h>>6))
+			size := image.Pt(l.w.Round(), l.h.Round())
 			l.buf, err = scr.NewBuffer(size)
 			if err != nil {
 				panic(err)
@@ -549,7 +549,7 @@ func trailingNewlineHeight(t *Text) int {
 	// add the height of one more empty line if it fits.
 	if len(t.lines) > 0 {
 		if r, ok := lastRune(t.lines[len(t.lines)-1]); ok && r == '\n' {
-			return int(t.setter.opts.DefaultStyle.Face.Metrics().Height >> 6)
+			return t.setter.opts.DefaultStyle.Face.Metrics().Height.Round()
 		}
 	}
 	return 0
@@ -568,7 +568,7 @@ func drawLine(t *Text, l *line, img draw.Image) {
 	for _, sp := range l.spans {
 		fg := image.NewUniform(sp.FG)
 		bg := image.NewUniform(sp.BG)
-		box := image.Rect(int(sp.x0>>6), 0, int(sp.x1>>6), int(l.h>>6))
+		box := image.Rect(sp.x0.Round(), 0, sp.x1.Round(), l.h.Round())
 		draw.Draw(img, box, bg, image.ZP, draw.Src)
 		x := sp.x0
 		for i, r := range sp.text {

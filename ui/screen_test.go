@@ -75,17 +75,20 @@ func newTestWindow(opts *screen.NewWindowOptions) *stubWindow {
 	}
 }
 
-func (t *stubWindow) Send(event interface{}) { t.events <- event }
-func (t *stubWindow) NextEvent() interface{} { return <-t.events }
+func (t *stubWindow) Send(event interface{})      { t.events <- event }
+func (t *stubWindow) SendFirst(event interface{}) { panic("unimplemented") }
+func (t *stubWindow) NextEvent() interface{}      { return <-t.events }
 
 func (t *stubWindow) Release() {
 	for range t.publish {
 	}
 }
 
-func (*stubWindow) Upload(image.Point, screen.Buffer, image.Rectangle)                              {}
-func (*stubWindow) Fill(image.Rectangle, color.Color, draw.Op)                                      {}
-func (*stubWindow) Draw(f64.Aff3, screen.Texture, image.Rectangle, draw.Op, *screen.DrawOptions)    {}
+func (*stubWindow) Upload(image.Point, screen.Buffer, image.Rectangle)                           {}
+func (*stubWindow) Fill(image.Rectangle, color.Color, draw.Op)                                   {}
+func (*stubWindow) Draw(f64.Aff3, screen.Texture, image.Rectangle, draw.Op, *screen.DrawOptions) {}
+func (*stubWindow) DrawUniform(src2dst f64.Aff3, src color.Color, sr image.Rectangle, op draw.Op, opts *screen.DrawOptions) {
+}
 func (*stubWindow) Copy(image.Point, screen.Texture, image.Rectangle, draw.Op, *screen.DrawOptions) {}
 func (*stubWindow) Scale(image.Rectangle, screen.Texture, image.Rectangle, draw.Op, *screen.DrawOptions) {
 }
