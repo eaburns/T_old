@@ -9,10 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"io/ioutil"
 	"log"
-	"os"
-	"path"
 	"runtime"
 	"unicode/utf8"
 
@@ -23,7 +20,7 @@ import (
 	"golang.org/x/exp/shiny/screen"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
-	"golang.org/x/image/font/plan9font"
+	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/mobile/event/key"
 	"golang.org/x/mobile/event/lifecycle"
 	"golang.org/x/mobile/event/mouse"
@@ -53,46 +50,15 @@ var (
 )
 
 func loadFace() font.Face {
-	file := path.Join(os.Getenv("HOME"), ".fonts", "Roboto-Regular.ttf")
-	f, err := os.Open(file)
+	ttf, err := truetype.Parse(goregular.TTF)
 	if err != nil {
-		return loadPlan9Face()
-	}
-	data, err := ioutil.ReadAll(f)
-	if err != nil {
-		return loadPlan9Face()
-	}
-	ttf, err := truetype.Parse(data)
-	if err != nil {
-		return loadPlan9Face()
+		log.Printf("Failed to load default font %s", err)
+		return basicfont.Face7x13
 	}
 	return truetype.NewFace(ttf, &truetype.Options{
 		Size: 11, // pt
 		DPI:  96,
 	})
-}
-
-func loadPlan9Face() font.Face {
-	dir := path.Join(os.Getenv("PLAN9"), "font/lucsans")
-	file := path.Join(dir, "unicode.8.font")
-	f, err := os.Open(file)
-	if err != nil {
-		log.Println(file, "not found")
-		return basicfont.Face7x13
-	}
-	data, err := ioutil.ReadAll(f)
-	if err != nil {
-		log.Println("failed to read", file)
-		return basicfont.Face7x13
-	}
-	face, err := plan9font.ParseFont(data, func(f string) ([]byte, error) {
-		return ioutil.ReadFile(path.Join(dir, f))
-	})
-	if err != nil {
-		log.Println("failed load", file)
-		return basicfont.Face7x13
-	}
-	return face
 }
 
 func init() { runtime.LockOSThread() }
