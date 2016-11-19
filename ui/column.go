@@ -430,5 +430,5 @@ func (t *columnTag) mouse(w *window, event mouse.Event) bool {
 // for a single line of text in the default style
 // plus padding and a border.
 func minHeight(opts text.Options) int {
-	return int(opts.DefaultStyle.Face.Metrics().Height>>6) + opts.Padding*2 + borderWidth
+	return opts.DefaultStyle.Face.Metrics().Height.Round() + opts.Padding*2 + borderWidth
 }

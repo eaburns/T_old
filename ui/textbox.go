@@ -131,7 +131,7 @@ func (t *textBox) setSize(size image.Point) {
 	t.mu.Unlock()
 
 	h := t.opts.DefaultStyle.Face.Metrics().Height
-	t.view.Resize(size.Y / int(h>>6))
+	t.view.Resize(size.Y / h.Round())
 	t.text.Release()
 	t.opts.Size = size
 	t.setter.Reset(t.opts)
