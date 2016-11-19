@@ -5,13 +5,10 @@ package ui
 import (
 	"log"
 
+	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/font/gofont/goregular"
-
-	// TODO(eaburns): use github.com/golang/freetype/truetype
-	// once it properly computes font heights.
-	"github.com/eaburns/freetype/truetype"
 )
 
 var defaultFont = loadDefaultFont()
