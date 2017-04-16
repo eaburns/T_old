@@ -331,3 +331,30 @@ func readSource(src runes.Reader) string {
 	}
 	return string(rs)
 }
+
+func TestBufferPut(t *testing.T) {
+	tests := []string{
+		"",
+		"Hello, World!",
+		"Hello, 世界",
+		"abc\uFFFDdef",
+	}
+	for _, test := range tests {
+		b := NewBuffer()
+		defer b.Close()
+		if err := b.Write([]rune(test), b.End()); err != nil {
+			t.Fatalf(`b.Write("%s", b.End())=%v, want nil`, test, err)
+		}
+
+		f := bytes.NewBuffer(nil)
+		n, err := b.Put(f)
+		if l := len(test); n != l || err != nil {
+			t.Errorf(`b.Put("%s")=%v,%v, want %v,nil`, test, n, err, l)
+			continue
+		}
+		if s := f.String(); s != test {
+			t.Errorf(`f.String()="%s", want "%s"`, s, test)
+			continue
+		}
+	}
+}
