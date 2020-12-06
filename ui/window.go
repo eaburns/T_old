@@ -444,6 +444,7 @@ func slideLeft(w *window, i int, delta int) bool {
 	x := w.columns[i].Min.X - delta
 	if sz := x - w.columns[i-1].Min.X; sz < minFrameWidth {
 		if !slideLeft(w, i-1, minFrameWidth-sz) {
+			w.xs[i] = float64(i*minFrameWidth) / float64(w.Dx())
 			return false
 		}
 	}
@@ -456,8 +457,9 @@ func slideRight(w *window, i int, delta int) bool {
 		return false
 	}
 	x := w.columns[i].Max.X + delta
-	if sz := w.columns[i+1].Max.X - borderWidth - x; sz < minFrameWidth {
+	if sz := w.columns[i+1].Max.X - borderWidth - x; sz <= minFrameWidth {
 		if !slideRight(w, i+1, minFrameWidth-sz) {
+			w.xs[i+1] = 1. - float64((len(w.columns)-i-2)*minFrameWidth)/float64(w.Dx())
 			return false
 		}
 	}

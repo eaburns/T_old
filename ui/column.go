@@ -232,6 +232,11 @@ func slideUp(c *column, i int, delta int) bool {
 	y := c.frames[i].bounds().Min.Y - delta
 	if sz := y - c.frames[i-1].bounds().Min.Y - borderWidth; sz < min {
 		if !slideUp(c, i-1, min-sz) {
+			sum := 0
+			for j := 0; j < i; j++ {
+				sum += c.frames[j].minHeight()
+			}
+			c.ys[i] = float64(sum) / float64(c.Dy())
 			return false
 		}
 	}
@@ -243,10 +248,15 @@ func slideDown(c *column, i int, delta int) bool {
 	if i > len(c.frames)-2 {
 		return false
 	}
-	min := c.frames[i].minHeight()
+	min := c.frames[i+1].minHeight()
 	y := c.frames[i].bounds().Max.Y + delta
 	if sz := c.frames[i+1].bounds().Max.Y - borderWidth - y; sz < min {
 		if !slideDown(c, i+1, min-sz) {
+			sum := 0
+			for j := len(c.frames) - 1; j > i; j-- {
+				sum += c.frames[j].minHeight()
+			}
+			c.ys[i+1] = 1. - float64(sum)/float64(c.Dy())
 			return false
 		}
 	}
